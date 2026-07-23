@@ -1,0 +1,293 @@
+[
+  {
+    "id": "seg-atsugi-ebina",
+    "lineId": "odakyu-odawara",
+    "fromStationId": "st-atsugi",
+    "toStationId": "st-ebina",
+    "coordinates": [
+      [35.3957, 139.3734],
+      [35.4240, 139.3810],
+      [35.4526, 139.3900]
+    ],
+    "lengthMeters": 6500
+  },
+  {
+    "id": "seg-ebina-zama",
+    "lineId": "odakyu-odawara",
+    "fromStationId": "st-ebina",
+    "toStationId": "st-zama",
+    "coordinates": [
+      [35.4526, 139.3900],
+      [35.4660, 139.3950],
+      [35.4806, 139.4005]
+    ],
+    "lengthMeters": 3200
+  },
+  {
+    "id": "seg-zama-sobudaimae",
+    "lineId": "odakyu-odawara",
+    "fromStationId": "st-zama",
+    "toStationId": "st-sobudaimae",
+    "coordinates": [
+      [35.4806, 139.4005],
+      [35.4900, 139.4070],
+      [35.4988, 139.4144]
+    ],
+    "lengthMeters": 2400
+  },
+  {
+    "id": "seg-sobudaimae-sagamihara",
+    "lineId": "odakyu-odawara",
+    "fromStationId": "st-sobudaimae",
+    "toStationId": "st-odakyu-sagamihara",
+    "coordinates": [
+      [35.4988, 139.4144],
+      [35.5070, 139.4190],
+      [35.5152, 139.4243]
+    ],
+    "lengthMeters": 2100
+  },
+  {
+    "id": "seg-sagamihara-sagamiono",
+    "lineId": "odakyu-odawara",
+    "fromStationId": "st-odakyu-sagamihara",
+    "toStationId": "st-sagamiono",
+    "coordinates": [
+      [35.5152, 139.4243],
+      [35.5230, 139.4300],
+      [35.5317, 139.4372]
+    ],
+    "lengthMeters": 2200
+  },
+
+  {
+    "id": "seg-shinkansen-tokyo-ueno",
+    "lineId": "jreast-tohoku-shinkansen",
+    "fromStationId": "st-shinkansen-tokyo",
+    "toStationId": "st-shinkansen-ueno",
+    "coordinates": [
+      [35.6812, 139.7671],
+      [35.6980, 139.7730],
+      [35.7141, 139.7774]
+    ],
+    "lengthMeters": 3600
+  },
+  {
+    "id": "seg-shinkansen-ueno-omiya",
+    "lineId": "jreast-tohoku-shinkansen",
+    "fromStationId": "st-shinkansen-ueno",
+    "toStationId": "st-shinkansen-omiya",
+    "coordinates": [
+      [35.7141, 139.7774],
+      [35.8100, 139.6800],
+      [35.9063, 139.6240]
+    ],
+    "lengthMeters": 26700
+  },
+  {
+    "id": "seg-shinkansen-omiya-oyama",
+    "lineId": "jreast-tohoku-shinkansen",
+    "fromStationId": "st-shinkansen-omiya",
+    "toStationId": "st-shinkansen-oyama",
+    "coordinates": [
+      [35.9063, 139.6240],
+      [36.1000, 139.7200],
+      [36.3129, 139.8066]
+    ],
+    "lengthMeters": 50300
+  },
+  {
+    "id": "seg-shinkansen-oyama-utsunomiya",
+    "lineId": "jreast-tohoku-shinkansen",
+    "fromStationId": "st-shinkansen-oyama",
+    "toStationId": "st-shinkansen-utsunomiya",
+    "coordinates": [
+      [36.3129, 139.8066],
+      [36.4300, 139.8500],
+      [36.5590, 139.8983]
+    ],
+    "lengthMeters": 28500
+  },
+  {
+    "id": "seg-shinkansen-utsunomiya-nasushiobara",
+    "lineId": "jreast-tohoku-shinkansen",
+    "fromStationId": "st-shinkansen-utsunomiya",
+    "toStationId": "st-shinkansen-nasushiobara",
+    "coordinates": [
+      [36.5590, 139.8983],
+      [36.7500, 139.9500],
+      [36.9314, 140.0169]
+    ],
+    "lengthMeters": 49300
+  },
+  {
+    "id": "seg-shinkansen-nasushiobara-koriyama",
+    "lineId": "jreast-tohoku-shinkansen",
+    "fromStationId": "st-shinkansen-nasushiobara",
+    "toStationId": "st-shinkansen-koriyama",
+    "coordinates": [
+      [36.9314, 140.0169],
+      [37.1500, 140.2000],
+      [37.3980, 140.3881]
+    ],
+    "lengthMeters": 58300
+  },
+  {
+    "id": "seg-shinkansen-koriyama-fukushima",
+    "lineId": "jreast-tohoku-shinkansen",
+    "fromStationId": "st-shinkansen-koriyama",
+    "toStationId": "st-shinkansen-fukushima",
+    "coordinates": [
+      [37.3980, 140.3881],
+      [37.5800, 140.4200],
+      [37.7543, 140.4589]
+    ],
+    "lengthMeters": 46100
+  },
+  {
+    "id": "seg-shinkansen-fukushima-sendai",
+    "lineId": "jreast-tohoku-shinkansen",
+    "fromStationId": "st-shinkansen-fukushima",
+    "toStationId": "st-shinkansen-sendai",
+    "coordinates": [
+      [37.7543, 140.4589],
+      [38.0000, 140.6500],
+      [38.2601, 140.8824]
+    ],
+    "lengthMeters": 79000
+  },
+  {
+    "id": "seg-shinkansen-sendai-morioka",
+    "lineId": "jreast-tohoku-shinkansen",
+    "fromStationId": "st-shinkansen-sendai",
+    "toStationId": "st-shinkansen-morioka",
+    "coordinates": [
+      [38.2601, 140.8824],
+      [39.0000, 141.0000],
+      [39.7013, 141.1363]
+    ],
+    "lengthMeters": 183500
+  },
+  {
+    "id": "seg-shinkansen-morioka-shinaomori",
+    "lineId": "jreast-tohoku-shinkansen",
+    "fromStationId": "st-shinkansen-morioka",
+    "toStationId": "st-shinkansen-shinaomori",
+    "coordinates": [
+      [39.7013, 141.1363],
+      [40.2000, 140.9000],
+      [40.8277, 140.6933]
+    ],
+    "lengthMeters": 178400
+  },
+
+  {
+    "id": "seg-joetsu-omiya-kumagaya",
+    "lineId": "jreast-joetsu-shinkansen",
+    "fromStationId": "st-joetsu-omiya",
+    "toStationId": "st-joetsu-kumagaya",
+    "coordinates": [
+      [35.9063, 139.6240],
+      [36.0200, 139.5000],
+      [36.1397, 139.3897]
+    ],
+    "lengthMeters": 34700
+  },
+  {
+    "id": "seg-joetsu-kumagaya-takasaki",
+    "lineId": "jreast-joetsu-shinkansen",
+    "fromStationId": "st-joetsu-kumagaya",
+    "toStationId": "st-joetsu-takasaki",
+    "coordinates": [
+      [36.1397, 139.3897],
+      [36.2300, 139.2000],
+      [36.3225, 139.0127]
+    ],
+    "lengthMeters": 39900
+  },
+  {
+    "id": "seg-joetsu-takasaki-echigoyuzawa",
+    "lineId": "jreast-joetsu-shinkansen",
+    "fromStationId": "st-joetsu-takasaki",
+    "toStationId": "st-joetsu-echigoyuzawa",
+    "coordinates": [
+      [36.3225, 139.0127],
+      [36.6000, 138.9000],
+      [36.9360, 138.8094]
+    ],
+    "lengthMeters": 74200
+  },
+  {
+    "id": "seg-joetsu-echigoyuzawa-nagaoka",
+    "lineId": "jreast-joetsu-shinkansen",
+    "fromStationId": "st-joetsu-echigoyuzawa",
+    "toStationId": "st-joetsu-nagaoka",
+    "coordinates": [
+      [36.9360, 138.8094],
+      [37.2000, 138.8300],
+      [37.4474, 138.8530]
+    ],
+    "lengthMeters": 58400
+  },
+  {
+    "id": "seg-joetsu-nagaoka-niigata",
+    "lineId": "jreast-joetsu-shinkansen",
+    "fromStationId": "st-joetsu-nagaoka",
+    "toStationId": "st-joetsu-niigata",
+    "coordinates": [
+      [37.4474, 138.8530],
+      [37.6800, 138.9500],
+      [37.9120, 139.0617]
+    ],
+    "lengthMeters": 63300
+  },
+
+  {
+    "id": "seg-hokuriku-takasaki-karuizawa",
+    "lineId": "jreast-hokuriku-shinkansen",
+    "fromStationId": "st-hokuriku-takasaki",
+    "toStationId": "st-hokuriku-karuizawa",
+    "coordinates": [
+      [36.3225, 139.0127],
+      [36.3350, 138.8000],
+      [36.3429, 138.6353]
+    ],
+    "lengthMeters": 41800
+  },
+  {
+    "id": "seg-hokuriku-karuizawa-nagano",
+    "lineId": "jreast-hokuriku-shinkansen",
+    "fromStationId": "st-hokuriku-karuizawa",
+    "toStationId": "st-hokuriku-nagano",
+    "coordinates": [
+      [36.3429, 138.6353],
+      [36.5000, 138.4000],
+      [36.6431, 138.1886]
+    ],
+    "lengthMeters": 75600
+  },
+  {
+    "id": "seg-hokuriku-nagano-toyama",
+    "lineId": "jreast-hokuriku-shinkansen",
+    "fromStationId": "st-hokuriku-nagano",
+    "toStationId": "st-hokuriku-toyama",
+    "coordinates": [
+      [36.6431, 138.1886],
+      [36.8000, 137.7000],
+      [36.7018, 137.2134]
+    ],
+    "lengthMeters": 105900
+  },
+  {
+    "id": "seg-hokuriku-toyama-kanazawa",
+    "lineId": "jreast-hokuriku-shinkansen",
+    "fromStationId": "st-hokuriku-toyama",
+    "toStationId": "st-hokuriku-kanazawa",
+    "coordinates": [
+      [36.7018, 137.2134],
+      [36.6500, 136.9000],
+      [36.5780, 136.6478]
+    ],
+    "lengthMeters": 58500
+  }
+]

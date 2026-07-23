@@ -1,0 +1,229 @@
+[
+  {
+    "id": "st-atsugi",
+    "lineId": "odakyu-odawara",
+    "name": "厚木",
+    "sequence": 1,
+    "latitude": 35.3957,
+    "longitude": 139.3734
+  },
+  {
+    "id": "st-ebina",
+    "lineId": "odakyu-odawara",
+    "name": "海老名",
+    "sequence": 2,
+    "latitude": 35.4526,
+    "longitude": 139.3900
+  },
+  {
+    "id": "st-zama",
+    "lineId": "odakyu-odawara",
+    "name": "座間",
+    "sequence": 3,
+    "latitude": 35.4806,
+    "longitude": 139.4005
+  },
+  {
+    "id": "st-sobudaimae",
+    "lineId": "odakyu-odawara",
+    "name": "相武台前",
+    "sequence": 4,
+    "latitude": 35.4988,
+    "longitude": 139.4144
+  },
+  {
+    "id": "st-odakyu-sagamihara",
+    "lineId": "odakyu-odawara",
+    "name": "小田急相模原",
+    "sequence": 5,
+    "latitude": 35.5152,
+    "longitude": 139.4243
+  },
+  {
+    "id": "st-sagamiono",
+    "lineId": "odakyu-odawara",
+    "name": "相模大野",
+    "sequence": 6,
+    "latitude": 35.5317,
+    "longitude": 139.4372
+  },
+
+  {
+    "id": "st-shinkansen-tokyo",
+    "lineId": "jreast-tohoku-shinkansen",
+    "name": "東京",
+    "sequence": 1,
+    "latitude": 35.6812,
+    "longitude": 139.7671
+  },
+  {
+    "id": "st-shinkansen-ueno",
+    "lineId": "jreast-tohoku-shinkansen",
+    "name": "上野",
+    "sequence": 2,
+    "latitude": 35.7141,
+    "longitude": 139.7774
+  },
+  {
+    "id": "st-shinkansen-omiya",
+    "lineId": "jreast-tohoku-shinkansen",
+    "name": "大宮",
+    "sequence": 3,
+    "latitude": 35.9063,
+    "longitude": 139.6240
+  },
+  {
+    "id": "st-shinkansen-oyama",
+    "lineId": "jreast-tohoku-shinkansen",
+    "name": "小山",
+    "sequence": 4,
+    "latitude": 36.3129,
+    "longitude": 139.8066
+  },
+  {
+    "id": "st-shinkansen-utsunomiya",
+    "lineId": "jreast-tohoku-shinkansen",
+    "name": "宇都宮",
+    "sequence": 5,
+    "latitude": 36.5590,
+    "longitude": 139.8983
+  },
+  {
+    "id": "st-shinkansen-nasushiobara",
+    "lineId": "jreast-tohoku-shinkansen",
+    "name": "那須塩原",
+    "sequence": 6,
+    "latitude": 36.9314,
+    "longitude": 140.0169
+  },
+  {
+    "id": "st-shinkansen-koriyama",
+    "lineId": "jreast-tohoku-shinkansen",
+    "name": "郡山",
+    "sequence": 7,
+    "latitude": 37.3980,
+    "longitude": 140.3881
+  },
+  {
+    "id": "st-shinkansen-fukushima",
+    "lineId": "jreast-tohoku-shinkansen",
+    "name": "福島",
+    "sequence": 8,
+    "latitude": 37.7543,
+    "longitude": 140.4589
+  },
+  {
+    "id": "st-shinkansen-sendai",
+    "lineId": "jreast-tohoku-shinkansen",
+    "name": "仙台",
+    "sequence": 9,
+    "latitude": 38.2601,
+    "longitude": 140.8824
+  },
+  {
+    "id": "st-shinkansen-morioka",
+    "lineId": "jreast-tohoku-shinkansen",
+    "name": "盛岡",
+    "sequence": 10,
+    "latitude": 39.7013,
+    "longitude": 141.1363
+  },
+  {
+    "id": "st-shinkansen-shinaomori",
+    "lineId": "jreast-tohoku-shinkansen",
+    "name": "新青森",
+    "sequence": 11,
+    "latitude": 40.8277,
+    "longitude": 140.6933
+  },
+
+  {
+    "id": "st-joetsu-omiya",
+    "lineId": "jreast-joetsu-shinkansen",
+    "name": "大宮",
+    "sequence": 1,
+    "latitude": 35.9063,
+    "longitude": 139.6240
+  },
+  {
+    "id": "st-joetsu-kumagaya",
+    "lineId": "jreast-joetsu-shinkansen",
+    "name": "熊谷",
+    "sequence": 2,
+    "latitude": 36.1397,
+    "longitude": 139.3897
+  },
+  {
+    "id": "st-joetsu-takasaki",
+    "lineId": "jreast-joetsu-shinkansen",
+    "name": "高崎",
+    "sequence": 3,
+    "latitude": 36.3225,
+    "longitude": 139.0127
+  },
+  {
+    "id": "st-joetsu-echigoyuzawa",
+    "lineId": "jreast-joetsu-shinkansen",
+    "name": "越後湯沢",
+    "sequence": 4,
+    "latitude": 36.9360,
+    "longitude": 138.8094
+  },
+  {
+    "id": "st-joetsu-nagaoka",
+    "lineId": "jreast-joetsu-shinkansen",
+    "name": "長岡",
+    "sequence": 5,
+    "latitude": 37.4474,
+    "longitude": 138.8530
+  },
+  {
+    "id": "st-joetsu-niigata",
+    "lineId": "jreast-joetsu-shinkansen",
+    "name": "新潟",
+    "sequence": 6,
+    "latitude": 37.9120,
+    "longitude": 139.0617
+  },
+
+  {
+    "id": "st-hokuriku-takasaki",
+    "lineId": "jreast-hokuriku-shinkansen",
+    "name": "高崎",
+    "sequence": 1,
+    "latitude": 36.3225,
+    "longitude": 139.0127
+  },
+  {
+    "id": "st-hokuriku-karuizawa",
+    "lineId": "jreast-hokuriku-shinkansen",
+    "name": "軽井沢",
+    "sequence": 2,
+    "latitude": 36.3429,
+    "longitude": 138.6353
+  },
+  {
+    "id": "st-hokuriku-nagano",
+    "lineId": "jreast-hokuriku-shinkansen",
+    "name": "長野",
+    "sequence": 3,
+    "latitude": 36.6431,
+    "longitude": 138.1886
+  },
+  {
+    "id": "st-hokuriku-toyama",
+    "lineId": "jreast-hokuriku-shinkansen",
+    "name": "富山",
+    "sequence": 4,
+    "latitude": 36.7018,
+    "longitude": 137.2134
+  },
+  {
+    "id": "st-hokuriku-kanazawa",
+    "lineId": "jreast-hokuriku-shinkansen",
+    "name": "金沢",
+    "sequence": 5,
+    "latitude": 36.5780,
+    "longitude": 136.6478
+  }
+]

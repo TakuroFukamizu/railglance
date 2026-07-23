@@ -1,0 +1,34 @@
+[
+  {
+    "id": "odakyu-odawara",
+    "operatorId": "odakyu",
+    "name": "小田急小田原線",
+    "shortName": "小田原線",
+    "directionAName": "上り（新宿方面）",
+    "directionBName": "下り（小田原方面）"
+  },
+  {
+    "id": "jreast-tohoku-shinkansen",
+    "operatorId": "jreast",
+    "name": "JR東北新幹線",
+    "shortName": "東北新幹線",
+    "directionAName": "上り（東京方面）",
+    "directionBName": "下り（仙台・新青森方面）"
+  },
+  {
+    "id": "jreast-joetsu-shinkansen",
+    "operatorId": "jreast",
+    "name": "JR上越新幹線",
+    "shortName": "上越新幹線",
+    "directionAName": "上り（東京・大宮方面）",
+    "directionBName": "下り（新潟方面）"
+  },
+  {
+    "id": "jreast-hokuriku-shinkansen",
+    "operatorId": "jreast",
+    "name": "JR北陸新幹線",
+    "shortName": "北陸新幹線",
+    "directionAName": "上り（東京・大宮方面）",
+    "directionBName": "下り（長野・金沢方面）"
+  }
+]
