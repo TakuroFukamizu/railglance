@@ -57,17 +57,27 @@ GPS信号なし
 pnpm install
 ```
 
-### 2. 開発サーバー & 公式シミュレーターの一括起動 (推奨)
+### 2. 開発サーバー & 公式シミュレーターの一括起動 (PC検証)
 ```bash
 pnpm dev
 ```
 `pnpm dev` 1コマンドで **Vite 開発サーバー** の起動待ちと **EvenHub 公式シミュレーター (`evenhub-simulator`)** が全自動で同時立ち上がり、Even G2スマートグラス実機と同等の解像度・視野角・プロトコルでリアルタイム検証が始まります。
 
+### 3. スマホ実機 & Even G2 への接続（QRコードスキャン）
+スマホの **Even App** から手動で URL を入力せずに一発で読み込むため、ターミナル上に **QR コード** を生成できます。
+
+```bash
+# ngrok 等でHTTPS公開したURLのQRコードをターミナルに表示
+pnpm qr -- -u https://xxxx.ngrok-free.app
+```
+表示された QR コードを、スマホの Even App（「Developer / Scan Custom App」タブ）でスキャンするだけで即座に接続されます。
+
 その他のサブコマンド:
 * `pnpm dev:web`: Webブラウザ単体で開発サーバーを起動
 * `pnpm sim`: 公式シミュレーター単体を起動
+* `pnpm qr`: ターミナルにQRコードを生成
 
-### 3. 単体テストの実行
+### 4. 単体テストの実行
 ```bash
 pnpm test
 ```
