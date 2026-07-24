@@ -9,8 +9,7 @@ export class BrowserLocationProvider implements LocationProvider {
   private watchId: number | null = null;
   private onLocationCallback: ((sample: LocationSample) => void) | null = null;
   private onErrorCallback: ((err: GeolocationPositionError) => void) | null = null;
-  private useHighAccuracy = false; // Default to false first for fast/reliable indoor/Wi-Fi positioning, then attempt high accuracy
-  private lastSampleTime = 0;
+  private useHighAccuracy = false;
   private heartbeatTimer: any = null;
   private lastSample: LocationSample | null = null;
 
@@ -19,9 +18,8 @@ export class BrowserLocationProvider implements LocationProvider {
     onError?: (err: GeolocationPositionError) => void
   ): void {
     this.onLocationCallback = onLocation;
-    this.onErrorCallback = onError;
+    this.onErrorCallback = onError ?? null;
 
-    // 1. Immediately request getCurrentPosition for fast first fix
     if ('geolocation' in navigator) {
       navigator.geolocation.getCurrentPosition(
         (pos) => this.handleSuccess(pos),
@@ -30,13 +28,10 @@ export class BrowserLocationProvider implements LocationProvider {
       );
     }
 
-    // 2. Start continuous watchPosition
     this.startWatch();
 
-    // 3. Heartbeat timer: keep last known sample fresh when device is stationary
     this.heartbeatTimer = setInterval(() => {
       if (this.lastSample && this.onLocationCallback) {
-        // Refresh timestamp if stationary
         const refreshedSample: LocationSample = {
           ...this.lastSample,
           timestampMs: Date.now(),
@@ -85,7 +80,6 @@ export class BrowserLocationProvider implements LocationProvider {
   }
 
   private handleSuccess(pos: GeolocationPosition): void {
-    this.lastSampleTime = Date.now();
     const sample: LocationSample = {
       latitude: pos.coords.latitude,
       longitude: pos.coords.longitude,

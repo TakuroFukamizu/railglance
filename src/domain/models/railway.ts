@@ -21,7 +21,7 @@ export type TrackSegment = {
   lineId: string;
   fromStationId: string;
   toStationId: string;
-  coordinates: Array<[number, number]>; // [longitude, latitude] or [latitude, longitude]? Standard in GeoJSON is [lng, lat], but let's support [lat, lng] or tuple. We'll use [latitude, longitude].
+  coordinates: Array<[number, number]>; // [latitude, longitude]
   lengthMeters?: number;
 };
 
@@ -62,5 +62,5 @@ export type JourneyState = {
   nextStation: Station | null;
   distanceToNextStationMeters: number | null;
   confidence: number;
-  status: 'INITIALIZING' | 'WAITING_FOR_GPS' | 'MATCHING_ROUTE' | 'TRACKING' | 'GPS_UNAVAILABLE' | 'ROUTE_UNCERTAIN';
+  status: 'INITIALIZING' | 'WAITING_FOR_GPS' | 'MATCHING_ROUTE' | 'TRACKING' | 'GPS_UNAVAILABLE' | 'ROUTE_UNCERTAIN' | 'GPS_LOW_ACCURACY';
 };

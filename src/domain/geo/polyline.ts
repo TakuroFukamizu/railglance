@@ -48,7 +48,6 @@ export function findClosestPointOnPolyline(
 
   let minDistance = Infinity;
   let bestResult: ClosestPolylinePointResult | null = null;
-  let accumulatedDistance = 0;
 
   const segmentLengths: number[] = [];
   for (let i = 0; i < coordinates.length - 1; i++) {

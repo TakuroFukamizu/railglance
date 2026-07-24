@@ -9,6 +9,7 @@
     "sim": "evenhub-simulator http://localhost:5173",
     "qr": "evenhub qr",
     "build": "tsc && vite build",
+    "ehpack": "pnpm build && evenhub pack app.json dist",
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest"

@@ -15,7 +15,7 @@ export class DebugPanel {
   }
 
   public update(entry: EstimationLogEntry): void {
-    const { rawLocation, speed, match, journey, hudViewModel, timestampMs } = entry;
+    const { rawLocation, speed, match, journey, timestampMs } = entry;
 
     let html = `
       <div class="debug-grid">
