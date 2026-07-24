@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { DEFAULT_TRACKING_CONFIG } from '../../src/config/tracking-config';
 import { JourneyStateEstimator, StationDatabaseReader } from '../../src/domain/railway/journey-state-estimator';
 import { RailwayLine, RouteMatch, Station, TrackSegment } from '../../src/domain/models/railway';
-import { LocationSample, SpeedEstimate } from '../../src/domain/models/location';
+import { LocationSample, FullSpeedState, SpeedEstimate } from '../../src/domain/models/location';
 
 class MockStationDatabase implements StationDatabaseReader {
   private stations: Station[] = [
@@ -50,21 +50,31 @@ describe('JourneyStateEstimator', () => {
       longitude: 139.3950,
       accuracyMeters: 10,
       speedMps: 25,
-      headingDegrees: 30, // heading towards st-2 (Zama)
+      headingDegrees: 30,
       timestampMs: 10000,
     };
 
-    const speed: SpeedEstimate = {
-      speedMps: 25,
+    const selectedEst: SpeedEstimate = {
       speedKmh: 90,
-      rawSpeedKmh: 90,
+      confidence: 0.9,
+      source: 'os-geolocation',
+      timestamp: 10000,
+    };
+
+    const speedState: FullSpeedState = {
+      selectedEstimate: selectedEst,
+      smoothedSpeedKmh: 90,
       isStopped: false,
       isValid: true,
-      timestampMs: 10000,
-      source: 'gps',
+      candidates: {
+        osSpeed: selectedEst,
+        positionDeltaSpeed: null,
+        trackDistanceSpeed: null,
+        sensorFusionSpeed: null,
+      },
     };
 
-    const state = await estimator.update(sample, match, speed);
+    const state = await estimator.update(sample, match, speedState);
 
     expect(state.previousStation?.name).toBe('海老名');
     expect(state.nextStation?.name).toBe('座間');

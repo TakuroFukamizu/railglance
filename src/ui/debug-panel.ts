@@ -15,25 +15,35 @@ export class DebugPanel {
   }
 
   public update(entry: EstimationLogEntry): void {
-    const { rawLocation, speed, match, journey, timestampMs } = entry;
+    const { rawLocation, speedState, match, journey, timestampMs } = entry;
+    const { selectedEstimate, smoothedSpeedKmh, isStopped, isValid, candidates } = speedState;
+
+    const formatSpeed = (val: number | null | undefined) =>
+      val !== null && val !== undefined ? `${val.toFixed(1)} km/h` : '--';
 
     let html = `
       <div class="debug-grid">
         <div class="debug-card">
-          <h3>GPS 生データ</h3>
+          <h3>GPS 生データ & 精度</h3>
           <div>緯度/経度: ${rawLocation ? `${rawLocation.latitude.toFixed(6)}, ${rawLocation.longitude.toFixed(6)}` : 'なし'}</div>
-          <div>精度(Accuracy): ${rawLocation ? `${rawLocation.accuracyMeters.toFixed(1)} m` : 'なし'}</div>
-          <div>生速度: ${rawLocation && rawLocation.speedMps !== null ? `${(rawLocation.speedMps * 3.6).toFixed(1)} km/h` : 'なし'}</div>
+          <div>GPS Accuracy: <strong>${rawLocation ? `${rawLocation.accuracyMeters.toFixed(1)} m` : 'なし'}</strong></div>
+          <div>生OS速度: ${rawLocation && rawLocation.speedMps !== null ? `${(rawLocation.speedMps * 3.6).toFixed(1)} km/h` : 'なし'}</div>
           <div>Heading: ${rawLocation && rawLocation.headingDegrees !== null ? `${rawLocation.headingDegrees.toFixed(1)}°` : 'なし'}</div>
           <div>取得時刻: ${rawLocation ? new Date(rawLocation.timestampMs).toLocaleTimeString() : 'なし'}</div>
         </div>
 
         <div class="debug-card">
-          <h3>速度フィルタ結果</h3>
-          <div>フィルタ後速度: <strong>${speed.speedKmh !== null ? `${speed.speedKmh} km/h` : '--'}</strong></div>
-          <div>ソース: ${speed.source}</div>
-          <div>停車状態: ${speed.isStopped ? '静止 (Stopped)' : '移動中 (Moving)'}</div>
-          <div>有効性: ${speed.isValid ? '有効' : '無効 (Stale/Outlier)'}</div>
+          <h3>多重速度ソース比較</h3>
+          <div>Raw GPS speed: ${formatSpeed(candidates.osSpeed?.speedKmh)} (conf: ${candidates.osSpeed?.confidence ?? 0})</div>
+          <div>Position Delta speed: ${formatSpeed(candidates.positionDeltaSpeed?.speedKmh)} (conf: ${candidates.positionDeltaSpeed?.confidence ?? 0})</div>
+          <div>Track Distance speed: ${formatSpeed(candidates.trackDistanceSpeed?.speedKmh)} (conf: ${candidates.trackDistanceSpeed?.confidence ?? 0})</div>
+          <div style="margin-top: 6px; border-top: 1px dashed rgba(255,255,255,0.1); padding-top: 4px;">
+            Selected speed: <strong>${formatSpeed(selectedEstimate.speedKmh)}</strong>
+          </div>
+          <div>Selected source: <span class="badge ${selectedEstimate.source}">${selectedEstimate.source}</span></div>
+          <div>Confidence: <strong>${(selectedEstimate.confidence * 100).toFixed(0)}% (${selectedEstimate.confidence.toFixed(2)})</strong></div>
+          <div>EMA Output: <strong>${formatSpeed(smoothedSpeedKmh)}</strong></div>
+          <div>状態: ${isStopped ? '静止 (Stopped)' : '移動中'} / ${isValid ? '有効' : '無効'}</div>
         </div>
 
         <div class="debug-card">
@@ -43,7 +53,7 @@ export class DebugPanel {
           <div>前駅: ${journey.previousStation?.name ?? 'なし'}</div>
           <div>次駅: ${journey.nextStation?.name ?? 'なし'}</div>
           <div>次駅まで距離: ${journey.distanceToNextStationMeters !== null ? `${journey.distanceToNextStationMeters} m` : 'なし'}</div>
-          <div>信頼度 (Confidence): <strong>${(journey.confidence * 100).toFixed(0)}% (${journey.confidence.toFixed(2)})</strong></div>
+          <div>路線判定信頼度: <strong>${(journey.confidence * 100).toFixed(0)}% (${journey.confidence.toFixed(2)})</strong></div>
           <div>ステータス: <span class="badge ${journey.status}">${journey.status}</span></div>
         </div>
 

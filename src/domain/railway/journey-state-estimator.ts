@@ -1,5 +1,5 @@
 import { TrackingConfig } from '../../config/tracking-config';
-import { LocationSample, SpeedEstimate } from '../models/location';
+import { LocationSample, FullSpeedState } from '../models/location';
 import { JourneyState, RouteMatch, Station, TravelDirection } from '../models/railway';
 import { calculateBearing, calculateHeadingDifference } from '../geo/heading';
 import { findClosestPointOnPolyline } from '../geo/polyline';
@@ -22,7 +22,7 @@ export class JourneyStateEstimator {
   public async update(
     sample: LocationSample,
     match: RouteMatch | null,
-    speed: SpeedEstimate
+    speedState: FullSpeedState
   ): Promise<JourneyState> {
     if (!match) {
       return {
@@ -47,7 +47,6 @@ export class JourneyStateEstimator {
     // 1. Determine direction (Direction A / Up vs Direction B / Down)
     let direction: TravelDirection = this.lastConfirmedDirection;
 
-    // Track orientation from coordinates[0] to coordinates[end]
     let trackBearing = 0;
     if (selectedSegment.coordinates.length >= 2) {
       const p1 = selectedSegment.coordinates[0];
@@ -55,7 +54,6 @@ export class JourneyStateEstimator {
       trackBearing = calculateBearing(p1[0], p1[1], p2[0], p2[1]);
     }
 
-    // Determine heading to use (sample.heading or calculated vector from lastSample)
     let currentHeading: number | null = sample.headingDegrees;
     if (currentHeading === null && this.lastSample) {
       const movedDist = haversineDistance(
@@ -74,15 +72,14 @@ export class JourneyStateEstimator {
       }
     }
 
-    if (currentHeading !== null && speed.speedKmh !== null && speed.speedKmh >= 3) {
+    const currentSpeedKmh = speedState.smoothedSpeedKmh;
+    if (currentHeading !== null && currentSpeedKmh !== null && currentSpeedKmh >= 3) {
       const diffForward = calculateHeadingDifference(currentHeading, trackBearing);
       const diffBackward = calculateHeadingDifference(currentHeading, (trackBearing + 180) % 360);
 
       if (diffForward < diffBackward && diffForward < 60) {
-        // Moving from fromStation -> toStation
         direction = fromStation && toStation && fromStation.sequence > toStation.sequence ? 'UP' : 'DOWN';
       } else if (diffBackward < diffForward && diffBackward < 60) {
-        // Moving from toStation -> fromStation
         direction = fromStation && toStation && fromStation.sequence > toStation.sequence ? 'DOWN' : 'UP';
       }
     }
@@ -112,7 +109,6 @@ export class JourneyStateEstimator {
         nextStation = fromStation;
       }
 
-      // Distance calculation along segment polyline to nextStation
       const polylineRes = findClosestPointOnPolyline(sample.latitude, sample.longitude, selectedSegment.coordinates);
       if (nextStation === toStation) {
         distanceToNextStationMeters = Math.max(
@@ -125,7 +121,6 @@ export class JourneyStateEstimator {
       distanceToNextStationMeters = Math.round(distanceToNextStationMeters);
     }
 
-    // 3. Direction name formatting
     let directionName: string | null = null;
     if (direction === 'UP') {
       directionName = selectedLine.directionAName || '上り';
@@ -133,7 +128,6 @@ export class JourneyStateEstimator {
       directionName = selectedLine.directionBName || '下り';
     }
 
-    // 4. Status determination
     let status: JourneyState['status'] = 'TRACKING';
     if (confidence < this.config.confidenceMedium) {
       status = 'ROUTE_UNCERTAIN';

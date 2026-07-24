@@ -1,15 +1,15 @@
 import { JourneyState } from '../../domain/models/railway';
-import { SpeedEstimate } from '../../domain/models/location';
+import { FullSpeedState } from '../../domain/models/location';
 import { HudViewModel } from '../../domain/models/hud';
 
 export class HudRenderer {
   public createViewModel(
-    speed: SpeedEstimate,
+    speedState: FullSpeedState,
     journey: JourneyState,
     currentTimeMs: number
   ): HudViewModel {
-    // 1. Check GPS Availability
-    if (!speed.isValid || journey.status === 'GPS_UNAVAILABLE' || journey.status === 'GPS_LOW_ACCURACY') {
+    // 1. Check GPS / Speed Availability
+    if (!speedState.isValid || journey.status === 'GPS_UNAVAILABLE' || journey.status === 'GPS_LOW_ACCURACY') {
       return {
         mode: 'NO_GPS',
         speedKmh: null,
@@ -23,19 +23,20 @@ export class HudRenderer {
       };
     }
 
-    const speedStr = speed.isStopped
+    const displaySpeedKmh = speedState.smoothedSpeedKmh;
+    const speedStr = speedState.isStopped
       ? '   0 km/h'
-      : speed.speedKmh !== null
-      ? `${Math.round(speed.speedKmh).toString().padStart(4, ' ')} km/h`
+      : displaySpeedKmh !== null
+      ? `${Math.round(displaySpeedKmh).toString().padStart(4, ' ')} km/h`
       : '  -- km/h';
 
-    const gpsSymbol = speed.isValid ? 'GPS ●' : 'GPS ○';
+    const gpsSymbol = speedState.isValid ? 'GPS ●' : 'GPS ○';
 
     // 2. Check Route Confidence / Status
     if (journey.confidence < 0.55 || journey.status === 'ROUTE_UNCERTAIN' || !journey.line) {
       return {
         mode: 'UNCERTAIN',
-        speedKmh: speed.speedKmh,
+        speedKmh: displaySpeedKmh,
         speedText: speedStr,
         lineNameText: '路線判定中',
         stationProgressText: 'GPSから路線を確認中',
@@ -63,7 +64,7 @@ export class HudRenderer {
 
     return {
       mode: 'NORMAL',
-      speedKmh: speed.speedKmh,
+      speedKmh: displaySpeedKmh,
       speedText: speedStr,
       lineNameText,
       stationProgressText,

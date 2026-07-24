@@ -1,111 +1,188 @@
 import { TrackingConfig } from '../../config/tracking-config';
-import { LocationSample, SpeedEstimate } from '../models/location';
+import { LocationSample, SpeedEstimate, FullSpeedState, MultiSpeedCandidates } from '../models/location';
 import { haversineDistance } from '../geo/distance';
 import { SpeedFilter } from './speed-filter';
+import { DefaultSpeedSelector, SpeedSelector } from './speed-selector';
 
 export class SpeedEstimator {
-  private lastSample: LocationSample | null = null;
-  private speedFilter: SpeedFilter;
-  private lastValidEstimate: SpeedEstimate | null = null;
+  private lastGpsSample: LocationSample | null = null;
+  private lastTrackDistanceMeters: number | null = null;
+  private lastTrackTimestampMs: number = 0;
 
-  constructor(private config: TrackingConfig) {
+  private speedFilter: SpeedFilter;
+  private speedSelector: SpeedSelector;
+  private lastFullState: FullSpeedState | null = null;
+
+  constructor(
+    private config: TrackingConfig,
+    customSelector?: SpeedSelector
+  ) {
     this.speedFilter = new SpeedFilter(config);
+    this.speedSelector = customSelector ?? new DefaultSpeedSelector();
   }
 
-  public update(sample: LocationSample): SpeedEstimate {
-    // Check extreme low accuracy (> 1000m)
+  /**
+   * Updates speed estimation using incoming LocationSample and optional track distance progress.
+   */
+  public update(
+    sample: LocationSample,
+    trackProgress?: { distanceAlongPolylineMeters: number; timestampMs: number }
+  ): FullSpeedState {
+    const timestamp = sample.timestampMs;
     const isLowAccuracy = sample.accuracyMeters > this.config.maxGpsAccuracyMeters;
 
-    let rawSpeedMps: number | null = null;
-    let source: 'gps' | 'calculated' | 'unknown' = 'unknown';
-
-    // 1. Preference 1: coords.speed
+    // 1. Candidate A: OS Geolocation speed (coords.speed)
+    let osEstimate: SpeedEstimate | null = null;
     if (sample.speedMps !== null && sample.speedMps >= 0) {
-      rawSpeedMps = sample.speedMps;
-      source = 'gps';
-    } else if (this.lastSample) {
-      // 2. Preference 2: distance / time
-      const elapsedSeconds = (sample.timestampMs - this.lastSample.timestampMs) / 1000;
-      if (elapsedSeconds > 0) {
-        const distMeters = haversineDistance(
-          this.lastSample.latitude,
-          this.lastSample.longitude,
-          sample.latitude,
-          sample.longitude
-        );
-        rawSpeedMps = distMeters / elapsedSeconds;
-        source = 'calculated';
+      const speedKmh = Math.round(sample.speedMps * 3.6 * 10) / 10;
+      if (speedKmh <= this.config.maxSpeedKmh) {
+        let confidence = 0.9;
+        if (isLowAccuracy) confidence *= 0.5;
+        osEstimate = {
+          speedKmh,
+          confidence: Math.round(confidence * 100) / 100,
+          source: 'os-geolocation',
+          timestamp,
+        };
       }
     }
 
-    this.lastSample = sample;
+    // 2. Candidate B: Position Delta speed (Haversine distance / time)
+    let deltaEstimate: SpeedEstimate | null = null;
+    if (this.lastGpsSample) {
+      const elapsedSec = (timestamp - this.lastGpsSample.timestampMs) / 1000;
+      if (elapsedSec > 0) {
+        const distMeters = haversineDistance(
+          this.lastGpsSample.latitude,
+          this.lastGpsSample.longitude,
+          sample.latitude,
+          sample.longitude
+        );
+        const calcSpeedKmh = Math.round((distMeters / elapsedSec) * 3.6 * 10) / 10;
 
-    // If speed cannot be calculated (e.g. stationary single point fix)
-    if (rawSpeedMps === null) {
-      const estimate: SpeedEstimate = {
-        speedMps: 0,
-        speedKmh: 0,
-        rawSpeedKmh: 0,
-        isStopped: true,
-        isValid: !isLowAccuracy,
-        timestampMs: sample.timestampMs,
-        source: 'unknown',
-      };
-      this.lastValidEstimate = estimate;
-      return estimate;
+        if (calcSpeedKmh <= this.config.maxSpeedKmh) {
+          let confidence = 0.7;
+          if (isLowAccuracy) confidence *= 0.4;
+          if (distMeters < 3) confidence *= 0.3; // Ignore GPS drift
+          deltaEstimate = {
+            speedKmh: calcSpeedKmh,
+            confidence: Math.round(confidence * 100) / 100,
+            source: 'position-delta',
+            timestamp,
+          };
+        }
+      }
     }
 
-    const rawSpeedKmh = rawSpeedMps * 3.6;
+    // 3. Candidate C: Track Distance speed (Polyline distance / time)
+    let trackEstimate: SpeedEstimate | null = null;
+    if (trackProgress) {
+      if (
+        this.lastTrackDistanceMeters !== null &&
+        this.lastTrackTimestampMs > 0
+      ) {
+        const elapsedSec = (trackProgress.timestampMs - this.lastTrackTimestampMs) / 1000;
+        if (elapsedSec > 0) {
+          const deltaTrackMeters = Math.abs(
+            trackProgress.distanceAlongPolylineMeters - this.lastTrackDistanceMeters
+          );
+          const trackSpeedKmh = Math.round((deltaTrackMeters / elapsedSec) * 3.6 * 10) / 10;
 
-    // 3. Smooth speed
-    const { smoothedKmh, isStopped } = this.speedFilter.filter(rawSpeedKmh, sample.timestampMs);
-    const smoothedMps = smoothedKmh / 3.6;
+          if (trackSpeedKmh <= this.config.maxSpeedKmh) {
+            let confidence = 0.85; // Track distance is stable on curves
+            if (isLowAccuracy) confidence *= 0.6;
+            trackEstimate = {
+              speedKmh: trackSpeedKmh,
+              confidence: Math.round(confidence * 100) / 100,
+              source: 'track-distance',
+              timestamp: trackProgress.timestampMs,
+            };
+          }
+        }
+      }
+      this.lastTrackDistanceMeters = trackProgress.distanceAlongPolylineMeters;
+      this.lastTrackTimestampMs = trackProgress.timestampMs;
+    }
 
-    const estimate: SpeedEstimate = {
-      speedMps: smoothedMps,
-      speedKmh: smoothedKmh,
-      rawSpeedKmh: Math.round(rawSpeedKmh * 10) / 10,
-      isStopped,
-      isValid: !isLowAccuracy,
-      timestampMs: sample.timestampMs,
-      source,
+    this.lastGpsSample = sample;
+
+    const candidates: MultiSpeedCandidates = {
+      osSpeed: osEstimate,
+      positionDeltaSpeed: deltaEstimate,
+      trackDistanceSpeed: trackEstimate,
+      sensorFusionSpeed: null, // Reserved for Phase 2/3
     };
 
-    this.lastValidEstimate = estimate;
-    return estimate;
+    const candidateList: SpeedEstimate[] = [
+      ...(osEstimate ? [osEstimate] : []),
+      ...(deltaEstimate ? [deltaEstimate] : []),
+      ...(trackEstimate ? [trackEstimate] : []),
+    ];
+
+    // 4. Select best speed candidate using SpeedSelector
+    const selectedEstimate = this.speedSelector.select(candidateList);
+
+    // 5. Filter selected speed (EMA, outlier rejection, stop detection)
+    const rawSpeedKmh = selectedEstimate.speedKmh ?? 0;
+    const { smoothedKmh, isStopped } = this.speedFilter.filter(rawSpeedKmh, timestamp);
+
+    const fullState: FullSpeedState = {
+      selectedEstimate,
+      smoothedSpeedKmh: selectedEstimate.speedKmh !== null ? smoothedKmh : null,
+      isStopped,
+      isValid: !isLowAccuracy && selectedEstimate.source !== 'unknown',
+      candidates,
+    };
+
+    this.lastFullState = fullState;
+    return fullState;
   }
 
-  public getEstimateAt(currentTimeMs: number): SpeedEstimate {
-    if (!this.lastValidEstimate) {
-      return {
-        speedMps: null,
+  public getEstimateAt(currentTimeMs: number): FullSpeedState {
+    if (!this.lastFullState) {
+      const unknownEstimate: SpeedEstimate = {
         speedKmh: null,
-        rawSpeedKmh: null,
+        confidence: 0.0,
+        source: 'unknown',
+        timestamp: currentTimeMs,
+      };
+      return {
+        selectedEstimate: unknownEstimate,
+        smoothedSpeedKmh: null,
         isStopped: false,
         isValid: false,
-        timestampMs: currentTimeMs,
-        source: 'unknown',
+        candidates: {
+          osSpeed: null,
+          positionDeltaSpeed: null,
+          trackDistanceSpeed: null,
+          sensorFusionSpeed: null,
+        },
       };
     }
 
-    if (currentTimeMs - this.lastValidEstimate.timestampMs > this.config.staleLocationMs) {
-      return {
-        speedMps: null,
+    if (currentTimeMs - this.lastFullState.selectedEstimate.timestamp > this.config.staleLocationMs) {
+      const unknownEstimate: SpeedEstimate = {
         speedKmh: null,
-        rawSpeedKmh: null,
-        isStopped: false,
-        isValid: false,
-        timestampMs: currentTimeMs,
+        confidence: 0.0,
         source: 'unknown',
+        timestamp: currentTimeMs,
+      };
+      return {
+        ...this.lastFullState,
+        selectedEstimate: unknownEstimate,
+        smoothedSpeedKmh: null,
+        isValid: false,
       };
     }
 
-    return this.lastValidEstimate;
+    return this.lastFullState;
   }
 
   public reset(): void {
-    this.lastSample = null;
-    this.lastValidEstimate = null;
+    this.lastGpsSample = null;
+    this.lastTrackDistanceMeters = null;
+    this.lastTrackTimestampMs = 0;
+    this.lastFullState = null;
     this.speedFilter.reset();
   }
 }
