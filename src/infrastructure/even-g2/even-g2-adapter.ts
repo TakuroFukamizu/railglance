@@ -17,7 +17,7 @@ export class HybridEvenG2Adapter implements EvenG2Adapter {
   private hudRenderer = new HudRenderer();
   private onRenderCallback?: (formattedText: string, model: HudViewModel) => void;
   private bridge: any = null;
-  private isContainerCreated = false;
+  private isConnected = false;
 
   constructor(onRender?: (formattedText: string, model: HudViewModel) => void) {
     this.onRenderCallback = onRender;
@@ -25,12 +25,14 @@ export class HybridEvenG2Adapter implements EvenG2Adapter {
 
   public async connect(): Promise<boolean> {
     try {
-      // 1. Wait for EvenAppBridge initialization
-      this.bridge = await waitForEvenAppBridge();
-      console.log('[EvenG2Adapter] waitForEvenAppBridge() resolved successfully!');
+      if (!this.bridge) {
+        this.bridge = await waitForEvenAppBridge();
+        console.log('[EvenG2Adapter] waitForEvenAppBridge() resolved!');
+      }
 
       if (this.bridge) {
-        // 2. Create StartUp Page Container on Even G2 Glasses screen
+        this.isConnected = true;
+        // Attempt creating container on glasses display
         const initialText = new TextContainerProperty({
           xPosition: 0,
           yPosition: 0,
@@ -41,22 +43,20 @@ export class HybridEvenG2Adapter implements EvenG2Adapter {
           paddingLength: 4,
           containerID: 1,
           containerName: 'main',
-          content: 'RailGlance Train HUD\nInitializing...',
+          content: 'RailGlance Train HUD\nReady',
           isEventCapture: 1,
         });
 
-        const result = await this.bridge.createStartUpPageContainer(
-          new CreateStartUpPageContainer({
-            containerTotalNum: 1,
-            textObject: [initialText],
-          })
-        );
-
-        if (result === 0) {
-          this.isContainerCreated = true;
-          console.log('[EvenG2Adapter] Glasses StartUp Container created successfully!');
-        } else {
-          console.warn('[EvenG2Adapter] createStartUpPageContainer returned code:', result);
+        try {
+          const result = await this.bridge.createStartUpPageContainer(
+            new CreateStartUpPageContainer({
+              containerTotalNum: 1,
+              textObject: [initialText],
+            })
+          );
+          console.log('[EvenG2Adapter] createStartUpPageContainer result:', result);
+        } catch (cErr) {
+          console.log('[EvenG2Adapter] Container may already exist, proceeding to upgrade text:', cErr);
         }
       }
     } catch (err) {
@@ -68,8 +68,8 @@ export class HybridEvenG2Adapter implements EvenG2Adapter {
   public async render(model: HudViewModel): Promise<void> {
     const formattedText = this.hudRenderer.formatHudText(model);
 
-    // Render to Even G2 Glasses via SDK Bridge if container is active
-    if (this.bridge && this.isContainerCreated) {
+    // Render to Even G2 Glasses via SDK Bridge whenever bridge is connected
+    if (this.bridge && this.isConnected) {
       try {
         await this.bridge.textContainerUpgrade(
           new TextContainerUpgrade({
@@ -94,7 +94,6 @@ export class HybridEvenG2Adapter implements EvenG2Adapter {
     if (this.bridge && typeof this.bridge.shutDownPageContainer === 'function') {
       try {
         await this.bridge.shutDownPageContainer(1);
-        this.isContainerCreated = false;
       } catch (err) {
         console.warn('[EvenG2Adapter] Error shutting down page container:', err);
       }

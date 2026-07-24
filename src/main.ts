@@ -2,7 +2,7 @@ import './index.css';
 import { bootstrapApp } from './app/bootstrap';
 import { DebugPanel } from './ui/debug-panel';
 import { LocationSample } from './domain/models/location';
-import { LocationProvider } from './infrastructure/geolocation/browser-location-provider';
+import { LocationProvider, BrowserLocationProvider } from './infrastructure/geolocation/browser-location-provider';
 
 class DemoGpsReplayerProvider implements LocationProvider {
   private listener: ((sample: LocationSample) => void) | null = null;
@@ -52,7 +52,7 @@ const ODAKYU_DEMO_POINTS = [
 
 // Demo Route 2: Tohoku Shinkansen (Tokyo -> Ueno -> Omiya -> Utsunomiya -> Sendai)
 const SHINKANSEN_DEMO_POINTS = [
-  { lat: 35.6812, lon: 139.7671, speedKmh: 0, heading: 20 },   // Tokyo Station (stop)
+  { lat: 35.6812, lon: 139.7671, speedKmh: 0, heading: 20 },   // Tokyo Station
   { lat: 35.6980, lon: 139.7730, speedKmh: 70, heading: 25 },  // Accelerating towards Ueno
   { lat: 35.7141, lon: 139.7774, speedKmh: 40, heading: 25 },  // Ueno Station
   { lat: 35.8100, lon: 139.6800, speedKmh: 210, heading: 330 },// High speed to Omiya
@@ -61,62 +61,39 @@ const SHINKANSEN_DEMO_POINTS = [
   { lat: 36.3129, lon: 139.8066, speedKmh: 290, heading: 25 }, // Oyama
   { lat: 36.5590, lon: 139.8983, speedKmh: 315, heading: 25 }, // Utsunomiya (Max Speed 315 km/h)
   { lat: 37.3980, lon: 140.3881, speedKmh: 300, heading: 35 }, // Koriyama
-  { lat: 38.2601, lon: 140.8824, speedKmh: 0, heading: 35 },   // Sendai Station (Arrival)
+  { lat: 38.2601, lon: 140.8824, speedKmh: 0, heading: 35 },   // Sendai Station
 ];
 
 async function init() {
   const hudTextEl = document.getElementById('hud-text');
   const debugPanel = new DebugPanel('debug-panel');
 
-  let currentApp = await bootstrapApp(undefined, (text) => {
+  const { controller, logger } = await bootstrapApp(undefined, (text) => {
     if (hudTextEl) hudTextEl.textContent = text;
   });
 
-  currentApp.logger.subscribe((entry) => {
+  logger.subscribe((entry) => {
     debugPanel.update(entry);
   });
 
-  document.getElementById('btn-start')?.addEventListener('click', async () => {
-    currentApp.controller.stop();
-    currentApp = await bootstrapApp(undefined, (text) => {
-      if (hudTextEl) hudTextEl.textContent = text;
-    });
-    currentApp.logger.subscribe((entry) => {
-      debugPanel.update(entry);
-    });
-    await currentApp.controller.start();
+  document.getElementById('btn-start')?.addEventListener('click', () => {
+    controller.switchLocationProvider(new BrowserLocationProvider());
   });
 
   document.getElementById('btn-stop')?.addEventListener('click', () => {
-    currentApp.controller.stop();
+    controller.stop();
   });
 
-  document.getElementById('btn-replay-odakyu')?.addEventListener('click', async () => {
-    currentApp.controller.stop();
-    const demoProvider = new DemoGpsReplayerProvider(ODAKYU_DEMO_POINTS);
-    currentApp = await bootstrapApp(demoProvider, (text) => {
-      if (hudTextEl) hudTextEl.textContent = text;
-    });
-    currentApp.logger.subscribe((entry) => {
-      debugPanel.update(entry);
-    });
-    await currentApp.controller.start();
+  document.getElementById('btn-replay-odakyu')?.addEventListener('click', () => {
+    controller.switchLocationProvider(new DemoGpsReplayerProvider(ODAKYU_DEMO_POINTS));
   });
 
-  document.getElementById('btn-replay-shinkansen')?.addEventListener('click', async () => {
-    currentApp.controller.stop();
-    const demoProvider = new DemoGpsReplayerProvider(SHINKANSEN_DEMO_POINTS);
-    currentApp = await bootstrapApp(demoProvider, (text) => {
-      if (hudTextEl) hudTextEl.textContent = text;
-    });
-    currentApp.logger.subscribe((entry) => {
-      debugPanel.update(entry);
-    });
-    await currentApp.controller.start();
+  document.getElementById('btn-replay-shinkansen')?.addEventListener('click', () => {
+    controller.switchLocationProvider(new DemoGpsReplayerProvider(SHINKANSEN_DEMO_POINTS));
   });
 
-  // Auto-start on load
-  await currentApp.controller.start();
+  // Auto-start controller and Even G2 Bridge connection
+  await controller.start();
 }
 
 init().catch(console.error);

@@ -93,6 +93,25 @@ export class AppController {
     }
   }
 
+  /**
+   * Switch LocationProvider dynamically (e.g. from real GPS to Demo Replayer)
+   * without destroying Even G2 SDK Bridge connection.
+   */
+  public switchLocationProvider(newProvider: LocationProvider): void {
+    this.locationProvider.stop();
+    this.speedEstimator.reset();
+    this.journeyEstimator.reset();
+    this.mapMatcher.reset();
+
+    this.locationProvider = newProvider;
+    if (this.isRunning) {
+      this.locationProvider.start(
+        (sample) => this.onLocationUpdate(sample),
+        (err) => this.onLocationError(err)
+      );
+    }
+  }
+
   public async onLocationUpdate(sample: LocationSample): Promise<void> {
     this.latestSample = sample;
 
