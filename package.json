@@ -8,12 +8,16 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "sim": "evenhub-simulator http://localhost:5173"
   },
   "dependencies": {
+    "@evenrealities/even_hub_sdk": "^0.0.12",
     "dexie": "^4.0.10"
   },
   "devDependencies": {
+    "@evenrealities/evenhub-cli": "^0.1.13",
+    "@evenrealities/evenhub-simulator": "^0.8.0",
     "typescript": "^5.7.2",
     "vite": "^6.0.7",
     "vitest": "^2.1.8"
