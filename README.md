@@ -50,35 +50,26 @@ GPS信号なし
 
 ---
 
-## セットアップ & 実行手順
+## セットアップ & 実行手順 (pnpm)
 
 ### 1. 依存ライブラリのインストール
 ```bash
-npm install
+pnpm install
 ```
 
-### 2. 開発サーバーの起動 (Vite)
+### 2. 開発サーバー & 公式シミュレーターの一括起動 (推奨)
 ```bash
-npm run dev
+pnpm dev
 ```
-ブラウザで `http://localhost:5173` が起動します。
+`pnpm dev` 1コマンドで **Vite 開発サーバー** の起動待ちと **EvenHub 公式シミュレーター (`evenhub-simulator`)** が全自動で同時立ち上がり、Even G2スマートグラス実機と同等の解像度・視野角・プロトコルでリアルタイム検証が始まります。
 
-### 3. EvenHub 公式シミュレーターでの動作検証 (推奨)
-Even Realities 公式の `evenhub-simulator` を使って、Even G2 スマートグラス実機と全く同じディスプレイ枠・プロトコルで動作検証を行えます。
+その他のサブコマンド:
+* `pnpm dev:web`: Webブラウザ単体で開発サーバーを起動
+* `pnpm sim`: 公式シミュレーター単体を起動
 
+### 3. 単体テストの実行
 ```bash
-# ターミナル1: 開発サーバー起動
-npm run dev
-
-# ターミナル2: 公式 EvenHub Simulator 起動
-npm run sim
-```
-
-`npm run sim` を実行すると公式 `evenhub-simulator` が立ち上がり、G2の画面サイズ・FOV（視野角）・通信イベントで本プラグインのリアルタイム描画をテストできます。
-
-### 4. 単体テストの実行
-```bash
-npm run test
+pnpm test
 ```
 
 ---
