@@ -68,7 +68,7 @@ pnpm dev
 
 ```bash
 # ngrok 等でHTTPS公開したURLのQRコードをターミナルに表示
-pnpm qr -- -u https://xxxx.ngrok-free.app
+pnpm qr -u https://xxxx.ngrok-free.app
 ```
 表示された QR コードを、スマホの Even App（「Developer / Scan Custom App」タブ）でスキャンするだけで即座に接続されます。
 
