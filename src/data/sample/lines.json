@@ -30,5 +30,29 @@
     "shortName": "北陸新幹線",
     "directionAName": "上り（東京・大宮方面）",
     "directionBName": "下り（長野・金沢方面）"
+  },
+  {
+    "id": "keikyu-main-line",
+    "operatorId": "keikyu",
+    "name": "京急空港線・本線",
+    "shortName": "京急線",
+    "directionAName": "上り（品川・都営線方面）",
+    "directionBName": "下り（羽田空港・横浜方面）"
+  },
+  {
+    "id": "sotetsu-main-line",
+    "operatorId": "sotetsu",
+    "name": "相鉄本線",
+    "shortName": "相鉄線",
+    "directionAName": "上り（横浜・JR直通方面）",
+    "directionBName": "下り（海老名方面）"
+  },
+  {
+    "id": "jreast-yokohama-line",
+    "operatorId": "jreast",
+    "name": "JR横浜線",
+    "shortName": "横浜線",
+    "directionAName": "上り（東神奈川・横浜方面）",
+    "directionBName": "下り（町田・八王子方面）"
   }
 ]

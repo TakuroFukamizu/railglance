@@ -289,5 +289,200 @@
       [36.5780, 136.6478]
     ],
     "lengthMeters": 58500
+  },
+
+  {
+    "id": "seg-keikyu-haneda-t1t2-t3",
+    "lineId": "keikyu-main-line",
+    "fromStationId": "st-keikyu-haneda-t1t2",
+    "toStationId": "st-keikyu-haneda-t3",
+    "coordinates": [
+      [35.5492, 139.7845],
+      [35.5465, 139.7750],
+      [35.5447, 139.7681]
+    ],
+    "lengthMeters": 1700
+  },
+  {
+    "id": "seg-keikyu-haneda-t3-tenkubashi",
+    "lineId": "keikyu-main-line",
+    "fromStationId": "st-keikyu-haneda-t3",
+    "toStationId": "st-keikyu-tenkubashi",
+    "coordinates": [
+      [35.5447, 139.7681],
+      [35.5460, 139.7620],
+      [35.5486, 139.7561]
+    ],
+    "lengthMeters": 1300
+  },
+  {
+    "id": "seg-keikyu-tenkubashi-kamata",
+    "lineId": "keikyu-main-line",
+    "fromStationId": "st-keikyu-tenkubashi",
+    "toStationId": "st-keikyu-kamata",
+    "coordinates": [
+      [35.5486, 139.7561],
+      [35.5550, 139.7400],
+      [35.5614, 139.7242]
+    ],
+    "lengthMeters": 3500
+  },
+  {
+    "id": "seg-keikyu-kamata-kawasaki",
+    "lineId": "keikyu-main-line",
+    "fromStationId": "st-keikyu-kamata",
+    "toStationId": "st-keikyu-kawasaki",
+    "coordinates": [
+      [35.5614, 139.7242],
+      [35.5450, 139.7120],
+      [35.5316, 139.7029]
+    ],
+    "lengthMeters": 3800
+  },
+  {
+    "id": "seg-keikyu-kawasaki-yokohama",
+    "lineId": "keikyu-main-line",
+    "fromStationId": "st-keikyu-kawasaki",
+    "toStationId": "st-keikyu-yokohama",
+    "coordinates": [
+      [35.5316, 139.7029],
+      [35.5000, 139.6700],
+      [35.4658, 139.6225]
+    ],
+    "lengthMeters": 10600
+  },
+  {
+    "id": "seg-keikyu-yokohama-kamiooka",
+    "lineId": "keikyu-main-line",
+    "fromStationId": "st-keikyu-yokohama",
+    "toStationId": "st-keikyu-kamiooka",
+    "coordinates": [
+      [35.4658, 139.6225],
+      [35.4350, 139.6100],
+      [35.4089, 139.5961]
+    ],
+    "lengthMeters": 6700
+  },
+
+  {
+    "id": "seg-sotetsu-yokohama-nishiya",
+    "lineId": "sotetsu-main-line",
+    "fromStationId": "st-sotetsu-yokohama",
+    "toStationId": "st-sotetsu-nishiya",
+    "coordinates": [
+      [35.4658, 139.6220],
+      [35.4665, 139.5900],
+      [35.4674, 139.5668]
+    ],
+    "lengthMeters": 6900
+  },
+  {
+    "id": "seg-sotetsu-nishiya-futamatagawa",
+    "lineId": "sotetsu-main-line",
+    "fromStationId": "st-sotetsu-nishiya",
+    "toStationId": "st-sotetsu-futamatagawa",
+    "coordinates": [
+      [35.4674, 139.5668],
+      [35.4650, 139.5500],
+      [35.4633, 139.5323]
+    ],
+    "lengthMeters": 3600
+  },
+  {
+    "id": "seg-sotetsu-futamatagawa-yamato",
+    "lineId": "sotetsu-main-line",
+    "fromStationId": "st-sotetsu-futamatagawa",
+    "toStationId": "st-sotetsu-yamato",
+    "coordinates": [
+      [35.4633, 139.5323],
+      [35.4660, 139.4950],
+      [35.4694, 139.4611]
+    ],
+    "lengthMeters": 7400
+  },
+  {
+    "id": "seg-sotetsu-yamato-ebina",
+    "lineId": "sotetsu-main-line",
+    "fromStationId": "st-sotetsu-yamato",
+    "toStationId": "st-sotetsu-ebina",
+    "coordinates": [
+      [35.4694, 139.4611],
+      [35.4600, 139.4200],
+      [35.4526, 139.3900]
+    ],
+    "lengthMeters": 6700
+  },
+
+  {
+    "id": "seg-yokohama-higashikanagawa-shinyokohama",
+    "lineId": "jreast-yokohama-line",
+    "fromStationId": "st-yokohama-higashikanagawa",
+    "toStationId": "st-yokohama-shinyokohama",
+    "coordinates": [
+      [35.4780, 139.6334],
+      [35.4920, 139.6250],
+      [35.5075, 139.6175]
+    ],
+    "lengthMeters": 6100
+  },
+  {
+    "id": "seg-yokohama-shinyokohama-nakayama",
+    "lineId": "jreast-yokohama-line",
+    "fromStationId": "st-yokohama-shinyokohama",
+    "toStationId": "st-yokohama-nakayama",
+    "coordinates": [
+      [35.5075, 139.6175],
+      [35.5110, 139.5780],
+      [35.5147, 139.5394]
+    ],
+    "lengthMeters": 7400
+  },
+  {
+    "id": "seg-yokohama-nakayama-nagatsuta",
+    "lineId": "jreast-yokohama-line",
+    "fromStationId": "st-yokohama-nakayama",
+    "toStationId": "st-yokohama-nagatsuta",
+    "coordinates": [
+      [35.5147, 139.5394],
+      [35.5230, 139.5170],
+      [35.5317, 139.4950]
+    ],
+    "lengthMeters": 4600
+  },
+  {
+    "id": "seg-yokohama-nagatsuta-machida",
+    "lineId": "jreast-yokohama-line",
+    "fromStationId": "st-yokohama-nagatsuta",
+    "toStationId": "st-yokohama-machida",
+    "coordinates": [
+      [35.5317, 139.4950],
+      [35.5370, 139.4700],
+      [35.5424, 139.4456]
+    ],
+    "lengthMeters": 5600
+  },
+  {
+    "id": "seg-yokohama-machida-sagamihara",
+    "lineId": "jreast-yokohama-line",
+    "fromStationId": "st-yokohama-machida",
+    "toStationId": "st-yokohama-sagamihara",
+    "coordinates": [
+      [35.5424, 139.4456],
+      [35.5600, 139.4100],
+      [35.5813, 139.3712]
+    ],
+    "lengthMeters": 8600
+  },
+  {
+    "id": "seg-yokohama-sagamihara-hachioji",
+    "lineId": "jreast-yokohama-line",
+    "fromStationId": "st-yokohama-sagamihara",
+    "toStationId": "st-yokohama-hachioji",
+    "coordinates": [
+      [35.5813, 139.3712],
+      [35.6200, 139.3550],
+      [35.6556, 139.3390]
+    ],
+    "lengthMeters": 9800
   }
 ]

@@ -225,5 +225,160 @@
     "sequence": 5,
     "latitude": 36.5780,
     "longitude": 136.6478
+  },
+
+  {
+    "id": "st-keikyu-haneda-t1t2",
+    "lineId": "keikyu-main-line",
+    "name": "羽田空港第1・第2ターミナル",
+    "sequence": 1,
+    "latitude": 35.5492,
+    "longitude": 139.7845
+  },
+  {
+    "id": "st-keikyu-haneda-t3",
+    "lineId": "keikyu-main-line",
+    "name": "羽田空港第3ターミナル",
+    "sequence": 2,
+    "latitude": 35.5447,
+    "longitude": 139.7681
+  },
+  {
+    "id": "st-keikyu-tenkubashi",
+    "lineId": "keikyu-main-line",
+    "name": "天空橋",
+    "sequence": 3,
+    "latitude": 35.5486,
+    "longitude": 139.7561
+  },
+  {
+    "id": "st-keikyu-kamata",
+    "lineId": "keikyu-main-line",
+    "name": "京急蒲田",
+    "sequence": 4,
+    "latitude": 35.5614,
+    "longitude": 139.7242
+  },
+  {
+    "id": "st-keikyu-kawasaki",
+    "lineId": "keikyu-main-line",
+    "name": "京急川崎",
+    "sequence": 5,
+    "latitude": 35.5316,
+    "longitude": 139.7029
+  },
+  {
+    "id": "st-keikyu-yokohama",
+    "lineId": "keikyu-main-line",
+    "name": "横浜",
+    "sequence": 6,
+    "latitude": 35.4658,
+    "longitude": 139.6225
+  },
+  {
+    "id": "st-keikyu-kamiooka",
+    "lineId": "keikyu-main-line",
+    "name": "上大岡",
+    "sequence": 7,
+    "latitude": 35.4089,
+    "longitude": 139.5961
+  },
+
+  {
+    "id": "st-sotetsu-yokohama",
+    "lineId": "sotetsu-main-line",
+    "name": "横浜",
+    "sequence": 1,
+    "latitude": 35.4658,
+    "longitude": 139.6220
+  },
+  {
+    "id": "st-sotetsu-nishiya",
+    "lineId": "sotetsu-main-line",
+    "name": "西谷",
+    "sequence": 2,
+    "latitude": 35.4674,
+    "longitude": 139.5668
+  },
+  {
+    "id": "st-sotetsu-futamatagawa",
+    "lineId": "sotetsu-main-line",
+    "name": "二俣川",
+    "sequence": 3,
+    "latitude": 35.4633,
+    "longitude": 139.5323
+  },
+  {
+    "id": "st-sotetsu-yamato",
+    "lineId": "sotetsu-main-line",
+    "name": "大和",
+    "sequence": 4,
+    "latitude": 35.4694,
+    "longitude": 139.4611
+  },
+  {
+    "id": "st-sotetsu-ebina",
+    "lineId": "sotetsu-main-line",
+    "name": "海老名",
+    "sequence": 5,
+    "latitude": 35.4526,
+    "longitude": 139.3900
+  },
+
+  {
+    "id": "st-yokohama-higashikanagawa",
+    "lineId": "jreast-yokohama-line",
+    "name": "東神奈川",
+    "sequence": 1,
+    "latitude": 35.4780,
+    "longitude": 139.6334
+  },
+  {
+    "id": "st-yokohama-shinyokohama",
+    "lineId": "jreast-yokohama-line",
+    "name": "新横浜",
+    "sequence": 2,
+    "latitude": 35.5075,
+    "longitude": 139.6175
+  },
+  {
+    "id": "st-yokohama-nakayama",
+    "lineId": "jreast-yokohama-line",
+    "name": "中山",
+    "sequence": 3,
+    "latitude": 35.5147,
+    "longitude": 139.5394
+  },
+  {
+    "id": "st-yokohama-nagatsuta",
+    "lineId": "jreast-yokohama-line",
+    "name": "長津田",
+    "sequence": 4,
+    "latitude": 35.5317,
+    "longitude": 139.4950
+  },
+  {
+    "id": "st-yokohama-machida",
+    "lineId": "jreast-yokohama-line",
+    "name": "町田",
+    "sequence": 5,
+    "latitude": 35.5424,
+    "longitude": 139.4456
+  },
+  {
+    "id": "st-yokohama-sagamihara",
+    "lineId": "jreast-yokohama-line",
+    "name": "相模原",
+    "sequence": 6,
+    "latitude": 35.5813,
+    "longitude": 139.3712
+  },
+  {
+    "id": "st-yokohama-hachioji",
+    "lineId": "jreast-yokohama-line",
+    "name": "八王子",
+    "sequence": 7,
+    "latitude": 35.6556,
+    "longitude": 139.3390
   }
 ]
