@@ -7,6 +7,10 @@ export default defineConfig({
       '@': path.resolve(__dirname, './src'),
     },
   },
+  server: {
+    host: true,
+    allowedHosts: true, // Allow ngrok and external hosts (Vite 6 security option)
+  },
   test: {
     globals: true,
     environment: 'node',
