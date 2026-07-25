@@ -70,7 +70,22 @@ describe('JourneyStateEstimator', () => {
         osSpeed: selectedEst,
         positionDeltaSpeed: null,
         trackDistanceSpeed: null,
+        deadReckoningSpeed: null,
         sensorFusionSpeed: null,
+      },
+      navState: {
+        lineId: 'line-1',
+        routeId: null,
+        segmentId: 'seg-1',
+        direction: 'DOWN',
+        trackPositionMeters: 1500,
+        velocityMps: 25,
+        accelerationMps2: 0,
+        accelerationBiasMps2: 0,
+        lastObservationTimestampMs: 10000,
+        lastPredictionTimestampMs: 10000,
+        mode: 'gps-locked',
+        confidence: 0.9,
       },
     };
 

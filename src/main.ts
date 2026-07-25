@@ -3,6 +3,7 @@ import { bootstrapApp } from './app/bootstrap';
 import { DebugPanel } from './ui/debug-panel';
 import { LocationSample } from './domain/models/location';
 import { LocationProvider, BrowserLocationProvider } from './infrastructure/geolocation/browser-location-provider';
+import { DeviceMotionSensorFusionProvider } from './infrastructure/sensors/device-motion-sensor-fusion-provider';
 
 class DemoGpsReplayerProvider implements LocationProvider {
   private listener: ((sample: LocationSample) => void) | null = null;
@@ -82,6 +83,11 @@ async function init() {
 
   document.getElementById('btn-stop')?.addEventListener('click', () => {
     controller.stop();
+  });
+
+  document.getElementById('btn-request-motion')?.addEventListener('click', async () => {
+    const granted = await DeviceMotionSensorFusionProvider.requestMotionPermission();
+    alert(granted ? 'モーションセンサーを許可しました' : 'モーションセンサーの許可に失敗しました');
   });
 
   document.getElementById('btn-replay-odakyu')?.addEventListener('click', () => {

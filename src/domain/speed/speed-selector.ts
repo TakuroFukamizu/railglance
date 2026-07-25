@@ -21,15 +21,11 @@ export class DefaultSpeedSelector implements SpeedSelector {
       };
     }
 
-    // Sort by priority and confidence:
-    // 1. os-geolocation (if high confidence)
-    // 2. track-distance (stable on curves during valid map match)
-    // 3. position-delta (fallback GPS calculation)
-    // 4. sensor-fusion (reserved)
-
-    const osCand = validCandidates.find((c) => c.source === 'os-geolocation');
+    const osCand = validCandidates.find((c) => c.source === 'os-geolocation' || c.source === 'reacquired-gps');
     const trackCand = validCandidates.find((c) => c.source === 'track-distance');
     const deltaCand = validCandidates.find((c) => c.source === 'position-delta');
+    const drCand = validCandidates.find((c) => c.source === 'dead-reckoning');
+    const fusionCand = validCandidates.find((c) => c.source === 'motion-fusion' || c.source === 'sensor-fusion');
 
     let selected: SpeedEstimate;
 
@@ -39,8 +35,11 @@ export class DefaultSpeedSelector implements SpeedSelector {
       selected = trackCand;
     } else if (deltaCand && deltaCand.confidence >= 0.4) {
       selected = deltaCand;
+    } else if (drCand && drCand.confidence >= 0.2) {
+      selected = drCand;
+    } else if (fusionCand && fusionCand.confidence >= 0.2) {
+      selected = fusionCand;
     } else {
-      // Pick highest confidence candidate
       validCandidates.sort((a, b) => b.confidence - a.confidence);
       selected = validCandidates[0];
     }

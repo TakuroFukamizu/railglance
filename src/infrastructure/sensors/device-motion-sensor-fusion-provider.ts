@@ -12,6 +12,23 @@ export class DeviceMotionSensorFusionProvider implements SensorFusionProvider {
     this.initSensor();
   }
 
+  public static async requestMotionPermission(): Promise<boolean> {
+    if (typeof window === 'undefined' || !('DeviceMotionEvent' in window)) {
+      return false;
+    }
+    try {
+      const DeviceMotionEventAny = DeviceMotionEvent as any;
+      if (typeof DeviceMotionEventAny.requestPermission === 'function') {
+        const permissionState = await DeviceMotionEventAny.requestPermission();
+        return permissionState === 'granted';
+      }
+      return true;
+    } catch (err) {
+      console.warn('[SensorFusion] Error requesting permission:', err);
+      return false;
+    }
+  }
+
   private async initSensor(): Promise<void> {
     if (typeof window === 'undefined' || !('DeviceMotionEvent' in window)) {
       console.log('[SensorFusion] DeviceMotionEvent is not supported on this device.');
@@ -19,15 +36,6 @@ export class DeviceMotionSensorFusionProvider implements SensorFusionProvider {
     }
 
     try {
-      const DeviceMotionEventAny = DeviceMotionEvent as any;
-      if (typeof DeviceMotionEventAny.requestPermission === 'function') {
-        const permissionState = await DeviceMotionEventAny.requestPermission();
-        if (permissionState !== 'granted') {
-          console.warn('[SensorFusion] DeviceMotion permission denied.');
-          return;
-        }
-      }
-
       window.addEventListener('devicemotion', (event) => this.handleMotionEvent(event), true);
       this.isListening = true;
       console.log('[SensorFusion] DeviceMotion listener activated successfully.');

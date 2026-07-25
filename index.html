@@ -3,36 +3,39 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Even G2 Train HUD Plugin</title>
-    <link rel="stylesheet" href="/src/index.css" />
+    <title>RailGlance - Even G2 Train HUD</title>
   </head>
   <body>
-    <header class="app-header">
-      <div class="app-title">
-        <h1>RailGlance - Even G2 Train HUD</h1>
-        <p>Phase 1 オフライン路線・駅推定 & HUD ディスプレイ</p>
-      </div>
-      <div class="control-bar">
-        <button id="btn-start" class="btn btn-primary">実機GPS開始</button>
-        <button id="btn-stop" class="btn">停止</button>
-        <button id="btn-replay-odakyu" class="btn">小田急線デモ</button>
-        <button id="btn-replay-shinkansen" class="btn">新幹線デモ</button>
-      </div>
-    </header>
-
-    <main class="main-layout">
-      <section class="hud-simulator-card">
-        <h2>Even G2 HUD リアルタイムプレビュー</h2>
-        <div id="hud-glass" class="hud-glass">
-          <div id="hud-text">アプリを起動してください...</div>
+    <div id="app">
+      <header class="app-header">
+        <h1>RailGlance - Even G2 HUD</h1>
+        <div class="controls">
+          <button id="btn-start" class="btn btn-primary">実機GPS開始</button>
+          <button id="btn-stop" class="btn">停止</button>
+          <button id="btn-request-motion" class="btn btn-secondary">モーションセンサー有効化</button>
+          <button id="btn-replay-odakyu" class="btn btn-secondary">小田急線デモ</button>
+          <button id="btn-replay-shinkansen" class="btn btn-secondary">新幹線デモ</button>
         </div>
-      </section>
+      </header>
 
-      <section class="debug-section">
-        <h2>開発者デバッグパネル</h2>
-        <div id="debug-panel"></div>
-      </section>
-    </main>
+      <main class="app-main">
+        <section class="preview-section">
+          <h2>Even G2 グラス視界プレビュー (576×288)</h2>
+          <div class="glasses-viewport">
+            <div id="hud-text" class="hud-text">
+              -- km/h<br /><br />
+              初期化中...<br />
+              データ読み込み中
+            </div>
+          </div>
+        </section>
+
+        <section class="debug-section">
+          <h2>マルチソース速度推定 & NavigationState デバッグパネル</h2>
+          <div id="debug-panel"></div>
+        </section>
+      </main>
+    </div>
 
     <script type="module" src="/src/main.ts"></script>
   </body>

@@ -4,6 +4,8 @@ import { haversineDistance } from '../geo/distance';
 import { SpeedFilter } from './speed-filter';
 import { DefaultSpeedSelector, SpeedSelector } from './speed-selector';
 import { DeviceMotionSensorFusionProvider } from '../../infrastructure/sensors/device-motion-sensor-fusion-provider';
+import { NavigationStateEstimator } from './navigation-state-estimator';
+import { RouteMatch } from '../models/railway';
 
 export class SpeedEstimator {
   private lastGpsSample: LocationSample | null = null;
@@ -13,6 +15,7 @@ export class SpeedEstimator {
   private speedFilter: SpeedFilter;
   private speedSelector: SpeedSelector;
   private sensorFusionProvider: DeviceMotionSensorFusionProvider;
+  private navEstimator: NavigationStateEstimator;
   private lastFullState: FullSpeedState | null = null;
 
   constructor(
@@ -22,6 +25,7 @@ export class SpeedEstimator {
     this.speedFilter = new SpeedFilter(config);
     this.speedSelector = customSelector ?? new DefaultSpeedSelector();
     this.sensorFusionProvider = new DeviceMotionSensorFusionProvider();
+    this.navEstimator = new NavigationStateEstimator(config);
   }
 
   /**
@@ -29,12 +33,16 @@ export class SpeedEstimator {
    */
   public update(
     sample: LocationSample,
+    match: RouteMatch | null,
     trackProgress?: { distanceAlongPolylineMeters: number; timestampMs: number }
   ): FullSpeedState {
     const timestamp = sample.timestampMs;
     const isLowAccuracy = sample.accuracyMeters > this.config.maxGpsAccuracyMeters;
 
-    // 1. Candidate A: OS Geolocation speed (coords.speed)
+    // 1. Update NavigationStateEstimator with GPS observation
+    const navState = this.navEstimator.updateWithGps({ sample, match });
+
+    // 2. Candidate A: OS Geolocation speed (coords.speed)
     let osEstimate: SpeedEstimate | null = null;
     if (sample.speedMps !== null && sample.speedMps >= 0) {
       const speedKmh = Math.round(sample.speedMps * 3.6 * 10) / 10;
@@ -44,13 +52,13 @@ export class SpeedEstimator {
         osEstimate = {
           speedKmh,
           confidence: Math.round(confidence * 100) / 100,
-          source: 'os-geolocation',
+          source: navState.mode === 'reacquiring' ? 'reacquired-gps' : 'os-geolocation',
           timestamp,
         };
       }
     }
 
-    // 2. Candidate B: Position Delta speed (Haversine distance / time)
+    // 3. Candidate B: Position Delta speed (Haversine distance / time)
     let deltaEstimate: SpeedEstimate | null = null;
     if (this.lastGpsSample) {
       const elapsedSec = (timestamp - this.lastGpsSample.timestampMs) / 1000;
@@ -77,7 +85,7 @@ export class SpeedEstimator {
       }
     }
 
-    // 3. Candidate C: Track Distance speed (Polyline distance / time)
+    // 4. Candidate C: Track Distance speed (Polyline distance / time)
     let trackEstimate: SpeedEstimate | null = null;
     if (trackProgress) {
       if (
@@ -107,15 +115,26 @@ export class SpeedEstimator {
       this.lastTrackTimestampMs = trackProgress.timestampMs;
     }
 
+    // 5. Candidate D: Dead Reckoning speed from NavigationStateEstimator
+    const drSpeedKmh = Math.round(navState.velocityMps * 3.6 * 10) / 10;
+    const deadReckoningEstimate: SpeedEstimate = {
+      speedKmh: drSpeedKmh,
+      confidence: navState.confidence,
+      source: 'dead-reckoning',
+      timestamp,
+      estimated: true,
+    };
+
     this.lastGpsSample = sample;
 
     const candidateList: SpeedEstimate[] = [
       ...(osEstimate ? [osEstimate] : []),
       ...(deltaEstimate ? [deltaEstimate] : []),
       ...(trackEstimate ? [trackEstimate] : []),
+      deadReckoningEstimate,
     ];
 
-    // 4. Select best speed candidate using SpeedSelector
+    // 6. Select best speed candidate using SpeedSelector
     const selectedEstimate = this.speedSelector.select(candidateList);
 
     // Update last known speed in Sensor Fusion Provider
@@ -123,7 +142,7 @@ export class SpeedEstimator {
       this.sensorFusionProvider.setLastKnownSpeed(selectedEstimate.speedKmh);
     }
 
-    // 5. Filter selected speed (EMA, outlier rejection, stop detection)
+    // 7. Filter selected speed (EMA, outlier rejection, stop detection)
     const rawSpeedKmh = selectedEstimate.speedKmh ?? 0;
     const { smoothedKmh, isStopped } = this.speedFilter.filter(rawSpeedKmh, timestamp);
 
@@ -131,6 +150,7 @@ export class SpeedEstimator {
       osSpeed: osEstimate,
       positionDeltaSpeed: deltaEstimate,
       trackDistanceSpeed: trackEstimate,
+      deadReckoningSpeed: deadReckoningEstimate,
       sensorFusionSpeed: null,
     };
 
@@ -140,6 +160,7 @@ export class SpeedEstimator {
       isStopped,
       isValid: !isLowAccuracy && selectedEstimate.source !== 'unknown',
       candidates,
+      navState,
     };
 
     this.lastFullState = fullState;
@@ -147,6 +168,9 @@ export class SpeedEstimator {
   }
 
   public async getEstimateAtAsync(currentTimeMs: number): Promise<FullSpeedState> {
+    // 1. Run time-driven prediction step on NavigationStateEstimator
+    const predictedNavState = this.navEstimator.predict(currentTimeMs);
+
     if (!this.lastFullState) {
       const unknownEstimate: SpeedEstimate = {
         speedKmh: null,
@@ -163,30 +187,39 @@ export class SpeedEstimator {
           osSpeed: null,
           positionDeltaSpeed: null,
           trackDistanceSpeed: null,
+          deadReckoningSpeed: null,
           sensorFusionSpeed: null,
         },
+        navState: predictedNavState,
       };
     }
 
-    const timeSinceLastGps = currentTimeMs - this.lastFullState.selectedEstimate.timestamp;
+    const timeSinceLastGps = currentTimeMs - (this.lastFullState.navState.lastObservationTimestampMs ?? currentTimeMs);
 
-    // Grace Period / Coasting Mode: Use Accelerometer Sensor Fusion fallback when GPS signal pauses
-    if (timeSinceLastGps > 2000 && timeSinceLastGps <= this.config.coastingMaxMs) {
-      const fusionEstimate = await this.sensorFusionProvider.estimateSpeed();
-      if (fusionEstimate.speedKmh !== null) {
-        const { smoothedKmh, isStopped } = this.speedFilter.filter(fusionEstimate.speedKmh, currentTimeMs);
-        return {
-          ...this.lastFullState,
-          selectedEstimate: fusionEstimate,
-          smoothedSpeedKmh: smoothedKmh,
-          isStopped,
-          isValid: true, // Keep valid during coasting grace period!
-        };
-      }
+    // 2. Dead Reckoning Mode during GPS Pause/Tunnel
+    if (predictedNavState.mode === 'dead-reckoning' || predictedNavState.mode === 'dead-reckoning-low-confidence') {
+      const drSpeedKmh = Math.round(predictedNavState.velocityMps * 3.6 * 10) / 10;
+      const drEstimate: SpeedEstimate = {
+        speedKmh: drSpeedKmh,
+        confidence: predictedNavState.confidence,
+        source: 'dead-reckoning',
+        timestamp: currentTimeMs,
+        estimated: true,
+      };
+
+      const { smoothedKmh, isStopped } = this.speedFilter.filter(drSpeedKmh, currentTimeMs);
+      return {
+        ...this.lastFullState,
+        selectedEstimate: drEstimate,
+        smoothedSpeedKmh: smoothedKmh,
+        isStopped,
+        isValid: true,
+        navState: predictedNavState,
+      };
     }
 
-    // Declare GPS Unavailable only after coastingMaxMs (45 seconds)
-    if (timeSinceLastGps > this.config.staleLocationMs) {
+    // 3. Declare GPS Unavailable only after coastingMaxMs (45 seconds) or when lost
+    if (timeSinceLastGps > this.config.staleLocationMs || (predictedNavState.mode as string) === 'lost') {
       const unknownEstimate: SpeedEstimate = {
         speedKmh: null,
         confidence: 0.0,
@@ -198,13 +231,18 @@ export class SpeedEstimator {
         selectedEstimate: unknownEstimate,
         smoothedSpeedKmh: null,
         isValid: false,
+        navState: predictedNavState,
       };
     }
 
-    return this.lastFullState;
+    return {
+      ...this.lastFullState,
+      navState: predictedNavState,
+    };
   }
 
   public getEstimateAt(currentTimeMs: number): FullSpeedState {
+    const predictedNavState = this.navEstimator.predict(currentTimeMs);
     if (!this.lastFullState) {
       const unknownEstimate: SpeedEstimate = {
         speedKmh: null,
@@ -221,28 +259,17 @@ export class SpeedEstimator {
           osSpeed: null,
           positionDeltaSpeed: null,
           trackDistanceSpeed: null,
+          deadReckoningSpeed: null,
           sensorFusionSpeed: null,
         },
+        navState: predictedNavState,
       };
     }
 
-    const timeSinceLastGps = currentTimeMs - this.lastFullState.selectedEstimate.timestamp;
-    if (timeSinceLastGps > this.config.staleLocationMs) {
-      const unknownEstimate: SpeedEstimate = {
-        speedKmh: null,
-        confidence: 0.0,
-        source: 'unknown',
-        timestamp: currentTimeMs,
-      };
-      return {
-        ...this.lastFullState,
-        selectedEstimate: unknownEstimate,
-        smoothedSpeedKmh: null,
-        isValid: false,
-      };
-    }
-
-    return this.lastFullState;
+    return {
+      ...this.lastFullState,
+      navState: predictedNavState,
+    };
   }
 
   public reset(): void {
@@ -251,5 +278,6 @@ export class SpeedEstimator {
     this.lastTrackTimestampMs = 0;
     this.lastFullState = null;
     this.speedFilter.reset();
+    this.navEstimator.reset('manual');
   }
 }

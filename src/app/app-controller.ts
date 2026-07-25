@@ -50,7 +50,22 @@ export class AppController {
         osSpeed: null,
         positionDeltaSpeed: null,
         trackDistanceSpeed: null,
+        deadReckoningSpeed: null,
         sensorFusionSpeed: null,
+      },
+      navState: {
+        lineId: null,
+        routeId: null,
+        segmentId: null,
+        direction: 'UNKNOWN',
+        trackPositionMeters: null,
+        velocityMps: 0,
+        accelerationMps2: 0,
+        accelerationBiasMps2: 0,
+        lastObservationTimestampMs: null,
+        lastPredictionTimestampMs: now,
+        mode: 'lost',
+        confidence: 0.0,
       },
     };
     this.currentJourney = {
@@ -129,7 +144,7 @@ export class AppController {
     }
 
     // 3. Multi-source speed estimation & SpeedSelector
-    this.currentFullSpeedState = this.speedEstimator.update(sample, trackProgress);
+    this.currentFullSpeedState = this.speedEstimator.update(sample, this.currentMatch, trackProgress);
 
     // 4. Estimate journey state & recover status if valid GPS returned
     this.currentJourney = await this.journeyEstimator.update(sample, this.currentMatch, this.currentFullSpeedState);
