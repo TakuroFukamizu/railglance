@@ -93,10 +93,6 @@ export class AppController {
     }
   }
 
-  /**
-   * Switch LocationProvider dynamically (e.g. from real GPS to Demo Replayer)
-   * without destroying Even G2 SDK Bridge connection.
-   */
   public switchLocationProvider(newProvider: LocationProvider): void {
     this.locationProvider.stop();
     this.speedEstimator.reset();
@@ -141,36 +137,15 @@ export class AppController {
 
   private onLocationError(err: GeolocationPositionError): void {
     console.warn('[AppController] Location error:', err.message);
-    const now = Date.now();
-    const unknownEstimate: SpeedEstimate = {
-      speedKmh: null,
-      confidence: 0,
-      source: 'unknown',
-      timestamp: now,
-    };
-    this.currentFullSpeedState = {
-      selectedEstimate: unknownEstimate,
-      smoothedSpeedKmh: null,
-      isStopped: false,
-      isValid: false,
-      candidates: {
-        osSpeed: null,
-        positionDeltaSpeed: null,
-        trackDistanceSpeed: null,
-        sensorFusionSpeed: null,
-      },
-    };
-    this.currentJourney.status = 'GPS_UNAVAILABLE';
   }
 
   private async onRenderTick(): Promise<void> {
     const now = Date.now();
 
-    if (this.latestSample && now - this.latestSample.timestampMs > this.config.staleLocationMs) {
-      this.currentFullSpeedState = this.speedEstimator.getEstimateAt(now);
-      if (!this.currentFullSpeedState.isValid) {
-        this.currentJourney.status = 'GPS_UNAVAILABLE';
-      }
+    // Check speed & sensor fusion estimate during render tick
+    this.currentFullSpeedState = await this.speedEstimator.getEstimateAtAsync(now);
+    if (!this.currentFullSpeedState.isValid) {
+      this.currentJourney.status = 'GPS_UNAVAILABLE';
     }
 
     this.currentViewModel = this.hudRenderer.createViewModel(

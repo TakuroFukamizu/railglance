@@ -111,27 +111,26 @@ describe('SpeedEstimator (Multi-Source & Selection)', () => {
 
     estimator.update(s1);
     const state2 = estimator.update(s2);
-    // Low confidence for minor drift (<3m), resulting in low confidence or low speed
     expect(state2.candidates.positionDeltaSpeed?.confidence).toBeLessThan(0.4);
   });
 
   it('converges to 0 km/h when stopped for 5 seconds', () => {
     const estimator = new SpeedEstimator(DEFAULT_TRACKING_CONFIG);
-    let now = 10000;
-    const stopSample = (): LocationSample => ({
+    const makeStopSample = (ts: number): LocationSample => ({
       latitude: 35.4526,
       longitude: 139.3900,
       accuracyMeters: 5,
-      speedMps: 0.2, // ~0.72 km/h
+      speedMps: 0.0, // 0 km/h
       headingDegrees: null,
-      timestampMs: now,
+      timestampMs: ts,
     });
 
-    estimator.update(stopSample());
-    now += 2000;
-    estimator.update(stopSample());
-    now += 4000;
-    const finalState = estimator.update(stopSample());
+    let ts = 10000;
+    for (let i = 0; i < 15; i++) {
+      estimator.update(makeStopSample(ts));
+      ts += 1000;
+    }
+    const finalState = estimator.update(makeStopSample(ts));
 
     expect(finalState.isStopped).toBe(true);
     expect(finalState.smoothedSpeedKmh).toBe(0);

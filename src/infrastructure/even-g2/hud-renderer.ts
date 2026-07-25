@@ -9,13 +9,13 @@ export class HudRenderer {
     currentTimeMs: number
   ): HudViewModel {
     // 1. Check GPS / Speed Availability
-    if (!speedState.isValid || journey.status === 'GPS_UNAVAILABLE' || journey.status === 'GPS_LOW_ACCURACY') {
+    if (!speedState.isValid || journey.status === 'GPS_UNAVAILABLE') {
       return {
         mode: 'NO_GPS',
         speedKmh: null,
         speedText: '  -- km/h',
         lineNameText: 'GPS信号なし',
-        stationProgressText: '位置情報を確認してください',
+        stationProgressText: '位置情報を確認中...',
         nextDistanceText: '',
         gpsStatusSymbol: 'GPS ✕',
         confidence: 0.0,
@@ -30,10 +30,16 @@ export class HudRenderer {
       ? `${Math.round(displaySpeedKmh).toString().padStart(4, ' ')} km/h`
       : '  -- km/h';
 
-    const gpsSymbol = speedState.isValid ? 'GPS ●' : 'GPS ○';
+    // Symbol: GPS ● (high accuracy GPS), GPS ◐ (Sensor Fusion / Dead Reckoning coasting), GPS ○ (low accuracy)
+    let gpsSymbol = 'GPS ●';
+    if (speedState.selectedEstimate.source === 'sensor-fusion') {
+      gpsSymbol = 'GPS ◐';
+    } else if (journey.status === 'GPS_LOW_ACCURACY') {
+      gpsSymbol = 'GPS ○';
+    }
 
     // 2. Check Route Confidence / Status
-    if (journey.confidence < 0.55 || journey.status === 'ROUTE_UNCERTAIN' || !journey.line) {
+    if (journey.confidence < 0.4 || journey.status === 'ROUTE_UNCERTAIN' || !journey.line) {
       return {
         mode: 'UNCERTAIN',
         speedKmh: displaySpeedKmh,
@@ -47,7 +53,7 @@ export class HudRenderer {
       };
     }
 
-    // 3. Normal Tracking Display
+    // 3. Normal Tracking Display (Includes Sensor Fusion Coasting mode)
     const lineName = journey.line.name;
     const dirName = journey.directionName ? ` ${journey.directionName}` : '';
     const lineNameText = `${lineName}${dirName}`;

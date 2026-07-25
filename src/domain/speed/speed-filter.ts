@@ -28,10 +28,13 @@ export class SpeedFilter {
     }
 
     // 3. Stop detection logic
-    if (this.smoothedSpeedKmh < this.config.stopThresholdKmh) {
+    const stopDurationMs = (this.config.stopDurationSec ?? 5.0) * 1000;
+    const stopThresholdKmh = this.config.stopSpeedThresholdKmh ?? 3.0;
+
+    if (this.smoothedSpeedKmh < stopThresholdKmh) {
       if (this.stopStartTimeMs === null) {
         this.stopStartTimeMs = timestampMs;
-      } else if (timestampMs - this.stopStartTimeMs >= this.config.stopDurationMs) {
+      } else if (timestampMs - this.stopStartTimeMs >= stopDurationMs) {
         this.isStopped = true;
         this.smoothedSpeedKmh = 0;
       }
