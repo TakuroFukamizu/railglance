@@ -59,6 +59,114 @@
     ],
     "lengthMeters": 2200
   },
+  {
+    "id": "seg-sagamiono-machida",
+    "lineId": "odakyu-odawara",
+    "fromStationId": "st-sagamiono",
+    "toStationId": "st-machida",
+    "coordinates": [
+      [35.5317, 139.4372],
+      [35.5370, 139.4410],
+      [35.5424, 139.4456]
+    ],
+    "lengthMeters": 1500
+  },
+  {
+    "id": "seg-machida-shinyurigaoka",
+    "lineId": "odakyu-odawara",
+    "fromStationId": "st-machida",
+    "toStationId": "st-shinyurigaoka",
+    "coordinates": [
+      [35.5424, 139.4456],
+      [35.5700, 139.4750],
+      [35.6038, 139.5076]
+    ],
+    "lengthMeters": 8800
+  },
+  {
+    "id": "seg-shinyurigaoka-mukogaokayuen",
+    "lineId": "odakyu-odawara",
+    "fromStationId": "st-shinyurigaoka",
+    "toStationId": "st-mukogaokayuen",
+    "coordinates": [
+      [35.6038, 139.5076],
+      [35.6100, 139.5350],
+      [35.6173, 139.5651]
+    ],
+    "lengthMeters": 5800
+  },
+  {
+    "id": "seg-mukogaokayuen-noborito",
+    "lineId": "odakyu-odawara",
+    "fromStationId": "st-mukogaokayuen",
+    "toStationId": "st-noborito",
+    "coordinates": [
+      [35.6173, 139.5651],
+      [35.6190, 139.5675],
+      [35.6206, 139.5699]
+    ],
+    "lengthMeters": 600
+  },
+  {
+    "id": "seg-noborito-seijogakuenmae",
+    "lineId": "odakyu-odawara",
+    "fromStationId": "st-noborito",
+    "toStationId": "st-seijogakuenmae",
+    "coordinates": [
+      [35.6206, 139.5699],
+      [35.6300, 139.5850],
+      [35.6397, 139.6000]
+    ],
+    "lengthMeters": 3300
+  },
+  {
+    "id": "seg-seijogakuenmae-kyodo",
+    "lineId": "odakyu-odawara",
+    "fromStationId": "st-seijogakuenmae",
+    "toStationId": "st-kyodo",
+    "coordinates": [
+      [35.6397, 139.6000],
+      [35.6460, 139.6180],
+      [35.6521, 139.6366]
+    ],
+    "lengthMeters": 3600
+  },
+  {
+    "id": "seg-kyodo-shimokitazawa",
+    "lineId": "odakyu-odawara",
+    "fromStationId": "st-kyodo",
+    "toStationId": "st-shimokitazawa",
+    "coordinates": [
+      [35.6521, 139.6366],
+      [35.6570, 139.6520],
+      [35.6617, 139.6672]
+    ],
+    "lengthMeters": 3000
+  },
+  {
+    "id": "seg-shimokitazawa-yoyogiuehara",
+    "lineId": "odakyu-odawara",
+    "fromStationId": "st-shimokitazawa",
+    "toStationId": "st-yoyogiuehara",
+    "coordinates": [
+      [35.6617, 139.6672],
+      [35.6650, 139.6730],
+      [35.6691, 139.6796]
+    ],
+    "lengthMeters": 1400
+  },
+  {
+    "id": "seg-yoyogiuehara-shinjuku",
+    "lineId": "odakyu-odawara",
+    "fromStationId": "st-yoyogiuehara",
+    "toStationId": "st-shinjuku",
+    "coordinates": [
+      [35.6691, 139.6796],
+      [35.6790, 139.6900],
+      [35.6896, 139.7005]
+    ],
+    "lengthMeters": 3500
+  },
 
   {
     "id": "seg-shinkansen-tokyo-ueno",

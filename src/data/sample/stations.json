@@ -47,6 +47,78 @@
     "latitude": 35.5317,
     "longitude": 139.4372
   },
+  {
+    "id": "st-machida",
+    "lineId": "odakyu-odawara",
+    "name": "町田",
+    "sequence": 7,
+    "latitude": 35.5424,
+    "longitude": 139.4456
+  },
+  {
+    "id": "st-shinyurigaoka",
+    "lineId": "odakyu-odawara",
+    "name": "新百合ヶ丘",
+    "sequence": 8,
+    "latitude": 35.6038,
+    "longitude": 139.5076
+  },
+  {
+    "id": "st-mukogaokayuen",
+    "lineId": "odakyu-odawara",
+    "name": "向ヶ丘遊園",
+    "sequence": 9,
+    "latitude": 35.6173,
+    "longitude": 139.5651
+  },
+  {
+    "id": "st-noborito",
+    "lineId": "odakyu-odawara",
+    "name": "登戸",
+    "sequence": 10,
+    "latitude": 35.6206,
+    "longitude": 139.5699
+  },
+  {
+    "id": "st-seijogakuenmae",
+    "lineId": "odakyu-odawara",
+    "name": "成城学園前",
+    "sequence": 11,
+    "latitude": 35.6397,
+    "longitude": 139.6000
+  },
+  {
+    "id": "st-kyodo",
+    "lineId": "odakyu-odawara",
+    "name": "経堂",
+    "sequence": 12,
+    "latitude": 35.6521,
+    "longitude": 139.6366
+  },
+  {
+    "id": "st-shimokitazawa",
+    "lineId": "odakyu-odawara",
+    "name": "下北沢",
+    "sequence": 13,
+    "latitude": 35.6617,
+    "longitude": 139.6672
+  },
+  {
+    "id": "st-yoyogiuehara",
+    "lineId": "odakyu-odawara",
+    "name": "代々木上原",
+    "sequence": 14,
+    "latitude": 35.6691,
+    "longitude": 139.6796
+  },
+  {
+    "id": "st-shinjuku",
+    "lineId": "odakyu-odawara",
+    "name": "新宿",
+    "sequence": 15,
+    "latitude": 35.6896,
+    "longitude": 139.7005
+  },
 
   {
     "id": "st-shinkansen-tokyo",
