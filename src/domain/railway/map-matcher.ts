@@ -59,14 +59,19 @@ export class MapMatcher {
     if (this.currentMatch === null) {
       this.currentMatch = topCandidate;
     } else if (topCandidate.segment.id !== this.currentMatch.segment.id) {
-      // Different segment is top candidate
+      const isSameLine = topCandidate.line.id === this.currentMatch.line.id;
+
       if (this.pendingCandidateId === topCandidate.segment.id) {
         this.pendingCount++;
         const duration = sample.timestampMs - this.pendingFirstSeenTimeMs;
 
-        const isConsecutive = this.pendingCount >= this.config.routeSwitchConsecutiveCount;
-        const isTimeMet = duration >= this.config.routeSwitchMinimumMs;
-        const scoreDifferenceSignificant = topCandidate.totalScore - this.currentMatch.totalScore > 15;
+        const isConsecutive = this.pendingCount >= (isSameLine ? 1 : this.config.routeSwitchConsecutiveCount);
+        const isTimeMet = duration >= (isSameLine ? 1000 : this.config.routeSwitchMinimumMs);
+        
+        // For same line adjacent segment transitions, allow switching smoothly
+        const scoreDifferenceSignificant = isSameLine
+          ? topCandidate.distanceMeters < this.currentMatch.distanceMeters || topCandidate.totalScore > this.currentMatch.totalScore - 15
+          : topCandidate.totalScore - this.currentMatch.totalScore > 15;
 
         if ((isConsecutive || isTimeMet) && scoreDifferenceSignificant) {
           this.currentMatch = topCandidate;
@@ -77,6 +82,13 @@ export class MapMatcher {
         this.pendingCandidateId = topCandidate.segment.id;
         this.pendingCount = 1;
         this.pendingFirstSeenTimeMs = sample.timestampMs;
+
+        // Immediate switch for same line if distance to new segment is much closer
+        if (isSameLine && topCandidate.distanceMeters < this.currentMatch.distanceMeters - 20) {
+          this.currentMatch = topCandidate;
+          this.pendingCandidateId = null;
+          this.pendingCount = 0;
+        }
       }
     } else {
       // Top candidate is still current match

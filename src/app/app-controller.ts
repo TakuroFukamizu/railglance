@@ -131,8 +131,11 @@ export class AppController {
     // 3. Multi-source speed estimation & SpeedSelector
     this.currentFullSpeedState = this.speedEstimator.update(sample, trackProgress);
 
-    // 4. Estimate journey state
+    // 4. Estimate journey state & recover status if valid GPS returned
     this.currentJourney = await this.journeyEstimator.update(sample, this.currentMatch, this.currentFullSpeedState);
+    if (this.currentFullSpeedState.isValid && this.currentJourney.status === 'GPS_UNAVAILABLE') {
+      this.currentJourney.status = this.currentMatch ? 'TRACKING' : 'ROUTE_UNCERTAIN';
+    }
   }
 
   private onLocationError(err: GeolocationPositionError): void {
@@ -146,6 +149,8 @@ export class AppController {
     this.currentFullSpeedState = await this.speedEstimator.getEstimateAtAsync(now);
     if (!this.currentFullSpeedState.isValid) {
       this.currentJourney.status = 'GPS_UNAVAILABLE';
+    } else if (this.currentJourney.status === 'GPS_UNAVAILABLE') {
+      this.currentJourney.status = this.currentMatch ? 'TRACKING' : 'ROUTE_UNCERTAIN';
     }
 
     this.currentViewModel = this.hudRenderer.createViewModel(
