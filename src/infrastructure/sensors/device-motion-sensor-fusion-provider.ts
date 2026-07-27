@@ -7,49 +7,98 @@ export class DeviceMotionSensorFusionProvider implements SensorFusionProvider {
   private lastTimestampMs = 0;
   private currentEstimatedSpeedKmh: number | null = null;
   private isStoppedInferred = false;
+  private permissionStatus: 'unknown' | 'granted' | 'denied' | 'unsupported' | 'insecure-context' = 'unknown';
 
   constructor() {
-    this.initSensor();
+    this.checkEnvironmentAndInit();
   }
 
-  public static async requestMotionPermission(): Promise<boolean> {
-    if (typeof window === 'undefined' || !('DeviceMotionEvent' in window)) {
+  /**
+   * Explicitly request DeviceMotion permission. Must be called directly within a user gesture click event.
+   */
+  public async requestPermission(): Promise<boolean> {
+    if (typeof window === 'undefined') return false;
+
+    if (!window.isSecureContext) {
+      this.permissionStatus = 'insecure-context';
+      console.warn('[SensorFusion] DeviceMotion requires a secure context (HTTPS).');
       return false;
     }
+
+    if (!('DeviceMotionEvent' in window)) {
+      this.permissionStatus = 'unsupported';
+      console.warn('[SensorFusion] DeviceMotionEvent is not supported on this browser.');
+      return false;
+    }
+
     try {
       const DeviceMotionEventAny = DeviceMotionEvent as any;
       if (typeof DeviceMotionEventAny.requestPermission === 'function') {
-        const permissionState = await DeviceMotionEventAny.requestPermission();
-        return permissionState === 'granted';
+        const state = await DeviceMotionEventAny.requestPermission();
+        if (state === 'granted') {
+          this.permissionStatus = 'granted';
+          this.startListening();
+          return true;
+        } else {
+          this.permissionStatus = 'denied';
+          return false;
+        }
+      } else {
+        // Non-iOS or standard HTTPS browser
+        this.permissionStatus = 'granted';
+        this.startListening();
+        return true;
       }
-      return true;
     } catch (err) {
-      console.warn('[SensorFusion] Error requesting permission:', err);
+      console.warn('[SensorFusion] Error requesting DeviceMotion permission:', err);
+      this.permissionStatus = 'denied';
       return false;
     }
   }
 
-  private async initSensor(): Promise<void> {
-    if (typeof window === 'undefined' || !('DeviceMotionEvent' in window)) {
-      console.log('[SensorFusion] DeviceMotionEvent is not supported on this device.');
+  private checkEnvironmentAndInit(): void {
+    if (typeof window === 'undefined') return;
+
+    if (!window.isSecureContext) {
+      this.permissionStatus = 'insecure-context';
       return;
     }
+
+    if (!('DeviceMotionEvent' in window)) {
+      this.permissionStatus = 'unsupported';
+      return;
+    }
+
+    // On non-iOS devices (where requestPermission is undefined), auto-start listener
+    const DeviceMotionEventAny = DeviceMotionEvent as any;
+    if (typeof DeviceMotionEventAny.requestPermission !== 'function') {
+      this.permissionStatus = 'granted';
+      this.startListening();
+    }
+  }
+
+  private startListening(): void {
+    if (this.isListening) return;
 
     try {
       window.addEventListener('devicemotion', (event) => this.handleMotionEvent(event), true);
       this.isListening = true;
       console.log('[SensorFusion] DeviceMotion listener activated successfully.');
     } catch (err) {
-      console.warn('[SensorFusion] Error initializing DeviceMotion:', err);
+      console.warn('[SensorFusion] Error attaching devicemotion listener:', err);
     }
   }
 
   private handleMotionEvent(event: DeviceMotionEvent): void {
     const accel = event.acceleration || event.accelerationIncludingGravity;
-    if (!accel || accel.x === null || accel.y === null || accel.z === null) return;
+    if (!accel || (accel.x === null && accel.y === null && accel.z === null)) return;
+
+    const x = accel.x ?? 0;
+    const y = accel.y ?? 0;
+    const z = accel.z ?? 0;
 
     const now = Date.now();
-    const magnitude = Math.sqrt(accel.x * accel.x + accel.y * accel.y + accel.z * accel.z);
+    const magnitude = Math.sqrt(x * x + y * y + z * z);
 
     const alpha = 0.2;
     this.lastAccelMagnitude = alpha * magnitude + (1 - alpha) * this.lastAccelMagnitude;
@@ -80,6 +129,10 @@ export class DeviceMotionSensorFusionProvider implements SensorFusionProvider {
     if (speedKmh !== null && speedKmh >= 0) {
       this.currentEstimatedSpeedKmh = speedKmh;
     }
+  }
+
+  public getPermissionStatus(): string {
+    return this.permissionStatus;
   }
 
   public async estimateSpeed(): Promise<SpeedEstimate> {

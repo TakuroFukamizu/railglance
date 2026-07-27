@@ -68,6 +68,7 @@ const SHINKANSEN_DEMO_POINTS = [
 async function init() {
   const hudTextEl = document.getElementById('hud-text');
   const debugPanel = new DebugPanel('debug-panel');
+  const motionSensorProvider = new DeviceMotionSensorFusionProvider();
 
   const { controller, logger } = await bootstrapApp(undefined, (text) => {
     if (hudTextEl) hudTextEl.textContent = text;
@@ -86,8 +87,18 @@ async function init() {
   });
 
   document.getElementById('btn-request-motion')?.addEventListener('click', async () => {
-    const granted = await DeviceMotionSensorFusionProvider.requestMotionPermission();
-    alert(granted ? 'モーションセンサーを許可しました' : 'モーションセンサーの許可に失敗しました');
+    if (!window.isSecureContext) {
+      alert('【警告】モーションセンサーは HTTPS (Secure Context) 接続が必要です。ngrok や https:// URL でアクセスしてください。');
+      return;
+    }
+
+    const granted = await motionSensorProvider.requestPermission();
+    if (granted) {
+      alert('✓ モーションセンサーの許可・有効化に成功しました！');
+    } else {
+      const status = motionSensorProvider.getPermissionStatus();
+      alert(`モーションセンサーの有効化に失敗しました (理由: ${status})`);
+    }
   });
 
   document.getElementById('btn-replay-odakyu')?.addEventListener('click', () => {
