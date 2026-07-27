@@ -73,14 +73,18 @@ export class JourneyStateEstimator {
     }
 
     const currentSpeedKmh = speedState.smoothedSpeedKmh;
-    if (currentHeading !== null && currentSpeedKmh !== null && currentSpeedKmh >= 3) {
+    if (fromStation && toStation && currentHeading !== null && currentSpeedKmh !== null && currentSpeedKmh >= 3) {
       const diffForward = calculateHeadingDifference(currentHeading, trackBearing);
       const diffBackward = calculateHeadingDifference(currentHeading, (trackBearing + 180) % 360);
 
+      const isIncreasingSeq = fromStation.sequence < toStation.sequence;
+
       if (diffForward < diffBackward && diffForward < 60) {
-        direction = fromStation && toStation && fromStation.sequence > toStation.sequence ? 'UP' : 'DOWN';
+        // Heading matches p1 -> p2 (fromStation to toStation vector)
+        direction = isIncreasingSeq ? 'UP' : 'DOWN';
       } else if (diffBackward < diffForward && diffBackward < 60) {
-        direction = fromStation && toStation && fromStation.sequence > toStation.sequence ? 'DOWN' : 'UP';
+        // Heading matches p2 -> p1 (toStation to fromStation vector)
+        direction = isIncreasingSeq ? 'DOWN' : 'UP';
       }
     }
 
@@ -96,17 +100,17 @@ export class JourneyStateEstimator {
     let distanceToNextStationMeters: number | null = null;
 
     if (fromStation && toStation) {
-      const isFromToDirection =
-        direction === 'DOWN'
-          ? fromStation.sequence < toStation.sequence
-          : fromStation.sequence > toStation.sequence;
+      const isFromToUp = fromStation.sequence < toStation.sequence;
 
-      if (isFromToDirection) {
+      if (direction === 'UP') {
+        previousStation = isFromToUp ? fromStation : toStation;
+        nextStation = isFromToUp ? toStation : fromStation;
+      } else if (direction === 'DOWN') {
+        previousStation = isFromToUp ? toStation : fromStation;
+        nextStation = isFromToUp ? fromStation : toStation;
+      } else {
         previousStation = fromStation;
         nextStation = toStation;
-      } else {
-        previousStation = toStation;
-        nextStation = fromStation;
       }
 
       const polylineRes = findClosestPointOnPolyline(sample.latitude, sample.longitude, selectedSegment.coordinates);
