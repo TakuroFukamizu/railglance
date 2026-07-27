@@ -144,7 +144,8 @@ export class SpeedEstimator {
 
     // 7. Filter selected speed (EMA, outlier rejection, stop detection)
     const rawSpeedKmh = selectedEstimate.speedKmh ?? 0;
-    const { smoothedKmh, isStopped } = this.speedFilter.filter(rawSpeedKmh, timestamp);
+    const isDR = selectedEstimate.source === 'dead-reckoning';
+    const { smoothedKmh, isStopped } = this.speedFilter.filter(rawSpeedKmh, timestamp, isDR);
 
     const candidates: MultiSpeedCandidates = {
       osSpeed: osEstimate,
@@ -197,7 +198,11 @@ export class SpeedEstimator {
     const timeSinceLastGps = currentTimeMs - (this.lastFullState.navState.lastObservationTimestampMs ?? currentTimeMs);
 
     // 2. Dead Reckoning Mode during GPS Pause/Tunnel
-    if (predictedNavState.mode === 'dead-reckoning' || predictedNavState.mode === 'dead-reckoning-low-confidence') {
+    if (
+      timeSinceLastGps > 2000 ||
+      predictedNavState.mode === 'dead-reckoning' ||
+      predictedNavState.mode === 'dead-reckoning-low-confidence'
+    ) {
       const drSpeedKmh = Math.round(predictedNavState.velocityMps * 3.6 * 10) / 10;
       const drEstimate: SpeedEstimate = {
         speedKmh: drSpeedKmh,
@@ -207,13 +212,13 @@ export class SpeedEstimator {
         estimated: true,
       };
 
-      const { smoothedKmh, isStopped } = this.speedFilter.filter(drSpeedKmh, currentTimeMs);
+      const { smoothedKmh, isStopped } = this.speedFilter.filter(drSpeedKmh, currentTimeMs, true);
       return {
         ...this.lastFullState,
         selectedEstimate: drEstimate,
         smoothedSpeedKmh: smoothedKmh,
         isStopped,
-        isValid: true,
+        isValid: (predictedNavState.mode as string) !== 'lost',
         navState: predictedNavState,
       };
     }

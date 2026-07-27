@@ -10,7 +10,11 @@ export class SpeedFilter {
   /**
    * Applies Exponential Moving Average (EMA) and outlier filtering to raw speed in km/h.
    */
-  public filter(rawSpeedKmh: number, timestampMs: number): { smoothedKmh: number; isStopped: boolean } {
+  public filter(
+    rawSpeedKmh: number,
+    timestampMs: number,
+    isDeadReckoning = false
+  ): { smoothedKmh: number; isStopped: boolean } {
     // 1. Outlier filter
     if (rawSpeedKmh < 0 || rawSpeedKmh > this.config.maxSpeedKmh) {
       return {
@@ -23,8 +27,8 @@ export class SpeedFilter {
     if (this.smoothedSpeedKmh === null) {
       this.smoothedSpeedKmh = rawSpeedKmh;
     } else {
-      this.smoothedSpeedKmh =
-        this.config.emaAlpha * rawSpeedKmh + (1 - this.config.emaAlpha) * this.smoothedSpeedKmh;
+      const alpha = isDeadReckoning ? 0.1 : this.config.emaAlpha;
+      this.smoothedSpeedKmh = alpha * rawSpeedKmh + (1 - alpha) * this.smoothedSpeedKmh;
     }
 
     // 3. Stop detection logic
@@ -34,7 +38,7 @@ export class SpeedFilter {
     if (this.smoothedSpeedKmh < stopThresholdKmh) {
       if (this.stopStartTimeMs === null) {
         this.stopStartTimeMs = timestampMs;
-      } else if (timestampMs - this.stopStartTimeMs >= stopDurationMs) {
+      } else if (timestampMs - this.stopStartTimeMs >= stopDurationMs && !isDeadReckoning) {
         this.isStopped = true;
         this.smoothedSpeedKmh = 0;
       }

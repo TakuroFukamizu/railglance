@@ -19,6 +19,7 @@ export class NavigationStateEstimator {
   private accelerationDecaySec = 5.0; // Acceleration decay time constant
   private maxTrainSpeedMps = 111.11;  // ~400 km/h
   private reacquiringFramesLeft = 0;
+  private lastKnownValidVelocityMps = 0;
 
   constructor(private config: TrackingConfig) {
     const now = Date.now();
@@ -48,8 +49,35 @@ export class NavigationStateEstimator {
     const dt = Math.max(0, (nowMs - this.navState.lastPredictionTimestampMs) / 1000);
     this.navState.lastPredictionTimestampMs = nowMs;
 
-    // 1. Velocity and position prediction with acceleration decay
-    if (dt > 0 && (this.navState.velocityMps > 0 || this.navState.accelerationMps2 !== 0)) {
+    const gpsAgeMs = this.navState.lastObservationTimestampMs !== null
+      ? Math.max(0, nowMs - this.navState.lastObservationTimestampMs)
+      : Infinity;
+
+    // 1. Dead reckoning velocity prediction & coasting hold logic (Requirements Sec 5.4)
+    if (gpsAgeMs > 2000 && this.lastKnownValidVelocityMps > 0) {
+      const gpsAgeSec = gpsAgeMs / 1000;
+      let targetVelocity = this.lastKnownValidVelocityMps;
+
+      if (gpsAgeSec <= 3) {
+        // 0-3s: Maintain previous acceleration and velocity
+        targetVelocity += this.navState.accelerationMps2 * dt;
+      } else if (gpsAgeSec <= 15) {
+        // 3-15s: Hold cruising speed (steady state)
+        targetVelocity = this.lastKnownValidVelocityMps;
+      } else if (gpsAgeSec <= 45) {
+        // 15-45s: Slow realistic train drag deceleration (~0.1 m/s^2)
+        const dragSec = gpsAgeSec - 15;
+        targetVelocity = Math.max(0, this.lastKnownValidVelocityMps - 0.1 * dragSec);
+      } else {
+        targetVelocity = 0;
+      }
+
+      this.navState.velocityMps = Math.max(0, Math.min(this.maxTrainSpeedMps, targetVelocity));
+
+      if (dt > 0 && this.navState.trackPositionMeters !== null) {
+        this.navState.trackPositionMeters += this.navState.velocityMps * dt;
+      }
+    } else if (dt > 0 && (this.navState.velocityMps > 0 || this.navState.accelerationMps2 !== 0)) {
       const v = this.navState.velocityMps;
       const a = this.navState.accelerationMps2;
 
@@ -72,10 +100,6 @@ export class NavigationStateEstimator {
     }
 
     // 2. Navigation Mode state machine based on GPS Age
-    const gpsAgeMs = this.navState.lastObservationTimestampMs !== null
-      ? Math.max(0, nowMs - this.navState.lastObservationTimestampMs)
-      : Infinity;
-
     this.updateNavigationMode(gpsAgeMs);
 
     return this.navState;
@@ -140,6 +164,10 @@ export class NavigationStateEstimator {
       }
     }
 
+    if (!isLowAccuracy && this.navState.velocityMps > 0) {
+      this.lastKnownValidVelocityMps = this.navState.velocityMps;
+    }
+
     this.navState.lastObservationTimestampMs = nowMs;
     this.navState.lastPredictionTimestampMs = nowMs;
 
@@ -198,6 +226,7 @@ export class NavigationStateEstimator {
     console.log(`[NavigationStateEstimator] Resetting state (reason: ${reason})`);
     const now = Date.now();
     this.reacquiringFramesLeft = 0;
+    this.lastKnownValidVelocityMps = 0;
     this.navState = {
       lineId: null,
       routeId: null,
