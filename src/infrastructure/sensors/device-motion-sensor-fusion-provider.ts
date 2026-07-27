@@ -3,6 +3,7 @@ import { SpeedEstimate } from '../../domain/models/location';
 
 export class DeviceMotionSensorFusionProvider implements SensorFusionProvider {
   private isListening = false;
+  private hasReceivedEvent = false;
   private lastAccelMagnitude = 0;
   private lastTimestampMs = 0;
   private currentEstimatedSpeedKmh: number | null = null;
@@ -10,24 +11,20 @@ export class DeviceMotionSensorFusionProvider implements SensorFusionProvider {
   private permissionStatus: 'unknown' | 'granted' | 'denied' | 'unsupported' | 'insecure-context' = 'unknown';
 
   constructor() {
-    this.checkEnvironmentAndInit();
+    this.startListening();
   }
 
   /**
-   * Explicitly request DeviceMotion permission. Must be called directly within a user gesture click event.
+   * Request DeviceMotion permission and ensure event listener is attached.
    */
   public async requestPermission(): Promise<boolean> {
     if (typeof window === 'undefined') return false;
 
-    if (!window.isSecureContext) {
-      this.permissionStatus = 'insecure-context';
-      console.warn('[SensorFusion] DeviceMotion requires a secure context (HTTPS).');
-      return false;
-    }
+    // Attach listener immediately regardless of OS permission callback status
+    this.startListening();
 
     if (!('DeviceMotionEvent' in window)) {
       this.permissionStatus = 'unsupported';
-      console.warn('[SensorFusion] DeviceMotionEvent is not supported on this browser.');
       return false;
     }
 
@@ -35,55 +32,45 @@ export class DeviceMotionSensorFusionProvider implements SensorFusionProvider {
       const DeviceMotionEventAny = DeviceMotionEvent as any;
       if (typeof DeviceMotionEventAny.requestPermission === 'function') {
         const state = await DeviceMotionEventAny.requestPermission();
+        console.log('[SensorFusion] DeviceMotionEvent.requestPermission returned:', state);
+
         if (state === 'granted') {
           this.permissionStatus = 'granted';
-          this.startListening();
           return true;
         } else {
+          // If iOS returns 'denied' or prompt already accepted in WebView, check if actual events arrive
+          await new Promise((res) => setTimeout(res, 250));
+          if (this.hasReceivedEvent) {
+            console.log('[SensorFusion] Active devicemotion events received despite permission callback result!');
+            this.permissionStatus = 'granted';
+            return true;
+          }
           this.permissionStatus = 'denied';
-          return false;
+          return this.hasReceivedEvent;
         }
       } else {
-        // Non-iOS or standard HTTPS browser
         this.permissionStatus = 'granted';
-        this.startListening();
         return true;
       }
     } catch (err) {
-      console.warn('[SensorFusion] Error requesting DeviceMotion permission:', err);
-      this.permissionStatus = 'denied';
+      console.warn('[SensorFusion] Exception during requestPermission:', err);
+      // Fallback check if events arrive anyway
+      await new Promise((res) => setTimeout(res, 200));
+      if (this.hasReceivedEvent) {
+        this.permissionStatus = 'granted';
+        return true;
+      }
       return false;
     }
   }
 
-  private checkEnvironmentAndInit(): void {
-    if (typeof window === 'undefined') return;
-
-    if (!window.isSecureContext) {
-      this.permissionStatus = 'insecure-context';
-      return;
-    }
-
-    if (!('DeviceMotionEvent' in window)) {
-      this.permissionStatus = 'unsupported';
-      return;
-    }
-
-    // On non-iOS devices (where requestPermission is undefined), auto-start listener
-    const DeviceMotionEventAny = DeviceMotionEvent as any;
-    if (typeof DeviceMotionEventAny.requestPermission !== 'function') {
-      this.permissionStatus = 'granted';
-      this.startListening();
-    }
-  }
-
   private startListening(): void {
-    if (this.isListening) return;
+    if (this.isListening || typeof window === 'undefined') return;
 
     try {
       window.addEventListener('devicemotion', (event) => this.handleMotionEvent(event), true);
       this.isListening = true;
-      console.log('[SensorFusion] DeviceMotion listener activated successfully.');
+      console.log('[SensorFusion] DeviceMotion event listener attached.');
     } catch (err) {
       console.warn('[SensorFusion] Error attaching devicemotion listener:', err);
     }
@@ -92,6 +79,11 @@ export class DeviceMotionSensorFusionProvider implements SensorFusionProvider {
   private handleMotionEvent(event: DeviceMotionEvent): void {
     const accel = event.acceleration || event.accelerationIncludingGravity;
     if (!accel || (accel.x === null && accel.y === null && accel.z === null)) return;
+
+    this.hasReceivedEvent = true;
+    if (this.permissionStatus !== 'granted') {
+      this.permissionStatus = 'granted';
+    }
 
     const x = accel.x ?? 0;
     const y = accel.y ?? 0;
@@ -138,7 +130,7 @@ export class DeviceMotionSensorFusionProvider implements SensorFusionProvider {
   public async estimateSpeed(): Promise<SpeedEstimate> {
     const now = Date.now();
 
-    if (!this.isListening || this.currentEstimatedSpeedKmh === null) {
+    if (!this.hasReceivedEvent || this.currentEstimatedSpeedKmh === null) {
       return {
         speedKmh: null,
         confidence: 0.0,

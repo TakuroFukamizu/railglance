@@ -87,17 +87,12 @@ async function init() {
   });
 
   document.getElementById('btn-request-motion')?.addEventListener('click', async () => {
-    if (!window.isSecureContext) {
-      alert('【警告】モーションセンサーは HTTPS (Secure Context) 接続が必要です。ngrok や https:// URL でアクセスしてください。');
-      return;
-    }
-
-    const granted = await motionSensorProvider.requestPermission();
-    if (granted) {
-      alert('✓ モーションセンサーの許可・有効化に成功しました！');
+    const isGranted = await motionSensorProvider.requestPermission();
+    if (isGranted) {
+      alert('✓ モーションセンサー有効化完了！（加速度データを受信中）');
     } else {
       const status = motionSensorProvider.getPermissionStatus();
-      alert(`モーションセンサーの有効化に失敗しました (理由: ${status})`);
+      alert(`モーションセンサー有効化状態: ${status}\n（一度OKを押された場合、バックグラウンドで自動的にセンサーデータを受信している可能性があります）`);
     }
   });
 
