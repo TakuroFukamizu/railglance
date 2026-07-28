@@ -4,7 +4,7 @@ export class CanvasHudRenderer {
   private canvas: HTMLCanvasElement;
   private ctx: CanvasRenderingContext2D;
 
-  constructor(private width = 576, private height = 288) {
+  constructor(private width = 288, private height = 144) {
     if (typeof document !== 'undefined') {
       this.canvas = document.createElement('canvas');
       this.canvas.width = width;
@@ -33,128 +33,121 @@ export class CanvasHudRenderer {
 
     this.ctx.textBaseline = 'alphabetic';
 
-    // 3. HEADER Region (Y: 12 to 46)
-    // Left: Line Name (24px Bold)
-    this.ctx.font = 'bold 24px -apple-system, BlinkMacSystemFont, sans-serif';
+    // 3. HEADER Region (Y: 16)
+    // Left: Line Name (13px Bold)
+    this.ctx.font = 'bold 13px -apple-system, BlinkMacSystemFont, sans-serif';
     this.ctx.fillStyle = COLOR_SECONDARY;
     this.ctx.textAlign = 'left';
-    this.ctx.fillText(header.lineName, 24, 34);
+    this.ctx.fillText(header.lineName, 10, 16);
 
-    // Right: Service / Direction (20px Bold)
-    this.ctx.font = 'bold 20px -apple-system, BlinkMacSystemFont, sans-serif';
+    // Right: Service / Direction (12px Bold)
+    this.ctx.font = 'bold 12px -apple-system, BlinkMacSystemFont, sans-serif';
     this.ctx.textAlign = 'right';
-    this.ctx.fillText(header.serviceOrDirection, 552, 34);
+    this.ctx.fillText(header.serviceOrDirection, 278, 16);
 
-    // 4. SPEED Region (Y: 50 to 160)
+    // 4. SPEED Region (Y: 70)
     if (statusMode === 'LOST') {
-      this.ctx.font = 'bold 104px -apple-system, BlinkMacSystemFont, monospace';
+      this.ctx.font = 'bold 56px -apple-system, BlinkMacSystemFont, monospace';
       this.ctx.fillStyle = COLOR_DISABLED;
       this.ctx.textAlign = 'center';
-      this.ctx.fillText('--', 260, 135);
+      this.ctx.fillText('--', 130, 70);
 
-      this.ctx.font = 'bold 24px -apple-system, BlinkMacSystemFont, sans-serif';
+      this.ctx.font = 'bold 14px -apple-system, BlinkMacSystemFont, sans-serif';
       this.ctx.fillStyle = COLOR_TERTIARY;
-      this.ctx.fillText('km/h', 370, 135);
+      this.ctx.fillText('km/h', 190, 70);
     } else {
-      // Huge Speed Number (104px Bold Tabular Nums)
-      this.ctx.font = 'bold 104px -apple-system, BlinkMacSystemFont, monospace';
+      // Huge Speed Number (56px Bold Tabular Nums)
+      this.ctx.font = 'bold 56px -apple-system, BlinkMacSystemFont, monospace';
       this.ctx.fillStyle = COLOR_PRIMARY;
       this.ctx.textAlign = 'center';
 
       const speedStr = speed.displaySpeedKmhText;
-      const speedX = 260;
-      this.ctx.fillText(speedStr, speedX, 135);
+      const speedX = 130;
+      this.ctx.fillText(speedStr, speedX, 70);
 
-      // Speed Unit 'km/h' (24px)
-      this.ctx.font = 'bold 24px -apple-system, BlinkMacSystemFont, sans-serif';
+      // Speed Unit 'km/h' (14px)
+      this.ctx.font = 'bold 14px -apple-system, BlinkMacSystemFont, sans-serif';
       this.ctx.fillStyle = COLOR_TERTIARY;
       this.ctx.textAlign = 'left';
       const textMetrics = this.ctx.measureText(speedStr);
-      const unitX = Math.min(480, speedX + textMetrics.width / 2 + 12);
-      this.ctx.fillText('km/h', unitX, 135);
+      const unitX = Math.min(230, speedX + textMetrics.width / 2 + 6);
+      this.ctx.fillText('km/h', unitX, 70);
 
-      // Estimated Mark '~' (28px)
+      // Estimated Mark '~' (16px)
       if (speed.isEstimated) {
-        this.ctx.font = 'bold 28px -apple-system, BlinkMacSystemFont, sans-serif';
+        this.ctx.font = 'bold 16px -apple-system, BlinkMacSystemFont, sans-serif';
         this.ctx.fillStyle = COLOR_TERTIARY;
-        this.ctx.fillText('~', unitX + 60, 135);
+        this.ctx.fillText('~', unitX + 36, 70);
       }
     }
 
-    // 5. SEGMENT Region (Y: 168 to 238)
-    // Row 1: Previous & Next Station Names (24px)
-    this.ctx.font = 'bold 24px -apple-system, BlinkMacSystemFont, sans-serif';
+    // 5. SEGMENT Region (Y: 96 to 120)
+    // Row 1: Previous & Next Station Names (13px)
+    this.ctx.font = 'bold 13px -apple-system, BlinkMacSystemFont, sans-serif';
 
-    // Previous Station (Left, Secondary Color)
+    // Previous Station (Left)
     this.ctx.fillStyle = COLOR_SECONDARY;
     this.ctx.textAlign = 'left';
-    this.ctx.fillText(segment.previousStationName, 24, 190);
+    this.ctx.fillText(segment.previousStationName, 10, 96);
 
-    // Next Station (Right, Primary Color)
+    // Next Station (Right)
     this.ctx.fillStyle = COLOR_PRIMARY;
     this.ctx.textAlign = 'right';
-    this.ctx.fillText(segment.nextStationName, 552, 190);
+    this.ctx.fillText(segment.nextStationName, 278, 96);
 
-    // Row 2: Progress Bar (Y: 202, Height: 6px, Dot: 12x12px)
-    const barX = 24;
-    const barY = 202;
-    const barW = 528;
-    const barH = 6;
+    // Row 2: Progress Bar (Y: 102, Height: 4px, Dot: 8x8px)
+    const barX = 10;
+    const barY = 102;
+    const barW = 268;
+    const barH = 4;
 
-    // Track Background (Disabled Color)
     this.ctx.fillStyle = COLOR_DISABLED;
     this.ctx.beginPath();
-    this.ctx.roundRect ? this.ctx.roundRect(barX, barY, barW, barH, 3) : this.ctx.rect(barX, barY, barW, barH);
+    this.ctx.rect(barX, barY, barW, barH);
     this.ctx.fill();
 
     if (segment.progressRatio !== null) {
       const clampedRatio = Math.max(0, Math.min(1, segment.progressRatio));
-      const fillW = Math.max(6, barW * clampedRatio);
+      const fillW = Math.max(4, barW * clampedRatio);
 
-      // Progress Fill (Secondary Color)
       this.ctx.fillStyle = COLOR_SECONDARY;
       this.ctx.beginPath();
-      this.ctx.roundRect ? this.ctx.roundRect(barX, barY, fillW, barH, 3) : this.ctx.rect(barX, barY, fillW, barH);
+      this.ctx.rect(barX, barY, fillW, barH);
       this.ctx.fill();
 
-      // Dot Marker (12x12 Circle, Primary Color)
       const dotX = barX + barW * clampedRatio;
       const dotY = barY + barH / 2;
       this.ctx.fillStyle = COLOR_PRIMARY;
       this.ctx.beginPath();
-      this.ctx.arc(dotX, dotY, 6, 0, Math.PI * 2);
+      this.ctx.arc(dotX, dotY, 4, 0, Math.PI * 2);
       this.ctx.fill();
     }
 
-    // Row 3: Segment Info Row (18px)
-    this.ctx.font = '500 18px -apple-system, BlinkMacSystemFont, sans-serif';
+    // Row 3: Segment Info Row (10px)
+    this.ctx.font = '500 10px -apple-system, BlinkMacSystemFont, sans-serif';
     this.ctx.fillStyle = COLOR_TERTIARY;
 
-    // Left Info (e.g. "区間標準")
     this.ctx.textAlign = 'left';
-    this.ctx.fillText(segment.segmentMaxSpeedText ?? '区間標準', 24, 230);
+    this.ctx.fillText(segment.segmentMaxSpeedText ?? '区間標準', 10, 118);
 
-    // Right Info (e.g. "次まで 4.2km")
     this.ctx.textAlign = 'right';
-    this.ctx.fillText(segment.distanceToNextText, 552, 230);
+    this.ctx.fillText(segment.distanceToNextText, 278, 118);
 
-    // 6. FOOTER Region (Y: 244 to 272) (18px)
-    this.ctx.font = '500 18px -apple-system, BlinkMacSystemFont, sans-serif';
+    // 6. FOOTER Region (Y: 136) (10px)
+    this.ctx.font = '500 10px -apple-system, BlinkMacSystemFont, sans-serif';
     this.ctx.fillStyle = COLOR_TERTIARY;
 
-    // Left Footer
     this.ctx.textAlign = 'left';
-    this.ctx.fillText(footer.leftInfo, 24, 268);
+    this.ctx.fillText(footer.leftInfo, 10, 136);
 
-    // Right Status
     this.ctx.textAlign = 'right';
-    this.ctx.fillText(footer.statusRight, 552, 268);
+    this.ctx.fillText(footer.statusRight, 278, 136);
 
     return this.canvas;
   }
 
   /**
-   * Converts Canvas RGBA pixel data to Even G2 1bpp / Gray4 bitmap raw byte array
+   * Converts Canvas RGBA pixel data to Even G2 Gray4 bitmap raw byte array (288 x 144)
    */
   public getGray4BitmapBytes(): Uint8Array {
     if (!this.ctx) return new Uint8Array(0);
@@ -162,20 +155,17 @@ export class CanvasHudRenderer {
     const imgData = this.ctx.getImageData(0, 0, this.width, this.height);
     const pixels = imgData.data;
 
-    // Even G2 Image raw data encoding (576 x 288)
     // 2-bit per pixel Gray4 encoding: 4 pixels per byte
     const totalBytes = (this.width * this.height) / 4;
     const output = new Uint8Array(totalBytes);
 
     let outIdx = 0;
     for (let i = 0; i < pixels.length; i += 16) {
-      // Read 4 consecutive pixels (R component used for green brightness)
       const p0 = pixels[i] >> 6;       // 0 ~ 3
       const p1 = pixels[i + 4] >> 6;
       const p2 = pixels[i + 8] >> 6;
       const p3 = pixels[i + 12] >> 6;
 
-      // Pack 4 pixels into 1 byte (2 bits each)
       output[outIdx++] = (p0 << 6) | (p1 << 4) | (p2 << 2) | p3;
     }
 
