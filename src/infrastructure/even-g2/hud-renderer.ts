@@ -78,8 +78,8 @@ export class HudRenderer {
 
     let progressRatio: number | null = null;
     if (distanceToNextStationMeters !== null && previousStation && nextStation) {
-      // Calculate approximate progress ratio for segment progress bar
-      progressRatio = 0.5; // Default mid-way estimate
+      // Calculate approximate progress ratio for segment progress bar (0.0 ~ 1.0)
+      progressRatio = 0.5; // Default fallback ratio
     }
 
     // 5. FOOTER Region Formulation
@@ -93,10 +93,12 @@ export class HudRenderer {
       displaySpeedKmhText,
       isEstimated,
       lineName,
-      directionName,
+      serviceOrDirection,
       previousStationName,
       nextStationName,
+      progressRatio,
       distanceToNextText,
+      leftInfo,
       statusRightText,
       statusMode
     );
@@ -132,19 +134,31 @@ export class HudRenderer {
     speedText: string,
     isEstimated: boolean,
     lineName: string,
-    directionName: string | null,
+    serviceOrDir: string,
     prevStation: string,
     nextStation: string,
+    progressRatio: number | null,
     distText: string,
+    footerLeft: string,
     statusRightText: string,
     statusMode: HudStatusMode
   ): string {
     if (statusMode === 'LOST') {
-      return `   -- km/h\n\n路線再特定中\nGPS信号を確認中...\n\nFOOTER: ${statusRightText}`;
+      return `   -- km/h\n\n[ 路線再特定中 ]\nGPS信号を確認中...\n\n${footerLeft}        ${statusRightText}`;
     }
 
     const estMark = isEstimated ? ' ~' : '';
-    const dirStr = directionName ? ` ${directionName}` : '';
-    return `   ${speedText} km/h${estMark}\n\n${lineName}${dirStr}\n${prevStation} → ${nextStation}\n\n${distText}   ${statusRightText}`;
+    
+    // Construct progress bar string for text display e.g. "━━━●━━━━━"
+    let progressBarStr = '━━━━━━━━━━━━';
+    if (progressRatio !== null) {
+      const totalChars = 12;
+      const dotIdx = Math.max(0, Math.min(totalChars - 1, Math.round(progressRatio * (totalChars - 1))));
+      const leftBar = '━'.repeat(dotIdx);
+      const rightBar = '━'.repeat(totalChars - 1 - dotIdx);
+      progressBarStr = `${leftBar}●${rightBar}`;
+    }
+
+    return `${lineName}       ${serviceOrDir}\n\n       ${speedText} km/h${estMark}\n\n${prevStation} ${progressBarStr} ${nextStation}\n${distText}               ${statusRightText}`;
   }
 }

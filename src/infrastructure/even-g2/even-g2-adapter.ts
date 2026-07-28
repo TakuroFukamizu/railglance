@@ -41,7 +41,7 @@ export class HybridEvenG2Adapter implements EvenG2Adapter {
           paddingLength: 4,
           containerID: 1,
           containerName: 'main',
-          content: 'RailGlance Train HUD\nReady',
+          content: 'RailGlance Train HUD\nReadying 576x288 Layout...',
           isEventCapture: 1,
         });
 
