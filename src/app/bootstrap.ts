@@ -16,7 +16,7 @@ export type AppBootstrapResult = {
 
 export async function bootstrapApp(
   customLocationProvider?: LocationProvider,
-  onHudRender?: (formattedText: string, model: HudViewModel) => void
+  onHudRender?: (formattedText: string, model: HudViewModel, canvas?: HTMLCanvasElement | null) => void
 ): Promise<AppBootstrapResult> {
   const db = new DexieRailwayDatabase();
   await db.initialize();

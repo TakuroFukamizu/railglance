@@ -1,10 +1,13 @@
 import {
   waitForEvenAppBridge,
+  ImageContainerProperty,
+  ImageRawDataUpdate,
   TextContainerProperty,
   TextContainerUpgrade,
   CreateStartUpPageContainer,
 } from '@evenrealities/even_hub_sdk';
 import { HudViewModel } from '../../domain/models/hud';
+import { CanvasHudRenderer } from './canvas-hud-renderer';
 
 export interface EvenG2Adapter {
   connect(): Promise<boolean>;
@@ -13,11 +16,12 @@ export interface EvenG2Adapter {
 }
 
 export class HybridEvenG2Adapter implements EvenG2Adapter {
-  private onRenderCallback?: (formattedText: string, model: HudViewModel) => void;
+  private canvasRenderer = new CanvasHudRenderer(576, 288);
+  private onRenderCallback?: (formattedText: string, model: HudViewModel, canvas?: HTMLCanvasElement | null) => void;
   private bridge: any = null;
   private isConnected = false;
 
-  constructor(onRender?: (formattedText: string, model: HudViewModel) => void) {
+  constructor(onRender?: (formattedText: string, model: HudViewModel, canvas?: HTMLCanvasElement | null) => void) {
     this.onRenderCallback = onRender;
   }
 
@@ -30,73 +34,42 @@ export class HybridEvenG2Adapter implements EvenG2Adapter {
 
       if (this.bridge) {
         this.isConnected = true;
-        // Create 4 distinct Text Containers corresponding to the 4 HUD regions (Header, Speed, Segment, Footer)
-        const headerContainer = new TextContainerProperty({
-          xPosition: 24,
-          yPosition: 12,
-          width: 528,
-          height: 34,
-          borderWidth: 0,
-          borderColor: 0,
-          paddingLength: 0,
+
+        // Create Image Container (576x288 / 288x144 max viewport) for full graphic rendering
+        const imageContainer = new ImageContainerProperty({
+          xPosition: 0,
+          yPosition: 0,
+          width: 288,
+          height: 144,
           containerID: 1,
-          containerName: 'header',
-          content: '小田急小田原線               上り',
-          isEventCapture: 0,
+          containerName: 'main_img',
         });
 
-        const speedContainer = new TextContainerProperty({
-          xPosition: 24,
-          yPosition: 50,
-          width: 528,
-          height: 110,
+        const textContainer = new TextContainerProperty({
+          xPosition: 0,
+          yPosition: 0,
+          width: 576,
+          height: 288,
           borderWidth: 0,
           borderColor: 0,
           paddingLength: 0,
           containerID: 2,
-          containerName: 'speed',
-          content: '       -- km/h',
-          isEventCapture: 0,
-        });
-
-        const segmentContainer = new TextContainerProperty({
-          xPosition: 24,
-          yPosition: 168,
-          width: 528,
-          height: 70,
-          borderWidth: 0,
-          borderColor: 0,
-          paddingLength: 0,
-          containerID: 3,
-          containerName: 'segment',
-          content: '前駅不明 ━━━━━━●━━━━━━ 次駅推定中\n次まで --',
-          isEventCapture: 0,
-        });
-
-        const footerContainer = new TextContainerProperty({
-          xPosition: 24,
-          yPosition: 244,
-          width: 528,
-          height: 28,
-          borderWidth: 0,
-          borderColor: 0,
-          paddingLength: 0,
-          containerID: 4,
-          containerName: 'footer',
-          content: '走行中                     GPS',
+          containerName: 'main_txt',
+          content: 'RailGlance Train HUD\nReady',
           isEventCapture: 0,
         });
 
         try {
           const result = await this.bridge.createStartUpPageContainer(
             new CreateStartUpPageContainer({
-              containerTotalNum: 4,
-              textObject: [headerContainer, speedContainer, segmentContainer, footerContainer],
+              containerTotalNum: 2,
+              imageObject: [imageContainer],
+              textObject: [textContainer],
             })
           );
-          console.log('[EvenG2Adapter] createStartUpPageContainer result (4 containers):', result);
+          console.log('[EvenG2Adapter] createStartUpPageContainer result (Image & Text containers):', result);
         } catch (cErr) {
-          console.log('[EvenG2Adapter] Containers may already exist, proceeding to upgrade text:', cErr);
+          console.log('[EvenG2Adapter] Container creation notice:', cErr);
         }
       }
     } catch (err) {
@@ -107,41 +80,44 @@ export class HybridEvenG2Adapter implements EvenG2Adapter {
 
   public async render(model: HudViewModel): Promise<void> {
     const formattedText = model.rawFormattedText;
+    const canvas = this.canvasRenderer.renderToCanvas(model);
 
-    // Formulate regional content for the 4 containers
-    const headerText = `${model.header.lineName}               ${model.header.serviceOrDirection}`;
-    const estMark = model.speed.isEstimated ? ' ~' : '';
-    const speedText = `       ${model.speed.displaySpeedKmhText} km/h${estMark}`;
-
-    let progressBarStr = '━━━━━━━━━━━━';
-    if (model.segment.progressRatio !== null) {
-      const totalChars = 12;
-      const dotIdx = Math.max(0, Math.min(totalChars - 1, Math.round(model.segment.progressRatio * (totalChars - 1))));
-      const leftBar = '━'.repeat(dotIdx);
-      const rightBar = '━'.repeat(totalChars - 1 - dotIdx);
-      progressBarStr = `${leftBar}●${rightBar}`;
-    }
-    const segmentText = `${model.segment.previousStationName} ${progressBarStr} ${model.segment.nextStationName}\n${model.segment.distanceToNextText}`;
-    const footerText = `${model.footer.leftInfo}                     ${model.footer.statusRight}`;
-
-    // Upgrade all 4 text containers on Even G2 glasses display
-    if (this.bridge && this.isConnected) {
+    // 1. Render Graphic Image to Even G2 Glasses if bridge is connected
+    if (this.bridge && this.isConnected && canvas) {
       try {
-        await Promise.all([
-          this.bridge.textContainerUpgrade(new TextContainerUpgrade({ containerID: 1, containerName: 'header', content: headerText })),
-          this.bridge.textContainerUpgrade(new TextContainerUpgrade({ containerID: 2, containerName: 'speed', content: speedText })),
-          this.bridge.textContainerUpgrade(new TextContainerUpgrade({ containerID: 3, containerName: 'segment', content: segmentText })),
-          this.bridge.textContainerUpgrade(new TextContainerUpgrade({ containerID: 4, containerName: 'footer', content: footerText })),
-        ]);
-      } catch (err) {
-        console.warn('[EvenG2Adapter] Error upgrading 4 text containers:', err);
+        const rawBytes = this.canvasRenderer.getGray4BitmapBytes();
+
+        if (typeof this.bridge.updateImageRawData === 'function') {
+          await this.bridge.updateImageRawData(
+            new ImageRawDataUpdate({
+              containerID: 1,
+              containerName: 'main_img',
+              imageData: Array.from(rawBytes),
+            })
+          );
+        }
+      } catch (imgErr) {
+        console.warn('[EvenG2Adapter] Image update notice, falling back to text upgrade:', imgErr);
+      }
+
+      // Fallback text upgrade for text-only bridge mode
+      try {
+        await this.bridge.textContainerUpgrade(
+          new TextContainerUpgrade({
+            containerID: 2,
+            containerName: 'main_txt',
+            content: formattedText,
+          })
+        );
+      } catch (txtErr) {
+        // Ignore fallback notice
       }
     }
 
-    // Console and Web Preview Output
+    // 2. Console and Web Preview Output
     console.log('[EvenG2 HUD Output]:\n' + formattedText);
     if (this.onRenderCallback) {
-      this.onRenderCallback(formattedText, model);
+      this.onRenderCallback(formattedText, model, canvas);
     }
   }
 
