@@ -4,6 +4,7 @@ import { DebugPanel } from './ui/debug-panel';
 import { LocationSample } from './domain/models/location';
 import { LocationProvider, BrowserLocationProvider } from './infrastructure/geolocation/browser-location-provider';
 import { DeviceMotionSensorFusionProvider } from './infrastructure/sensors/device-motion-sensor-fusion-provider';
+import { HudViewModel } from './domain/models/hud';
 
 class DemoGpsReplayerProvider implements LocationProvider {
   private listener: ((sample: LocationSample) => void) | null = null;
@@ -65,13 +66,53 @@ const SHINKANSEN_DEMO_POINTS = [
   { lat: 38.2601, lon: 140.8824, speedKmh: 0, heading: 35 },   // Sendai Station
 ];
 
+function updateViewportDOM(model: HudViewModel): void {
+  const lineNameEl = document.getElementById('hud-line-name');
+  const serviceEl = document.getElementById('hud-service');
+  const speedValEl = document.getElementById('hud-speed-val');
+  const speedEstEl = document.getElementById('hud-speed-est');
+  const prevStationEl = document.getElementById('hud-prev-station');
+  const nextStationEl = document.getElementById('hud-next-station');
+  const fillEl = document.getElementById('hud-progress-fill');
+  const dotEl = document.getElementById('hud-progress-dot');
+  const distNextEl = document.getElementById('hud-dist-next');
+  const footerLeftEl = document.getElementById('hud-footer-left');
+  const footerRightEl = document.getElementById('hud-footer-right');
+
+  if (lineNameEl) lineNameEl.textContent = model.header.lineName;
+  if (serviceEl) serviceEl.textContent = model.header.serviceOrDirection;
+  if (speedValEl) speedValEl.textContent = model.speed.displaySpeedKmhText;
+  if (speedEstEl) speedEstEl.style.display = model.speed.isEstimated ? 'inline' : 'none';
+
+  if (prevStationEl) prevStationEl.textContent = model.segment.previousStationName;
+  if (nextStationEl) nextStationEl.textContent = model.segment.nextStationName;
+
+  if (fillEl && dotEl) {
+    if (model.segment.progressRatio !== null) {
+      const pct = Math.max(0, Math.min(100, Math.round(model.segment.progressRatio * 100)));
+      fillEl.style.width = `${pct}%`;
+      dotEl.style.left = `calc(${pct}% - 6px)`;
+      fillEl.style.display = 'block';
+      dotEl.style.display = 'block';
+    } else {
+      fillEl.style.display = 'none';
+      dotEl.style.display = 'none';
+    }
+  }
+
+  if (distNextEl) distNextEl.textContent = model.segment.distanceToNextText;
+  if (footerLeftEl) footerLeftEl.textContent = model.footer.leftInfo;
+  if (footerRightEl) footerRightEl.textContent = model.footer.statusRight;
+}
+
 async function init() {
-  const hudTextEl = document.getElementById('hud-text');
   const debugPanel = new DebugPanel('debug-panel');
   const motionSensorProvider = new DeviceMotionSensorFusionProvider();
 
-  const { controller, logger } = await bootstrapApp(undefined, (text) => {
-    if (hudTextEl) hudTextEl.textContent = text;
+  const { controller, logger } = await bootstrapApp(undefined, (_formattedText, model) => {
+    if (model) {
+      updateViewportDOM(model);
+    }
   });
 
   logger.subscribe((entry) => {

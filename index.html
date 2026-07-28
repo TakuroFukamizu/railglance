@@ -20,12 +20,45 @@
 
       <main class="app-main">
         <section class="preview-section">
-          <h2>Even G2 グラス視界プレビュー (576×288)</h2>
+          <h2>Even G2 グラス視界プレビュー (576×288px 緑16階調 / 安全領域固定)</h2>
           <div class="glasses-viewport">
-            <div id="hud-text" class="hud-text">
-              -- km/h<br /><br />
-              初期化中...<br />
-              データ読み込み中
+            <div id="hud-root" class="hud-root">
+              <!-- HEADER Region (Y:12, H:34) -->
+              <div class="hud-header">
+                <span id="hud-line-name" class="hud-line-name brightness-secondary">小田急小田原線</span>
+                <span id="hud-service" class="hud-service brightness-secondary">上り</span>
+              </div>
+
+              <!-- SPEED Region (Y:50, H:110) -->
+              <div class="hud-speed-container">
+                <span id="hud-speed-val" class="speed-value brightness-primary">--</span>
+                <span class="speed-unit brightness-tertiary">km/h</span>
+                <span id="hud-speed-est" class="speed-estimated brightness-tertiary">~</span>
+              </div>
+
+              <!-- SEGMENT Region (Y:168, H:70) -->
+              <div class="hud-segment-container">
+                <div class="hud-station-row">
+                  <span id="hud-prev-station" class="station-prev brightness-secondary">海老名</span>
+                  <span id="hud-next-station" class="station-next brightness-primary">座間</span>
+                </div>
+                <div class="hud-progress-bar-container">
+                  <div class="hud-progress-track">
+                    <div id="hud-progress-fill" class="hud-progress-fill"></div>
+                    <div id="hud-progress-dot" class="hud-progress-dot"></div>
+                  </div>
+                </div>
+                <div class="hud-segment-info-row">
+                  <span id="hud-segment-max" class="info-left brightness-tertiary">区間MAX 115</span>
+                  <span id="hud-dist-next" class="info-right brightness-tertiary">次まで 4.2km</span>
+                </div>
+              </div>
+
+              <!-- FOOTER Region (Y:244, H:28) -->
+              <div class="hud-footer">
+                <span id="hud-footer-left" class="footer-left brightness-tertiary">上り</span>
+                <span id="hud-footer-right" class="footer-right brightness-tertiary">GPS</span>
+              </div>
             </div>
           </div>
         </section>

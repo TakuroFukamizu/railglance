@@ -1,15 +1,14 @@
 :root {
-  --bg-primary: #0a0e17;
-  --bg-card: rgba(22, 30, 46, 0.75);
-  --border-color: rgba(255, 255, 255, 0.08);
-  --text-main: #f0f4fc;
-  --text-muted: #8a99ad;
-  --accent-green: #10b981;
-  --accent-blue: #3b82f6;
-  --hud-green: #00ff66;
-  --hud-bg: #03140a;
-  --font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-  --font-mono: 'Courier New', Courier, monospace;
+  --bg-color: #0d1117;
+  --panel-bg: #161b22;
+  --border-color: #30363d;
+  --text-color: #c9d1d9;
+  
+  /* Even G2 Green Monochrome Brightness Levels */
+  --brightness-primary: #00FF00;   /* Level 15: Speed, Next Station */
+  --brightness-secondary: #00BB00; /* Level 11: Line Name, Previous Station, Progress Fill */
+  --brightness-tertiary: #007700;  /* Level 7: Units, Distances, Status Marks */
+  --brightness-disabled: #003300;  /* Level 4: Uncertain/Inactive */
 }
 
 * {
@@ -19,209 +18,290 @@
 }
 
 body {
-  background-color: var(--bg-primary);
-  color: var(--text-main);
-  font-family: var(--font-family);
-  min-height: 100vh;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  background-color: var(--bg-color);
+  color: var(--text-color);
   padding: 20px;
-  line-height: 1.5;
 }
 
 .app-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 24px;
-  padding-bottom: 16px;
+  margin-bottom: 20px;
   border-bottom: 1px solid var(--border-color);
+  padding-bottom: 12px;
 }
 
-.app-title h1 {
-  font-size: 1.5rem;
-  font-weight: 700;
-  background: linear-gradient(135deg, #60a5fa 0%, #34d399 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-}
-
-.app-title p {
-  font-size: 0.85rem;
-  color: var(--text-muted);
-}
-
-.control-bar {
+.controls {
   display: flex;
-  gap: 12px;
-  align-items: center;
+  gap: 10px;
 }
 
 .btn {
-  background: rgba(59, 130, 246, 0.15);
-  color: #60a5fa;
-  border: 1px solid rgba(59, 130, 246, 0.3);
+  background-color: #21262d;
+  color: #c9d1d9;
+  border: 1px solid var(--border-color);
   padding: 8px 16px;
-  border-radius: 8px;
-  font-size: 0.9rem;
-  font-weight: 600;
+  border-radius: 6px;
   cursor: pointer;
-  transition: all 0.2s ease;
-}
-
-.btn:hover {
-  background: rgba(59, 130, 246, 0.3);
+  font-size: 14px;
+  font-weight: 500;
 }
 
 .btn-primary {
-  background: linear-gradient(135deg, #2563eb, #1d4ed8);
-  color: #fff;
-  border: none;
+  background-color: #238636;
+  color: #ffffff;
+  border-color: rgba(240, 246, 252, 0.1);
 }
 
-.btn-primary:hover {
-  opacity: 0.9;
+.btn-secondary {
+  background-color: #1f6feb;
+  color: #ffffff;
 }
 
-.main-layout {
-  display: grid;
-  grid-template-columns: 360px 1fr;
-  gap: 24px;
-}
-
-@media (max-width: 900px) {
-  .main-layout {
-    grid-template-columns: 1fr;
-  }
-}
-
-/* Even G2 HUD Glass Simulator */
-.hud-simulator-card {
-  background: var(--bg-card);
-  backdrop-filter: blur(12px);
-  border: 1px solid var(--border-color);
-  border-radius: 16px;
-  padding: 20px;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
-}
-
-.hud-simulator-card h2 {
-  font-size: 1rem;
-  color: var(--text-muted);
-  margin-bottom: 12px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.hud-glass {
-  background-color: var(--hud-bg);
-  border: 2px solid rgba(0, 255, 102, 0.3);
-  border-radius: 12px;
-  height: 220px;
-  padding: 16px;
-  font-family: var(--font-mono);
-  color: var(--hud-green);
-  text-shadow: 0 0 8px rgba(0, 255, 102, 0.6);
-  white-space: pre-wrap;
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-  box-shadow: inset 0 0 20px rgba(0, 255, 102, 0.1);
+.glasses-viewport {
+  width: 576px;
+  height: 288px;
+  background-color: #000000;
+  border: 2px solid #333;
+  border-radius: 8px;
   position: relative;
   overflow: hidden;
+  box-shadow: 0 0 20px rgba(0, 255, 0, 0.15);
+  margin-bottom: 30px;
 }
 
-.hud-glass::before {
-  content: '';
+/* Even G2 Fixed 576x288px HUD Layout */
+.hud-root {
+  position: relative;
+  width: 576px;
+  height: 288px;
+  background-color: #000000;
+  overflow: hidden;
+  font-family: 'SF Pro Display', -apple-system, BlinkMacSystemFont, monospace;
+}
+
+/* 1. HEADER Region (X:24, Y:12, W:528, H:34) */
+.hud-header {
   position: absolute;
-  top: 0; left: 0; right: 0; bottom: 0;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.03) 0%, rgba(0, 0, 0, 0) 100%);
-  pointer-events: none;
+  left: 24px;
+  top: 12px;
+  width: 528px;
+  height: 34px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
 }
 
-/* Debug Panel & Grid */
+.hud-line-name {
+  font-size: 24px;
+  font-weight: 600;
+  max-width: 300px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.hud-service {
+  font-size: 20px;
+  font-weight: 600;
+  text-align: right;
+}
+
+/* 2. SPEED Region (X:24, Y:50, W:528, H:110) */
+.hud-speed-container {
+  position: absolute;
+  left: 24px;
+  top: 50px;
+  width: 528px;
+  height: 110px;
+  display: flex;
+  justify-content: center;
+  align-items: baseline;
+}
+
+.speed-value {
+  font-size: 104px;
+  line-height: 1;
+  font-weight: 700;
+  letter-spacing: -2px;
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+}
+
+.speed-unit {
+  font-size: 24px;
+  font-weight: 600;
+  margin-left: 8px;
+}
+
+.speed-estimated {
+  font-size: 28px;
+  font-weight: 700;
+  margin-left: 6px;
+  width: 24px;
+}
+
+/* 3. SEGMENT Region (X:24, Y:168, W:528, H:70) */
+.hud-segment-container {
+  position: absolute;
+  left: 24px;
+  top: 168px;
+  width: 528px;
+  height: 70px;
+}
+
+.hud-station-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  height: 28px;
+}
+
+.station-prev {
+  font-size: 24px;
+  font-weight: 600;
+  max-width: 230px;
+  white-space: nowrap;
+}
+
+.station-next {
+  font-size: 24px;
+  font-weight: 600;
+  max-width: 230px;
+  text-align: right;
+  white-space: nowrap;
+}
+
+/* Progress Bar (Y:202, H:6px) */
+.hud-progress-bar-container {
+  margin-top: 6px;
+  width: 528px;
+  height: 6px;
+}
+
+.hud-progress-track {
+  position: relative;
+  width: 528px;
+  height: 6px;
+  background-color: var(--brightness-disabled);
+  border-radius: 3px;
+}
+
+.hud-progress-fill {
+  position: absolute;
+  left: 0;
+  top: 0;
+  height: 6px;
+  width: 50%;
+  background-color: var(--brightness-secondary);
+  border-radius: 3px;
+}
+
+.hud-progress-dot {
+  position: absolute;
+  top: -3px;
+  left: calc(50% - 6px);
+  width: 12px;
+  height: 12px;
+  background-color: var(--brightness-primary);
+  border-radius: 50%;
+}
+
+.hud-segment-info-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  height: 22px;
+  margin-top: 8px;
+  font-size: 18px;
+  font-weight: 500;
+}
+
+/* 4. FOOTER Region (X:24, Y:244, W:528, H:28) */
+.hud-footer {
+  position: absolute;
+  left: 24px;
+  top: 244px;
+  width: 528px;
+  height: 28px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 18px;
+  font-weight: 500;
+}
+
+/* Brightness Hierarchy Classes */
+.brightness-primary {
+  color: var(--brightness-primary);
+}
+
+.brightness-secondary {
+  color: var(--brightness-secondary);
+}
+
+.brightness-tertiary {
+  color: var(--brightness-tertiary);
+}
+
+.brightness-disabled {
+  color: var(--brightness-disabled);
+}
+
+/* Debug Section */
 .debug-section {
-  background: var(--bg-card);
-  backdrop-filter: blur(12px);
+  margin-top: 20px;
+  background-color: var(--panel-bg);
   border: 1px solid var(--border-color);
-  border-radius: 16px;
-  padding: 20px;
+  border-radius: 8px;
+  padding: 16px;
 }
 
 .debug-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
   gap: 16px;
-  margin-bottom: 16px;
+  margin-top: 12px;
 }
 
 .debug-card {
-  background: rgba(10, 14, 23, 0.6);
-  border: 1px solid var(--border-color);
-  border-radius: 12px;
-  padding: 14px;
-  font-size: 0.85rem;
+  background-color: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  padding: 12px;
+  font-size: 13px;
+  line-height: 1.6;
 }
 
 .debug-card h3 {
-  font-size: 0.95rem;
+  font-size: 14px;
   margin-bottom: 8px;
-  color: #93c5fd;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
   padding-bottom: 4px;
-}
-
-.candidates-card {
-  grid-column: 1 / -1;
-}
-
-.candidate-table {
-  width: 100%;
-  border-collapse: collapse;
-  margin-top: 8px;
-}
-
-.candidate-table th, .candidate-table td {
-  padding: 6px 10px;
-  text-align: left;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-  font-size: 0.8rem;
-}
-
-.candidate-table th {
-  color: var(--text-muted);
-}
-
-.active-row {
-  background: rgba(16, 185, 129, 0.15);
-  color: #34d399;
+  color: #58a6ff;
 }
 
 .badge {
   display: inline-block;
-  padding: 2px 8px;
+  padding: 2px 6px;
   border-radius: 4px;
-  font-size: 0.75rem;
-  font-weight: 600;
+  font-size: 11px;
+  font-weight: bold;
 }
 
-.badge.TRACKING {
-  background: rgba(16, 185, 129, 0.2);
-  color: #34d399;
+.badge.TRACKING, .badge.gps-locked {
+  background-color: #238636;
+  color: white;
 }
 
-.badge.ROUTE_UNCERTAIN, .badge.GPS_LOW_ACCURACY {
-  background: rgba(245, 158, 11, 0.2);
-  color: #fbbf24;
+.badge.dead-reckoning, .badge.reacquiring {
+  background-color: #d29922;
+  color: black;
 }
 
-.badge.GPS_UNAVAILABLE {
-  background: rgba(239, 68, 68, 0.2);
-  color: #f87171;
-}
-
-.debug-footer {
-  font-size: 0.75rem;
-  color: var(--text-muted);
-  text-align: right;
-  margin-top: 8px;
+.badge.GPS_UNAVAILABLE, .badge.lost {
+  background-color: #da3633;
+  color: white;
 }

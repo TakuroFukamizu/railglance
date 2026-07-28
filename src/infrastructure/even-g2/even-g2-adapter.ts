@@ -5,7 +5,6 @@ import {
   CreateStartUpPageContainer,
 } from '@evenrealities/even_hub_sdk';
 import { HudViewModel } from '../../domain/models/hud';
-import { HudRenderer } from './hud-renderer';
 
 export interface EvenG2Adapter {
   connect(): Promise<boolean>;
@@ -14,7 +13,6 @@ export interface EvenG2Adapter {
 }
 
 export class HybridEvenG2Adapter implements EvenG2Adapter {
-  private hudRenderer = new HudRenderer();
   private onRenderCallback?: (formattedText: string, model: HudViewModel) => void;
   private bridge: any = null;
   private isConnected = false;
@@ -66,7 +64,7 @@ export class HybridEvenG2Adapter implements EvenG2Adapter {
   }
 
   public async render(model: HudViewModel): Promise<void> {
-    const formattedText = this.hudRenderer.formatHudText(model);
+    const formattedText = model.rawFormattedText;
 
     // Render to Even G2 Glasses via SDK Bridge whenever bridge is connected
     if (this.bridge && this.isConnected) {
