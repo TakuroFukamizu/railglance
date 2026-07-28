@@ -1,13 +1,10 @@
 import {
   waitForEvenAppBridge,
-  ImageContainerProperty,
-  ImageRawDataUpdate,
   TextContainerProperty,
   TextContainerUpgrade,
   CreateStartUpPageContainer,
 } from '@evenrealities/even_hub_sdk';
 import { HudViewModel } from '../../domain/models/hud';
-import { CanvasHudRenderer } from './canvas-hud-renderer';
 
 export interface EvenG2Adapter {
   connect(): Promise<boolean>;
@@ -16,13 +13,11 @@ export interface EvenG2Adapter {
 }
 
 export class HybridEvenG2Adapter implements EvenG2Adapter {
-  private canvasRenderer = new CanvasHudRenderer(288, 144);
-  private onRenderCallback?: (formattedText: string, model: HudViewModel, canvas?: HTMLCanvasElement | null) => void;
+  private onRenderCallback?: (formattedText: string, model: HudViewModel) => void;
   private bridge: any = null;
   private isConnected = false;
-  private isImageModeActive = false;
 
-  constructor(onRender?: (formattedText: string, model: HudViewModel, canvas?: HTMLCanvasElement | null) => void) {
+  constructor(onRender?: (formattedText: string, model: HudViewModel) => void) {
     this.onRenderCallback = onRender;
   }
 
@@ -36,50 +31,31 @@ export class HybridEvenG2Adapter implements EvenG2Adapter {
       if (this.bridge) {
         this.isConnected = true;
 
-        // Try single clean Image Container first (288x144 max viewport) to prevent text/image overlap
-        const imageContainer = new ImageContainerProperty({
+        // Create standard reliable Text Container (576x288)
+        const textContainer = new TextContainerProperty({
           xPosition: 0,
           yPosition: 0,
-          width: 288,
-          height: 144,
+          width: 576,
+          height: 288,
+          borderWidth: 0,
+          borderColor: 0,
+          paddingLength: 0,
           containerID: 1,
-          containerName: 'main_img',
+          containerName: 'main_txt',
+          content: 'RailGlance Train HUD\nConnecting...',
+          isEventCapture: 0,
         });
 
         try {
           const result = await this.bridge.createStartUpPageContainer(
             new CreateStartUpPageContainer({
               containerTotalNum: 1,
-              imageObject: [imageContainer],
-            })
-          );
-          console.log('[EvenG2Adapter] createStartUpPageContainer Image mode result:', result);
-          this.isImageModeActive = true;
-        } catch (imgErr) {
-          console.log('[EvenG2Adapter] Image container creation failed, falling back to clean Text mode:', imgErr);
-          this.isImageModeActive = false;
-
-          // Single clean Text Container fallback
-          const textContainer = new TextContainerProperty({
-            xPosition: 0,
-            yPosition: 0,
-            width: 576,
-            height: 288,
-            borderWidth: 0,
-            borderColor: 0,
-            paddingLength: 0,
-            containerID: 1,
-            containerName: 'main_txt',
-            content: 'RailGlance Train HUD\nReady',
-            isEventCapture: 0,
-          });
-
-          await this.bridge.createStartUpPageContainer(
-            new CreateStartUpPageContainer({
-              containerTotalNum: 1,
               textObject: [textContainer],
             })
           );
+          console.log('[EvenG2Adapter] createStartUpPageContainer result:', result);
+        } catch (cErr) {
+          console.log('[EvenG2Adapter] Container creation notice (already exists):', cErr);
         }
       }
     } catch (err) {
@@ -90,45 +66,26 @@ export class HybridEvenG2Adapter implements EvenG2Adapter {
 
   public async render(model: HudViewModel): Promise<void> {
     const formattedText = model.rawFormattedText;
-    const canvas = this.canvasRenderer.renderToCanvas(model);
 
-    // Render exclusively to EITHER Image Container OR Text Container (never overlap both!)
+    // Render cleanly to Even G2 Glasses using reliable textContainerUpgrade
     if (this.bridge && this.isConnected) {
-      if (this.isImageModeActive && canvas) {
-        try {
-          const rawBytes = this.canvasRenderer.getGray4BitmapBytes();
-
-          if (typeof this.bridge.updateImageRawData === 'function') {
-            await this.bridge.updateImageRawData(
-              new ImageRawDataUpdate({
-                containerID: 1,
-                containerName: 'main_img',
-                imageData: Array.from(rawBytes),
-              })
-            );
-          }
-        } catch (imgErr) {
-          console.warn('[EvenG2Adapter] Error updating Image raw data:', imgErr);
-        }
-      } else {
-        try {
-          await this.bridge.textContainerUpgrade(
-            new TextContainerUpgrade({
-              containerID: 1,
-              containerName: 'main_txt',
-              content: formattedText,
-            })
-          );
-        } catch (txtErr) {
-          console.warn('[EvenG2Adapter] Error upgrading text container:', txtErr);
-        }
+      try {
+        await this.bridge.textContainerUpgrade(
+          new TextContainerUpgrade({
+            containerID: 1,
+            containerName: 'main_txt',
+            content: formattedText,
+          })
+        );
+      } catch (err) {
+        console.warn('[EvenG2Adapter] Error updating text via textContainerUpgrade:', err);
       }
     }
 
     // Console and Web Preview Output
     console.log('[EvenG2 HUD Output]:\n' + formattedText);
     if (this.onRenderCallback) {
-      this.onRenderCallback(formattedText, model, canvas);
+      this.onRenderCallback(formattedText, model);
     }
   }
 

@@ -78,7 +78,6 @@ export class HudRenderer {
 
     let progressRatio: number | null = null;
     if (distanceToNextStationMeters !== null && previousStation && nextStation) {
-      // Calculate approximate progress ratio for segment progress bar (0.0 ~ 1.0)
       progressRatio = 0.5; // Default fallback ratio
     }
 
@@ -139,26 +138,26 @@ export class HudRenderer {
     nextStation: string,
     progressRatio: number | null,
     distText: string,
-    footerLeft: string,
+    _footerLeft: string,
     statusRightText: string,
     statusMode: HudStatusMode
   ): string {
     if (statusMode === 'LOST') {
-      return `   -- km/h\n\n[ 路線再特定中 ]\nGPS信号を確認中...\n\n${footerLeft}        ${statusRightText}`;
+      return `   -- km/h\n\n[ 路線再特定中 ]\nGPS信号を確認中...\n\n測位中`;
     }
 
     const estMark = isEstimated ? ' ~' : '';
     
     // Construct progress bar string for text display e.g. "━━━●━━━━━"
-    let progressBarStr = '━━━━━━━━━━━━';
+    let progressBarStr = '━━━━━━━━━';
     if (progressRatio !== null) {
-      const totalChars = 12;
+      const totalChars = 9;
       const dotIdx = Math.max(0, Math.min(totalChars - 1, Math.round(progressRatio * (totalChars - 1))));
       const leftBar = '━'.repeat(dotIdx);
       const rightBar = '━'.repeat(totalChars - 1 - dotIdx);
       progressBarStr = `${leftBar}●${rightBar}`;
     }
 
-    return `${lineName}       ${serviceOrDir}\n\n       ${speedText} km/h${estMark}\n\n${prevStation} ${progressBarStr} ${nextStation}\n${distText}               ${statusRightText}`;
+    return `${lineName}    ${serviceOrDir}\n\n       ${speedText} km/h${estMark}\n\n${prevStation} ${progressBarStr} ${nextStation}\n${distText}        ${statusRightText}`;
   }
 }
