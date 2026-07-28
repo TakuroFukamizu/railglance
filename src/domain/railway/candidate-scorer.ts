@@ -14,12 +14,12 @@ export function scoreCandidate(
   const closest = findClosestPointOnPolyline(sample.latitude, sample.longitude, segment.coordinates);
   const distance = closest.distanceMeters;
 
-  // 1. Distance score (100 pts max, decays with distance up to search radius)
+  // 1. Distance score (40 pts max)
   const distRatio = Math.min(1, distance / config.routeSearchRadiusMeters);
-  const distanceScore = Math.max(0, 100 * (1 - distRatio * distRatio));
+  const distanceScore = Math.max(0, 40 * (1 - distRatio * distRatio));
 
-  // 2. Heading score (100 pts max, compare GPS/calculated heading to track segment orientation)
-  let headingScore = 50; // default neutral if heading unavailable
+  // 2. Heading score (30 pts max)
+  let headingScore = 15; // default neutral if heading unavailable
   let bearingDegrees = 0;
 
   if (segment.coordinates.length >= 2) {
@@ -35,22 +35,22 @@ export function scoreCandidate(
         (bearingDegrees + 180) % 360
       );
       const minDiff = Math.min(headingDiffForward, headingDiffBackward);
-      headingScore = Math.max(0, 100 * (1 - minDiff / 90));
+      headingScore = Math.max(0, 30 * (1 - minDiff / 90));
     }
   }
 
-  // 3. Continuity score (50 pts bonus if it matches previous segment or same line)
+  // 3. Continuity score (20 pts max)
   let continuityScore = 0;
   if (previousMatchSegmentId === segment.id) {
-    continuityScore = 50;
+    continuityScore = 20;
   } else if (previousMatchSegmentId && previousMatchSegmentId.split('-')[0] === segment.lineId) {
-    continuityScore = 25;
+    continuityScore = 15;
   }
 
-  // 4. History / Accuracy weighting
-  const historyScore = sample.accuracyMeters <= 20 ? 20 : sample.accuracyMeters <= 50 ? 10 : 0;
+  // 4. History / Accuracy weighting (10 pts max)
+  const historyScore = sample.accuracyMeters <= 20 ? 10 : sample.accuracyMeters <= 50 ? 5 : 0;
 
-  const totalScore = Math.round((distanceScore * 0.45 + headingScore * 0.3 + continuityScore + historyScore) * 10) / 10;
+  const totalScore = Math.round((distanceScore + headingScore + continuityScore + historyScore) * 10) / 10;
 
   return {
     segment,

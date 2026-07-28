@@ -30,31 +30,73 @@ export class HybridEvenG2Adapter implements EvenG2Adapter {
 
       if (this.bridge) {
         this.isConnected = true;
-        // Attempt creating container on glasses display
-        const initialText = new TextContainerProperty({
-          xPosition: 0,
-          yPosition: 0,
-          width: 576,
-          height: 288,
+        // Create 4 distinct Text Containers corresponding to the 4 HUD regions (Header, Speed, Segment, Footer)
+        const headerContainer = new TextContainerProperty({
+          xPosition: 24,
+          yPosition: 12,
+          width: 528,
+          height: 34,
           borderWidth: 0,
-          borderColor: 5,
-          paddingLength: 4,
+          borderColor: 0,
+          paddingLength: 0,
           containerID: 1,
-          containerName: 'main',
-          content: 'RailGlance Train HUD\nReadying 576x288 Layout...',
-          isEventCapture: 1,
+          containerName: 'header',
+          content: '小田急小田原線               上り',
+          isEventCapture: 0,
+        });
+
+        const speedContainer = new TextContainerProperty({
+          xPosition: 24,
+          yPosition: 50,
+          width: 528,
+          height: 110,
+          borderWidth: 0,
+          borderColor: 0,
+          paddingLength: 0,
+          containerID: 2,
+          containerName: 'speed',
+          content: '       -- km/h',
+          isEventCapture: 0,
+        });
+
+        const segmentContainer = new TextContainerProperty({
+          xPosition: 24,
+          yPosition: 168,
+          width: 528,
+          height: 70,
+          borderWidth: 0,
+          borderColor: 0,
+          paddingLength: 0,
+          containerID: 3,
+          containerName: 'segment',
+          content: '前駅不明 ━━━━━━●━━━━━━ 次駅推定中\n次まで --',
+          isEventCapture: 0,
+        });
+
+        const footerContainer = new TextContainerProperty({
+          xPosition: 24,
+          yPosition: 244,
+          width: 528,
+          height: 28,
+          borderWidth: 0,
+          borderColor: 0,
+          paddingLength: 0,
+          containerID: 4,
+          containerName: 'footer',
+          content: '走行中                     GPS',
+          isEventCapture: 0,
         });
 
         try {
           const result = await this.bridge.createStartUpPageContainer(
             new CreateStartUpPageContainer({
-              containerTotalNum: 1,
-              textObject: [initialText],
+              containerTotalNum: 4,
+              textObject: [headerContainer, speedContainer, segmentContainer, footerContainer],
             })
           );
-          console.log('[EvenG2Adapter] createStartUpPageContainer result:', result);
+          console.log('[EvenG2Adapter] createStartUpPageContainer result (4 containers):', result);
         } catch (cErr) {
-          console.log('[EvenG2Adapter] Container may already exist, proceeding to upgrade text:', cErr);
+          console.log('[EvenG2Adapter] Containers may already exist, proceeding to upgrade text:', cErr);
         }
       }
     } catch (err) {
@@ -66,18 +108,33 @@ export class HybridEvenG2Adapter implements EvenG2Adapter {
   public async render(model: HudViewModel): Promise<void> {
     const formattedText = model.rawFormattedText;
 
-    // Render to Even G2 Glasses via SDK Bridge whenever bridge is connected
+    // Formulate regional content for the 4 containers
+    const headerText = `${model.header.lineName}               ${model.header.serviceOrDirection}`;
+    const estMark = model.speed.isEstimated ? ' ~' : '';
+    const speedText = `       ${model.speed.displaySpeedKmhText} km/h${estMark}`;
+
+    let progressBarStr = '━━━━━━━━━━━━';
+    if (model.segment.progressRatio !== null) {
+      const totalChars = 12;
+      const dotIdx = Math.max(0, Math.min(totalChars - 1, Math.round(model.segment.progressRatio * (totalChars - 1))));
+      const leftBar = '━'.repeat(dotIdx);
+      const rightBar = '━'.repeat(totalChars - 1 - dotIdx);
+      progressBarStr = `${leftBar}●${rightBar}`;
+    }
+    const segmentText = `${model.segment.previousStationName} ${progressBarStr} ${model.segment.nextStationName}\n${model.segment.distanceToNextText}`;
+    const footerText = `${model.footer.leftInfo}                     ${model.footer.statusRight}`;
+
+    // Upgrade all 4 text containers on Even G2 glasses display
     if (this.bridge && this.isConnected) {
       try {
-        await this.bridge.textContainerUpgrade(
-          new TextContainerUpgrade({
-            containerID: 1,
-            containerName: 'main',
-            content: formattedText,
-          })
-        );
+        await Promise.all([
+          this.bridge.textContainerUpgrade(new TextContainerUpgrade({ containerID: 1, containerName: 'header', content: headerText })),
+          this.bridge.textContainerUpgrade(new TextContainerUpgrade({ containerID: 2, containerName: 'speed', content: speedText })),
+          this.bridge.textContainerUpgrade(new TextContainerUpgrade({ containerID: 3, containerName: 'segment', content: segmentText })),
+          this.bridge.textContainerUpgrade(new TextContainerUpgrade({ containerID: 4, containerName: 'footer', content: footerText })),
+        ]);
       } catch (err) {
-        console.warn('[EvenG2Adapter] Error updating text via textContainerUpgrade:', err);
+        console.warn('[EvenG2Adapter] Error upgrading 4 text containers:', err);
       }
     }
 
