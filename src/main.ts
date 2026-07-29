@@ -105,14 +105,15 @@ async function init() {
   const debugPanel = new DebugPanel('debug-panel');
   const motionSensorProvider = new DeviceMotionSensorFusionProvider();
 
-  const { controller, logger } = await bootstrapApp(undefined, (_formattedText, model) => {
+  const { controller, evenG2Adapter, logger } = await bootstrapApp(undefined, (_formattedText, model) => {
     if (model) {
       updateViewportDOM(model);
     }
   });
 
   logger.subscribe((entry) => {
-    debugPanel.update(entry);
+    const lastImageResult = evenG2Adapter.getLastImageResult ? evenG2Adapter.getLastImageResult() : 'none';
+    debugPanel.update(entry, lastImageResult);
   });
 
   document.getElementById('btn-start')?.addEventListener('click', () => {

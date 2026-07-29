@@ -8,11 +8,13 @@ import {
 } from '@evenrealities/even_hub_sdk';
 import { HudViewModel } from '../../domain/models/hud';
 import { createSpeedPng } from './speed-png-generator';
+import { patchImageCompressModeBug } from './sdk-image-patch';
 
 export interface EvenG2Adapter {
   connect(): Promise<boolean>;
   render(model: HudViewModel): Promise<void>;
   clear(): Promise<void>;
+  getLastImageResult(): string;
 }
 
 export class HybridEvenG2Adapter implements EvenG2Adapter {
@@ -20,6 +22,7 @@ export class HybridEvenG2Adapter implements EvenG2Adapter {
   private bridge: any = null;
   private isConnected = false;
   private pageReady = false;
+  private lastImageResult = 'none';
 
   private bridgeQueue: Promise<void> = Promise.resolve();
 
@@ -31,9 +34,14 @@ export class HybridEvenG2Adapter implements EvenG2Adapter {
   private lastRenderedIsEstimated = false;
   private lastImageUpdateTimeMs = 0;
   private readonly SPEED_IMAGE_MIN_INTERVAL_MS = 500; // 2Hz max image rate
+  private readonly IMAGE_UPDATE_TIMEOUT_MS = 5000;    // 5s timeout for image update
 
   constructor(onRender?: (formattedText: string, model: HudViewModel) => void) {
     this.onRenderCallback = onRender;
+  }
+
+  public getLastImageResult(): string {
+    return this.lastImageResult;
   }
 
   /**
@@ -50,6 +58,9 @@ export class HybridEvenG2Adapter implements EvenG2Adapter {
   }
 
   public async connect(): Promise<boolean> {
+    // 1. Apply SDK 0.0.12 compressMode removal patch BEFORE waitForEvenAppBridge() or any image transmission
+    patchImageCompressModeBug();
+
     try {
       if (!this.bridge) {
         this.bridge = await waitForEvenAppBridge();
@@ -139,8 +150,13 @@ export class HybridEvenG2Adapter implements EvenG2Adapter {
         this.pageReady = true;
         this.isConnected = true;
 
-        // Synchronously await initial PNG speed image transmission
-        await this.queueSpeedImageUpdate(null, false, true);
+        // Synchronously attempt initial PNG speed image transmission with 5s timeout,
+        // but NEVER fail connect() or halt TextContainer / Location updates if initial image times out / fails!
+        try {
+          await this.queueSpeedImageUpdate(null, false, true);
+        } catch (imgErr) {
+          console.warn('[EvenG2Adapter] Initial speed PNG update notice (continuing TextContainer & GPS updates):', imgErr);
+        }
       }
     } catch (err) {
       console.log('[EvenG2Adapter] Bridge connection notice:', err);
@@ -213,7 +229,7 @@ export class HybridEvenG2Adapter implements EvenG2Adapter {
   }
 
   /**
-   * Queues PNG speed image update strictly sequentially inside bridgeQueue.
+   * Queues PNG speed image update strictly sequentially inside bridgeQueue with 5s timeout enforcement.
    */
   private queueSpeedImageUpdate(speedKmh: number | null, isEstimated: boolean, force = false): Promise<void> {
     return this.enqueueBridgeOperation(async () => {
@@ -226,30 +242,43 @@ export class HybridEvenG2Adapter implements EvenG2Adapter {
       try {
         const pngUint8Array = await createSpeedPng(speedKmh, isEstimated);
 
-        console.log('[Speed PNG Info]', {
-          length: pngUint8Array.byteLength,
-          signature: Array.from(pngUint8Array.slice(0, 8)),
-          expectedSignature: [137, 80, 78, 71, 13, 10, 26, 10],
+        const updateModel = new ImageRawDataUpdate({
+          containerID: 2,
+          containerName: 'speed_img',
+          imageData: pngUint8Array,
         });
 
-        const result = await this.bridge.updateImageRawData(
-          new ImageRawDataUpdate({
-            containerID: 2,
-            containerName: 'speed_img',
-            imageData: pngUint8Array, // Directly pass Uint8Array
-          })
-        );
+        // Verify that compressMode was removed by patch
+        const serializedJson = (updateModel as any).toJson ? (updateModel as any).toJson() : updateModel;
+        const compressModeStatus = ('compressMode' in serializedJson) ? 'FAILED_TO_REMOVE' : 'removed';
 
-        console.log('[Speed PNG Update Result]:', result);
+        const sigArr = Array.from(pngUint8Array.slice(0, 8));
+        console.log(`compressMode: ${compressModeStatus}`);
+        console.log(`PNG signature: ${sigArr.join(',')}`);
 
-        if (result === 'success' || result === 0 || result === 'APP_REQUEST_UPGRADE_IMAGE_RAW_DATA_SUCCESS') {
+        // Wrap updateImageRawData call with 5-second Promise.race timeout
+        const timeoutPromise = new Promise<string>((_, reject) => {
+          setTimeout(() => reject(new Error('Image update timed out after 5s')), this.IMAGE_UPDATE_TIMEOUT_MS);
+        });
+
+        const updatePromise = this.bridge.updateImageRawData(updateModel);
+
+        const result = await Promise.race([updatePromise, timeoutPromise]);
+        const resultStr = String(result);
+        this.lastImageResult = resultStr;
+
+        console.log('[Speed PNG Update Result]:', resultStr);
+
+        if (resultStr === 'success' || resultStr === '0' || resultStr === 'APP_REQUEST_UPGRADE_IMAGE_RAW_DATA_SUCCESS') {
           this.lastRenderedSpeedKmh = speedKmh;
           this.lastRenderedIsEstimated = isEstimated;
         } else {
-          console.warn('[EvenG2Adapter] Speed image update non-success result:', result);
+          console.warn('[EvenG2Adapter] Speed image update non-success result:', resultStr);
         }
-      } catch (err) {
-        console.warn('[EvenG2Adapter] Error in speed image update operation:', err);
+      } catch (err: any) {
+        const errMessage = err?.message || String(err);
+        this.lastImageResult = `error: ${errMessage}`;
+        console.warn('[EvenG2Adapter] Error in speed image update operation:', errMessage);
       }
     });
   }

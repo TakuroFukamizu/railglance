@@ -14,7 +14,7 @@ export class DebugPanel {
     }
   }
 
-  public update(entry: EstimationLogEntry): void {
+  public update(entry: EstimationLogEntry, lastImageResult?: string): void {
     const { rawLocation, speedState, match, journey, timestampMs } = entry;
     const { selectedEstimate, smoothedSpeedKmh, isStopped, isValid, candidates, navState } = speedState;
 
@@ -26,13 +26,13 @@ export class DebugPanel {
     let html = `
       <div class="debug-grid">
         <div class="debug-card">
-          <h3>Dead Reckoning & Navigation Mode</h3>
+          <h3>Dead Reckoning & G2 SDK Image Status</h3>
           <div>Navigation Mode: <span class="badge ${navState.mode}">${navState.mode}</span></div>
+          <div>G2 PNG Update Status: <strong style="color: #00FF00; background: #000; padding: 2px 6px; border-radius: 4px;">${lastImageResult ?? 'none'}</strong></div>
           <div>GPS Age: <strong>${typeof gpsAgeMs === 'number' ? `${gpsAgeMs} ms` : gpsAgeMs}</strong></div>
           <div>Track Position: ${navState.trackPositionMeters !== null ? `${navState.trackPositionMeters.toFixed(1)} m` : '未測定'}</div>
           <div>Predicted Speed (1D): ${formatSpeed(navState.velocityMps * 3.6)}</div>
           <div>Acceleration: ${navState.accelerationMps2.toFixed(3)} m/s²</div>
-          <div>Acceleration Bias: ${navState.accelerationBiasMps2.toFixed(3)} m/s²</div>
           <div>Overall Confidence: <strong>${(navState.confidence * 100).toFixed(0)}% (${navState.confidence.toFixed(2)})</strong></div>
         </div>
 

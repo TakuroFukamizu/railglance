@@ -12,6 +12,7 @@ export type AppBootstrapResult = {
   controller: AppController;
   db: DexieRailwayDatabase;
   logger: EstimationLogger;
+  evenG2Adapter: HybridEvenG2Adapter;
 };
 
 export async function bootstrapApp(
@@ -42,5 +43,6 @@ export async function bootstrapApp(
     controller,
     db,
     logger,
+    evenG2Adapter,
   };
 }
