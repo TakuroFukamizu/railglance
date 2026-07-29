@@ -5,7 +5,6 @@ import {
   TextContainerProperty,
   TextContainerUpgrade,
   CreateStartUpPageContainer,
-  StartUpPageCreateResult,
 } from '@evenrealities/even_hub_sdk';
 import { HudViewModel } from '../../domain/models/hud';
 import { createSpeedPng } from './speed-png-generator';
@@ -20,15 +19,34 @@ export class HybridEvenG2Adapter implements EvenG2Adapter {
   private onRenderCallback?: (formattedText: string, model: HudViewModel) => void;
   private bridge: any = null;
   private isConnected = false;
+  private pageReady = false;
 
-  private imageUpdateQueue: Promise<void> = Promise.resolve();
+  private bridgeQueue: Promise<void> = Promise.resolve();
+
+  private lastHeaderContent = '';
+  private lastSegmentContent = '';
+  private lastFooterContent = '';
+
   private lastRenderedSpeedKmh: number | null = null;
-  private lastRenderedIsEstimated: boolean = false;
+  private lastRenderedIsEstimated = false;
   private lastImageUpdateTimeMs = 0;
   private readonly SPEED_IMAGE_MIN_INTERVAL_MS = 500; // 2Hz max image rate
 
   constructor(onRender?: (formattedText: string, model: HudViewModel) => void) {
     this.onRenderCallback = onRender;
+  }
+
+  /**
+   * Enqueues all BLE bridge operations into a single strict sequential execution queue.
+   */
+  private enqueueBridgeOperation(operation: () => Promise<void>): Promise<void> {
+    this.bridgeQueue = this.bridgeQueue
+      .catch((error) => {
+        console.warn('[EvenG2Adapter] Previous bridge operation failed:', error);
+      })
+      .then(operation);
+
+    return this.bridgeQueue;
   }
 
   public async connect(): Promise<boolean> {
@@ -39,11 +57,9 @@ export class HybridEvenG2Adapter implements EvenG2Adapter {
       }
 
       if (this.bridge) {
-        this.isConnected = true;
-
         // Hybrid Layout with non-overlapping Y-regions:
         // Y: 0~44 -> TextContainer (ID 1, zOrder: 1, isEventCapture: 1)
-        // Y: 48~192 -> ImageContainer (ID 2, zOrder: 2, X: 144, W: 288, H: 144)
+        // Y: 70~170 -> ImageContainer (ID 2, zOrder: 2, X: 188, W: 200, H: 100)
         // Y: 196~244 -> TextContainer (ID 3, zOrder: 3)
         // Y: 248~288 -> TextContainer (ID 4, zOrder: 4)
 
@@ -62,10 +78,10 @@ export class HybridEvenG2Adapter implements EvenG2Adapter {
         });
 
         const speedImageContainer = new ImageContainerProperty({
-          xPosition: 144,
-          yPosition: 48,
-          width: 288,
-          height: 144,
+          xPosition: 188,
+          yPosition: 70,
+          width: 200,
+          height: 100,
           containerID: 2,
           containerName: 'speed_img',
           zOrderIndex: 2,
@@ -99,28 +115,37 @@ export class HybridEvenG2Adapter implements EvenG2Adapter {
           zOrderIndex: 4,
         });
 
-        try {
-          const result = await this.bridge.createStartUpPageContainer(
-            new CreateStartUpPageContainer({
-              containerTotalNum: 4,
-              textObject: [headerContainer, segmentContainer, footerContainer],
-              imageObject: [speedImageContainer],
-            })
-          );
-          console.log('[EvenG2Adapter] createStartUpPageContainer result:', result);
+        const result = await this.bridge.createStartUpPageContainer(
+          new CreateStartUpPageContainer({
+            containerTotalNum: 4,
+            textObject: [headerContainer, segmentContainer, footerContainer],
+            imageObject: [speedImageContainer],
+          })
+        );
 
-          if (result === StartUpPageCreateResult.success || result === 0) {
-            // Initial PNG speed image transmission after container creation success
-            void this.queueSpeedImageUpdate(null, false, true);
-          }
-        } catch (cErr) {
-          console.log('[EvenG2Adapter] Page creation notice (already exists):', cErr);
+        console.log('[EvenG2Adapter] createStartUpPageContainer result:', {
+          result,
+          type: typeof result,
+        });
+
+        const isSuccess = result === 0 || result === '0' || result === 'APP_REQUEST_CREATE_PAGE_SUCCESS';
+
+        if (!isSuccess) {
+          this.isConnected = false;
+          this.pageReady = false;
+          throw new Error(`createStartUpPageContainer failed with code: ${String(result)}`);
         }
+
+        this.pageReady = true;
+        this.isConnected = true;
+
+        // Synchronously await initial PNG speed image transmission
+        await this.queueSpeedImageUpdate(null, false, true);
       }
     } catch (err) {
-      console.log('[EvenG2Adapter] Bridge connection notice (standalone browser/simulator mode):', err);
+      console.log('[EvenG2Adapter] Bridge connection notice:', err);
     }
-    return true;
+    return this.isConnected;
   }
 
   public async render(model: HudViewModel): Promise<void> {
@@ -132,8 +157,7 @@ export class HybridEvenG2Adapter implements EvenG2Adapter {
     const speedKmh = isNaN(rawSpeedVal as any) ? null : rawSpeedVal;
     const isEstimated = model.speed.isEstimated;
 
-    // Fast native TextContainer updates for Header, Segment (with Unicode progress bar), and Footer
-    if (this.bridge && this.isConnected) {
+    if (this.bridge && this.isConnected && this.pageReady) {
       const headerContent = `${model.header.lineName}               ${model.header.serviceOrDirection}`;
 
       let progressBarStr = '━━━━━━━━━━━━';
@@ -147,23 +171,37 @@ export class HybridEvenG2Adapter implements EvenG2Adapter {
       const segmentContent = `${model.segment.previousStationName} ${progressBarStr} ${model.segment.nextStationName}`;
       const footerContent = `${model.segment.distanceToNextText}               ${model.footer.statusRight}`;
 
-      try {
-        await Promise.all([
-          this.bridge.textContainerUpgrade(new TextContainerUpgrade({ containerID: 1, containerName: 'header', content: headerContent })),
-          this.bridge.textContainerUpgrade(new TextContainerUpgrade({ containerID: 3, containerName: 'segment', content: segmentContent })),
-          this.bridge.textContainerUpgrade(new TextContainerUpgrade({ containerID: 4, containerName: 'footer', content: footerContent })),
-        ]);
-      } catch (err) {
-        console.warn('[EvenG2Adapter] Error upgrading text containers:', err);
-      }
+      // 1. Sequentially upgrade only changed TextContainers via single bridgeQueue
+      await this.enqueueBridgeOperation(async () => {
+        if (headerContent !== this.lastHeaderContent) {
+          await this.bridge.textContainerUpgrade(
+            new TextContainerUpgrade({ containerID: 1, containerName: 'header', content: headerContent })
+          );
+          this.lastHeaderContent = headerContent;
+        }
 
-      // Check if Speed PNG update is required (max 2Hz & integer/estimation change)
+        if (segmentContent !== this.lastSegmentContent) {
+          await this.bridge.textContainerUpgrade(
+            new TextContainerUpgrade({ containerID: 3, containerName: 'segment', content: segmentContent })
+          );
+          this.lastSegmentContent = segmentContent;
+        }
+
+        if (footerContent !== this.lastFooterContent) {
+          await this.bridge.textContainerUpgrade(
+            new TextContainerUpgrade({ containerID: 4, containerName: 'footer', content: footerContent })
+          );
+          this.lastFooterContent = footerContent;
+        }
+      });
+
+      // 2. Sequentially enqueue PNG speed image update if value changed and rate limit met
       const isSpeedChanged = speedKmh !== this.lastRenderedSpeedKmh || isEstimated !== this.lastRenderedIsEstimated;
       const isTimeElapsed = now - this.lastImageUpdateTimeMs >= this.SPEED_IMAGE_MIN_INTERVAL_MS;
 
       if (isSpeedChanged && isTimeElapsed) {
         this.lastImageUpdateTimeMs = now;
-        void this.queueSpeedImageUpdate(speedKmh, isEstimated);
+        await this.queueSpeedImageUpdate(speedKmh, isEstimated);
       }
     }
 
@@ -175,38 +213,45 @@ export class HybridEvenG2Adapter implements EvenG2Adapter {
   }
 
   /**
-   * Queues PNG speed image update to ensure strict sequential execution (await completion).
+   * Queues PNG speed image update strictly sequentially inside bridgeQueue.
    */
   private queueSpeedImageUpdate(speedKmh: number | null, isEstimated: boolean, force = false): Promise<void> {
-    this.imageUpdateQueue = this.imageUpdateQueue.then(async () => {
-      if (!this.bridge || !this.isConnected) return;
+    return this.enqueueBridgeOperation(async () => {
+      if (!this.bridge || !this.isConnected || !this.pageReady) return;
 
       if (!force && speedKmh === this.lastRenderedSpeedKmh && isEstimated === this.lastRenderedIsEstimated) {
         return;
       }
 
       try {
-        const pngBytes = await createSpeedPng(speedKmh, isEstimated);
+        const pngUint8Array = await createSpeedPng(speedKmh, isEstimated);
+
+        console.log('[Speed PNG Info]', {
+          length: pngUint8Array.byteLength,
+          signature: Array.from(pngUint8Array.slice(0, 8)),
+          expectedSignature: [137, 80, 78, 71, 13, 10, 26, 10],
+        });
+
         const result = await this.bridge.updateImageRawData(
           new ImageRawDataUpdate({
             containerID: 2,
             containerName: 'speed_img',
-            imageData: pngBytes, // number[] byte array of PNG file
+            imageData: pngUint8Array, // Directly pass Uint8Array
           })
         );
 
-        if (result === 'success' || result === 0) {
+        console.log('[Speed PNG Update Result]:', result);
+
+        if (result === 'success' || result === 0 || result === 'APP_REQUEST_UPGRADE_IMAGE_RAW_DATA_SUCCESS') {
           this.lastRenderedSpeedKmh = speedKmh;
           this.lastRenderedIsEstimated = isEstimated;
         } else {
-          console.warn('[EvenG2Adapter] Speed image update result:', result);
+          console.warn('[EvenG2Adapter] Speed image update non-success result:', result);
         }
       } catch (err) {
-        console.warn('[EvenG2Adapter] Error in speed image update:', err);
+        console.warn('[EvenG2Adapter] Error in speed image update operation:', err);
       }
     });
-
-    return this.imageUpdateQueue;
   }
 
   public async clear(): Promise<void> {
@@ -217,6 +262,7 @@ export class HybridEvenG2Adapter implements EvenG2Adapter {
         console.warn('[EvenG2Adapter] Error shutting down page container:', err);
       }
     }
+    this.pageReady = false;
     console.log('[EvenG2 HUD Output]: Cleared.');
   }
 }

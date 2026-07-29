@@ -1,16 +1,16 @@
-export const SPEED_IMAGE_WIDTH = 288;
-export const SPEED_IMAGE_HEIGHT = 144;
+export const SPEED_IMAGE_WIDTH = 200;
+export const SPEED_IMAGE_HEIGHT = 100;
 
 /**
- * Renders speed number on a 288x144 Canvas with black (#000) background (off/transparent on G2)
- * and encodes it to a standard PNG byte array (number[]) as required by Even Hub SDK.
+ * Renders speed number on a 200x100 Canvas with black (#000) background (off/transparent on G2)
+ * and encodes it to a standard Uint8Array PNG byte array.
  */
 export async function createSpeedPng(
   speedKmh: number | null,
-  isEstimated: boolean = false
-): Promise<number[]> {
+  isEstimated = false
+): Promise<Uint8Array> {
   if (typeof document === 'undefined') {
-    return [];
+    return new Uint8Array(0);
   }
 
   const canvas = document.createElement('canvas');
@@ -32,23 +32,23 @@ export async function createSpeedPng(
 
   const speedStr = speedKmh !== null && speedKmh >= 0 ? `${Math.round(speedKmh)}` : '--';
 
-  // 1. Huge Speed Number (104px Bold system-ui / monospace)
-  ctx.font = '700 104px system-ui, -apple-system, monospace';
-  const speedX = 144;
-  const speedY = 64;
+  // 1. Speed Number (72px Bold system-ui / monospace for 200x100 canvas)
+  ctx.font = '700 72px system-ui, -apple-system, monospace';
+  const speedX = 100;
+  const speedY = 42;
   ctx.fillText(speedStr, speedX, speedY);
 
-  // 2. Speed Unit 'km/h' (22px SemiBold)
-  ctx.font = '600 22px system-ui, -apple-system, sans-serif';
-  ctx.fillText('km/h', speedX, 122);
+  // 2. Speed Unit 'km/h' (18px SemiBold)
+  ctx.font = '600 18px system-ui, -apple-system, sans-serif';
+  ctx.fillText('km/h', speedX, 84);
 
   // 3. Estimated Mark '~' if dead-reckoning or interpolating
   if (isEstimated) {
-    ctx.font = '700 24px system-ui, -apple-system, sans-serif';
-    ctx.fillText('~', speedX + 80, 122);
+    ctx.font = '700 20px system-ui, -apple-system, sans-serif';
+    ctx.fillText('~', speedX + 55, 84);
   }
 
-  // Encode Canvas to standard PNG Blob byte array
+  // Encode Canvas to standard PNG Blob Uint8Array
   const blob = await new Promise<Blob>((resolve, reject) => {
     canvas.toBlob((value) => {
       if (value) resolve(value);
@@ -57,5 +57,5 @@ export async function createSpeedPng(
   });
 
   const arrayBuffer = await blob.arrayBuffer();
-  return Array.from(new Uint8Array(arrayBuffer));
+  return new Uint8Array(arrayBuffer);
 }
