@@ -78,7 +78,7 @@ export class HudRenderer {
 
     let progressRatio: number | null = null;
     if (distanceToNextStationMeters !== null && previousStation && nextStation) {
-      progressRatio = 0.5; // Default fallback ratio
+      progressRatio = 0.5; // Default fallback progress ratio
     }
 
     // 5. FOOTER Region Formulation
@@ -87,7 +87,7 @@ export class HudRenderer {
       leftInfo = `${previousStation.name} 停車中`;
     }
 
-    // 6. Formulate Raw Formatted Text for G2 Glasses Monospace View
+    // 6. Formulate Raw Formatted Text
     const rawFormattedText = this.formatG2RawText(
       displaySpeedKmhText,
       isEstimated,
@@ -148,7 +148,7 @@ export class HudRenderer {
 
     const estMark = isEstimated ? ' ~' : '';
     
-    // Construct progress bar string for text display e.g. "━━━●━━━━━"
+    // Construct progress bar string using Unicode block characters e.g. "━━━●━━━━━"
     let progressBarStr = '━━━━━━━━━';
     if (progressRatio !== null) {
       const totalChars = 9;

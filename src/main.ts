@@ -72,11 +72,9 @@ function updateViewportDOM(model: HudViewModel): void {
   const speedValEl = document.getElementById('hud-speed-val');
   const speedEstEl = document.getElementById('hud-speed-est');
   const prevStationEl = document.getElementById('hud-prev-station');
+  const progressTextEl = document.getElementById('hud-progress-text');
   const nextStationEl = document.getElementById('hud-next-station');
-  const fillEl = document.getElementById('hud-progress-fill');
-  const dotEl = document.getElementById('hud-progress-dot');
   const distNextEl = document.getElementById('hud-dist-next');
-  const footerLeftEl = document.getElementById('hud-footer-left');
   const footerRightEl = document.getElementById('hud-footer-right');
 
   if (lineNameEl) lineNameEl.textContent = model.header.lineName;
@@ -87,21 +85,19 @@ function updateViewportDOM(model: HudViewModel): void {
   if (prevStationEl) prevStationEl.textContent = model.segment.previousStationName;
   if (nextStationEl) nextStationEl.textContent = model.segment.nextStationName;
 
-  if (fillEl && dotEl) {
+  if (progressTextEl) {
     if (model.segment.progressRatio !== null) {
-      const pct = Math.max(0, Math.min(100, Math.round(model.segment.progressRatio * 100)));
-      fillEl.style.width = `${pct}%`;
-      dotEl.style.left = `calc(${pct}% - 6px)`;
-      fillEl.style.display = 'block';
-      dotEl.style.display = 'block';
+      const totalChars = 9;
+      const dotIdx = Math.max(0, Math.min(totalChars - 1, Math.round(model.segment.progressRatio * (totalChars - 1))));
+      const leftBar = '━'.repeat(dotIdx);
+      const rightBar = '━'.repeat(totalChars - 1 - dotIdx);
+      progressTextEl.textContent = `${leftBar}●${rightBar}`;
     } else {
-      fillEl.style.display = 'none';
-      dotEl.style.display = 'none';
+      progressTextEl.textContent = '━━━━━━━━━';
     }
   }
 
   if (distNextEl) distNextEl.textContent = model.segment.distanceToNextText;
-  if (footerLeftEl) footerLeftEl.textContent = model.footer.leftInfo;
   if (footerRightEl) footerRightEl.textContent = model.footer.statusRight;
 }
 

@@ -8,7 +8,7 @@
   --brightness-primary: #00FF00;   /* Level 15: Speed, Next Station */
   --brightness-secondary: #00BB00; /* Level 11: Line Name, Previous Station, Progress Fill */
   --brightness-tertiary: #007700;  /* Level 7: Units, Distances, Status Marks */
-  --brightness-disabled: #003300;  /* Level 4: Uncertain/Inactive */
+  --brightness-disabled: #003300;  /* Level 4: Inactive / Track */
 }
 
 * {
@@ -72,7 +72,7 @@ body {
   margin-bottom: 30px;
 }
 
-/* Even G2 Fixed 576x288px HUD Layout */
+/* Even G2 Fixed 576x288px Hybrid Layout */
 .hud-root {
   position: relative;
   width: 576px;
@@ -82,13 +82,13 @@ body {
   font-family: 'SF Pro Display', -apple-system, BlinkMacSystemFont, monospace;
 }
 
-/* 1. HEADER Region (X:24, Y:12, W:528, H:34) */
+/* 1. HEADER TextContainer (Y: 0~44) */
 .hud-header {
   position: absolute;
   left: 24px;
-  top: 12px;
+  top: 8px;
   width: 528px;
-  height: 34px;
+  height: 36px;
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -109,16 +109,17 @@ body {
   text-align: right;
 }
 
-/* 2. SPEED Region (X:24, Y:50, W:528, H:110) */
+/* 2. SPEED ImageContainer (Y: 48~192, X: 144, W: 288, H: 144) */
 .hud-speed-container {
   position: absolute;
-  left: 24px;
-  top: 50px;
-  width: 528px;
-  height: 110px;
+  left: 144px;
+  top: 48px;
+  width: 288px;
+  height: 144px;
   display: flex;
   justify-content: center;
   align-items: baseline;
+  background-color: #000000;
 }
 
 .speed-value {
@@ -128,104 +129,64 @@ body {
   letter-spacing: -2px;
   font-variant-numeric: tabular-nums;
   font-feature-settings: "tnum";
+  margin-top: 10px;
 }
 
 .speed-unit {
-  font-size: 24px;
+  font-size: 22px;
   font-weight: 600;
-  margin-left: 8px;
+  margin-left: 6px;
 }
 
 .speed-estimated {
-  font-size: 28px;
+  font-size: 24px;
   font-weight: 700;
   margin-left: 6px;
-  width: 24px;
 }
 
-/* 3. SEGMENT Region (X:24, Y:168, W:528, H:70) */
+/* 3. SEGMENT TextContainer (Y: 196~244) */
 .hud-segment-container {
   position: absolute;
   left: 24px;
-  top: 168px;
+  top: 198px;
   width: 528px;
-  height: 70px;
+  height: 44px;
 }
 
 .hud-station-row {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  height: 28px;
+  height: 36px;
 }
 
 .station-prev {
   font-size: 24px;
   font-weight: 600;
-  max-width: 230px;
+  max-width: 160px;
   white-space: nowrap;
+}
+
+.progress-text {
+  font-size: 22px;
+  letter-spacing: 2px;
 }
 
 .station-next {
   font-size: 24px;
   font-weight: 600;
-  max-width: 230px;
+  max-width: 160px;
   text-align: right;
   white-space: nowrap;
 }
 
-/* Progress Bar (Y:202, H:6px) */
-.hud-progress-bar-container {
-  margin-top: 6px;
-  width: 528px;
-  height: 6px;
-}
-
-.hud-progress-track {
-  position: relative;
-  width: 528px;
-  height: 6px;
-  background-color: var(--brightness-disabled);
-  border-radius: 3px;
-}
-
-.hud-progress-fill {
-  position: absolute;
-  left: 0;
-  top: 0;
-  height: 6px;
-  width: 50%;
-  background-color: var(--brightness-secondary);
-  border-radius: 3px;
-}
-
-.hud-progress-dot {
-  position: absolute;
-  top: -3px;
-  left: calc(50% - 6px);
-  width: 12px;
-  height: 12px;
-  background-color: var(--brightness-primary);
-  border-radius: 50%;
-}
-
-.hud-segment-info-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  height: 22px;
-  margin-top: 8px;
-  font-size: 18px;
-  font-weight: 500;
-}
-
-/* 4. FOOTER Region (X:24, Y:244, W:528, H:28) */
+/* 4. FOOTER TextContainer (Y: 248~288) */
 .hud-footer {
   position: absolute;
   left: 24px;
-  top: 244px;
+  top: 250px;
   width: 528px;
-  height: 28px;
+  height: 30px;
   display: flex;
   justify-content: space-between;
   align-items: center;
