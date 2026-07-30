@@ -2,8 +2,8 @@ export const SPEED_IMAGE_WIDTH = 200;
 export const SPEED_IMAGE_HEIGHT = 100;
 
 /**
- * Renders speed number on a 200x100 Canvas with black (#000) background (off/transparent on G2)
- * and encodes it to a standard Uint8Array PNG byte array.
+ * Renders speed number on a 200x100 Canvas with black (#000) background (off/transparent on G2).
+ * Mathematically centers the entire speed group (number + unit + estimated mark) exactly in the horizontal middle (X: 100).
  */
 export async function createSpeedPng(
   speedKmh: number | null,
@@ -27,25 +27,50 @@ export async function createSpeedPng(
   ctx.fillRect(0, 0, canvas.width, canvas.height);
 
   ctx.fillStyle = '#ffffff';
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
 
   const speedStr = speedKmh !== null && speedKmh >= 0 ? `${Math.round(speedKmh)}` : '--';
 
-  // 1. Speed Number (72px Bold system-ui / monospace for 200x100 canvas)
-  ctx.font = '700 72px system-ui, -apple-system, monospace';
-  const speedX = 100;
-  const speedY = 42;
-  ctx.fillText(speedStr, speedX, speedY);
+  // Fonts
+  const speedFont = '700 70px system-ui, -apple-system, monospace';
+  const unitFont = '600 18px system-ui, -apple-system, sans-serif';
+  const estFont = '700 20px system-ui, -apple-system, sans-serif';
 
-  // 2. Speed Unit 'km/h' (18px SemiBold)
-  ctx.font = '600 18px system-ui, -apple-system, sans-serif';
-  ctx.fillText('km/h', speedX, 84);
+  // Measure components for exact horizontal centering
+  ctx.font = speedFont;
+  const speedWidth = ctx.measureText(speedStr).width;
 
-  // 3. Estimated Mark '~' if dead-reckoning or interpolating
+  ctx.font = unitFont;
+  const unitWidth = ctx.measureText('km/h').width;
+
+  ctx.font = estFont;
+  const estWidth = isEstimated ? ctx.measureText(' ~').width : 0;
+
+  const spacing = 4;
+  const totalWidth = speedWidth + spacing + unitWidth + estWidth;
+
+  // Calculate start X to center the entire combined block horizontally in 200px canvas
+  let currentX = Math.round((SPEED_IMAGE_WIDTH - totalWidth) / 2);
+
+  // 1. Draw Speed Number
+  ctx.font = speedFont;
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'alphabetic';
+  const speedY = 70;
+  ctx.fillText(speedStr, currentX, speedY);
+
+  currentX += speedWidth + spacing;
+
+  // 2. Draw Speed Unit 'km/h'
+  ctx.font = unitFont;
+  const unitY = 68;
+  ctx.fillText('km/h', currentX, unitY);
+
+  currentX += unitWidth;
+
+  // 3. Draw Estimated Mark '~' if active
   if (isEstimated) {
-    ctx.font = '700 20px system-ui, -apple-system, sans-serif';
-    ctx.fillText('~', speedX + 55, 84);
+    ctx.font = estFont;
+    ctx.fillText(' ~', currentX, unitY);
   }
 
   // Encode Canvas to standard PNG Blob Uint8Array
