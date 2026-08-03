@@ -4,22 +4,24 @@
 
 ---
 
-## 1. 前提条件 ＆ 準備
+## 1. 前提条件 ＆ 準備（正しい実行順序）
 
-### 1.1 Cloudflare アカウント ID と R2 API トークンの取得
-1. [Cloudflare Dashboard](https://dash.cloudflare.com/) にログインし、右側の **Account ID** をコピーします。
-2. 左メニュー **R2** ➔ **Manage R2 API Tokens** を選択します。
-3. 画面上の青いボタン **[Create Account API token]** をクリックします。
+### Step 1: R2 バケットの作成および Custom Domain 設定（最初に実行）
+1. [Cloudflare Dashboard](https://dash.cloudflare.com/) にログインし、左メニュー **R2** を選択します。
+2. 画面上の **[Create bucket]** （バケットを作成）ボタンをクリックします。
+3. バケット名を入力: `railglance-dataset-bucket`
+4. 作成したバケットの **Settings** タブ ➔ **Custom Domains** ➔ **[Connect Domain]** を選択します。
+5. 公開用ドメインを入力 (例: `data.railglance.example`)
+6. DNS 設定が自動追加され、HTTPS 証明書が即座に発行されます。
+
+### Step 2: Cloudflare アカウント ID と R2 API トークンの取得
+1. 左メニュー **R2** のトップ画面（または Account 概要）を表示し、画面右側の **Account ID** をコピーします。
+2. 左メニュー **R2** ➔ **[Manage R2 API Tokens]** を選択します。
+3. 画面右上の青いボタン **[Create Account API token]** をクリックします。
 4. トークン設定:
    * **Permissions**: **Object Read & Write** (書き込み・編集権限)
-   * **Specify bucket**: 対象バケット（例: `railglance-dataset-bucket`）または All buckets
-5. 発行された **Access Key ID** および **Secret Access Key** を保存します。
-
-### 1.2 R2 バケットの作成および Custom Domain 設定
-1. Cloudflare Dashboard ➔ **R2** ➔ **Create bucket** ➔ バケット名: `railglance-dataset-bucket`
-2. 作成したバケットの **Settings** ➔ **Custom Domains** ➔ **Connect Domain**
-3. ドメインを入力 (例: `data.railglance.example`)
-4. DNS 設定が自動追加され、HTTPS 証明書が即座に発行されます。
+   * **Apply to specific buckets only**: Step 1 で作成した `railglance-dataset-bucket` を選択（または All buckets）
+5. 発行された **Access Key ID** および **Secret Access Key** をコピーして保存します。
 
 ---
 
