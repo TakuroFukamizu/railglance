@@ -31,9 +31,9 @@ export class DebugPanel {
     const renderSyncBadge = (status?: string) => {
       switch (status) {
         case 'READY_R2':
-          return '<span style="color: #00FF00; background: #004400; padding: 2px 6px; border-radius: 4px; font-weight: bold;">✓ Ready (R2 CDN)</span>';
+          return '<span style="color: #00FF00; background: #004400; padding: 2px 6px; border-radius: 4px; font-weight: bold;">✓ Ready (R2 H3 Streaming)</span>';
         case 'SYNCING':
-          return '<span style="color: #FFFF00; background: #444400; padding: 2px 6px; border-radius: 4px; font-weight: bold;">⚡ Syncing...</span>';
+          return '<span style="color: #FFFF00; background: #444400; padding: 2px 6px; border-radius: 4px; font-weight: bold;">⚡ Connecting R2...</span>';
         case 'ERROR':
           return '<span style="color: #FF6666; background: #440000; padding: 2px 6px; border-radius: 4px; font-weight: bold;">✕ Error</span>';
         case 'LOCAL_SAMPLE':
@@ -45,11 +45,13 @@ export class DebugPanel {
     let html = `
       <div class="debug-grid">
         <div class="debug-card" style="border-left: 4px solid #00AAFF;">
-          <h3>Cloudflare R2 データセット同期状況</h3>
+          <h3>Cloudflare R2 On-Demand H3 Tile Status</h3>
           <div>同期ステータス: ${renderSyncBadge(datasetSyncStatus?.status)}</div>
           <div>データセットバージョン: <strong>${datasetSyncStatus?.version ?? 'v1.0.0'}</strong></div>
+          <div>現在地 H3 Cell: <strong style="color: #FFDD55;">${datasetSyncStatus?.currentCellId ?? '未検出'}</strong></div>
+          <div>オンデマンド取得済みタイル数: <strong>${datasetSyncStatus?.loadedTileCount ?? 0} 個</strong></div>
+          <div>キャッシュ内規模: <strong>${datasetSyncStatus?.totalLines ?? 0} 路線 / ${datasetSyncStatus?.totalStations ?? 0} 駅</strong></div>
           <div>ベースURL: <small style="color: #88CCFF;">${datasetSyncStatus?.baseUrl ?? '(ローカル内蔵データ)'}</small></div>
-          <div>収録規模: <strong>${datasetSyncStatus?.totalLines ?? 62} 路線 / ${datasetSyncStatus?.totalStations ?? 66} 駅</strong></div>
           ${datasetSyncStatus?.errorMessage ? `<div style="color: #FF8888; font-size: 11px; margin-top: 4px;">Error: ${datasetSyncStatus.errorMessage}</div>` : ''}
         </div>
 
