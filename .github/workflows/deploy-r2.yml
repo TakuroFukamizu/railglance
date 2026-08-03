@@ -1,0 +1,41 @@
+name: Deploy Dataset to Cloudflare R2
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'src/data/**'
+      - 'src/etl/**'
+      - 'src/scripts/**'
+      - 'data/corrections/**'
+  workflow_dispatch:
+
+jobs:
+  deploy-r2:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js & pnpm
+        uses: pnpm/action-setup@v3
+        with:
+          version: 10.29.3
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'pnpm'
+
+      - name: Install Dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build & Deploy Dataset to Cloudflare R2
+        env:
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET_NAME: ${{ secrets.R2_BUCKET_NAME || 'railglance-dataset-bucket' }}
+        run: pnpm deploy:r2
