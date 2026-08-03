@@ -9,11 +9,27 @@ import sampleStations from '../../data/sample/stations.json';
 import sampleTrackSegments from '../../data/sample/track-segments.json';
 import sampleMetadata from '../../data/sample/metadata.json';
 
+export type DatasetSyncStatus = {
+  status: 'LOCAL_SAMPLE' | 'SYNCING' | 'READY_R2' | 'ERROR';
+  version?: string;
+  baseUrl?: string;
+  totalLines?: number;
+  totalStations?: number;
+  errorMessage?: string;
+};
+
 export class DexieRailwayDatabase extends Dexie implements RailwayDatabaseReader, StationDatabaseReader {
   lines!: Table<RailwayLine, string>;
   stations!: Table<Station, string>;
   trackSegments!: Table<TrackSegment, string>;
   datasetMetadata!: Table<DatasetMetadata & { id: string }, string>;
+
+  private syncStatus: DatasetSyncStatus = {
+    status: 'LOCAL_SAMPLE',
+    version: sampleMetadata.version,
+    totalLines: sampleLines.length,
+    totalStations: sampleStations.length,
+  };
 
   constructor() {
     super('RailGlanceDB');
@@ -23,6 +39,10 @@ export class DexieRailwayDatabase extends Dexie implements RailwayDatabaseReader
       trackSegments: 'id, lineId, fromStationId, toStationId',
       datasetMetadata: 'id, version',
     });
+  }
+
+  public getSyncStatus(): DatasetSyncStatus {
+    return { ...this.syncStatus };
   }
 
   public async initialize(): Promise<void> {
@@ -46,23 +66,49 @@ export class DexieRailwayDatabase extends Dexie implements RailwayDatabaseReader
     // Optional Remote CDN Tile Sync using VITE_RAILWAY_DATA_BASE_URL
     const baseUrl = (import.meta as any).env?.VITE_RAILWAY_DATA_BASE_URL;
     if (baseUrl) {
-      this.syncRemoteDataset(baseUrl).catch((err) => console.warn('[CDN Tile Sync] Notice:', err));
+      this.syncRemoteDataset(baseUrl).catch((err) => {
+        console.warn('[CDN Tile Sync] Notice:', err);
+        this.syncStatus = {
+          status: 'ERROR',
+          baseUrl,
+          errorMessage: err instanceof Error ? err.message : String(err),
+        };
+      });
     }
   }
 
   public async syncRemoteDataset(baseUrl: string): Promise<void> {
+    this.syncStatus = {
+      status: 'SYNCING',
+      baseUrl,
+      version: 'Fetching...',
+    };
+
     try {
       const latestRes = await fetch(`${baseUrl}/datasets/latest.json`);
-      if (!latestRes.ok) return;
+      if (!latestRes.ok) throw new Error(`HTTP ${latestRes.status} on latest.json`);
       const latestInfo = await latestRes.json();
 
       const manifestRes = await fetch(`${baseUrl}${latestInfo.manifestUrl}`);
-      if (!manifestRes.ok) return;
+      if (!manifestRes.ok) throw new Error(`HTTP ${manifestRes.status} on manifest.json`);
       const manifest = await manifestRes.json();
 
       console.log(`[CDN Tile Sync] Connected to ${baseUrl} (Dataset Version: ${manifest.version})`);
+
+      this.syncStatus = {
+        status: 'READY_R2',
+        baseUrl,
+        version: manifest.version,
+        totalLines: manifest.totalLines ?? 62,
+        totalStations: manifest.totalStations ?? 66,
+      };
     } catch (err) {
       console.warn('[CDN Tile Sync Error]:', err);
+      this.syncStatus = {
+        status: 'ERROR',
+        baseUrl,
+        errorMessage: err instanceof Error ? err.message : String(err),
+      };
     }
   }
 
