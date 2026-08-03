@@ -8,11 +8,12 @@
 
 ### 1.1 Cloudflare アカウント ID と R2 API トークンの取得
 1. [Cloudflare Dashboard](https://dash.cloudflare.com/) にログインし、右側の **Account ID** をコピーします。
-2. 左メニュー **R2** ➔ **Manage R2 API Tokens** ➔ **Create API Token** を選択します。
-3. トークン設定:
-   * **Permissions**: Edit (Read & Write 権限)
-   * **Specify bucket**: 対象バケット（例: `railglance-dataset-bucket`）
-4. 発行された **Access Key ID** および **Secret Access Key** を保存します。
+2. 左メニュー **R2** ➔ **Manage R2 API Tokens** を選択します。
+3. 画面上の青いボタン **[Create Account API token]** をクリックします。
+4. トークン設定:
+   * **Permissions**: **Object Read & Write** (書き込み・編集権限)
+   * **Specify bucket**: 対象バケット（例: `railglance-dataset-bucket`）または All buckets
+5. 発行された **Access Key ID** および **Secret Access Key** を保存します。
 
 ### 1.2 R2 バケットの作成および Custom Domain 設定
 1. Cloudflare Dashboard ➔ **R2** ➔ **Create bucket** ➔ バケット名: `railglance-dataset-bucket`
