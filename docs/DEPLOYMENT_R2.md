@@ -1,18 +1,28 @@
 # Cloudflare R2 データセットデプロイ手順書
 
-本文書は、RailGlance の静的 H3 鉄道タイルデータセット (`dist/railway-dataset/`) を Cloudflare R2 ストレージバケットおよび Custom Domain へデプロイするための手順書である。
+本文書は、RailGlance の静的 H3 鉄道タイルデータセット (`dist/railway-dataset/`) を Cloudflare R2 ストレージバケットへデプロイ・公開するための手順書である。
 
 ---
 
 ## 1. 前提条件 ＆ 準備（正しい実行順序）
 
-### Step 1: R2 バケットの作成および Custom Domain 設定（最初に実行）
+### Step 1: R2 バケットの作成および公開 URL 設定（最初に実行）
 1. [Cloudflare Dashboard](https://dash.cloudflare.com/) にログインし、左メニュー **R2** を選択します。
-2. 画面上の **[Create bucket]** （バケットを作成）ボタンをクリックします。
+2. 画面上の **[Create bucket]** ボタンをクリックします。
 3. バケット名を入力: `railglance-dataset-bucket`
-4. 作成したバケットの **Settings** タブ ➔ **Custom Domains** ➔ **[Connect Domain]** を選択します。
-5. 公開用ドメインを入力 (例: `data.railglance.example`)
-6. DNS 設定が自動追加され、HTTPS 証明書が即座に発行されます。
+4. 設定はデフォルトのまま **[Create bucket]** を押して作成します。
+5. **公開 URL の設定 (以下のいずれかを選択)**:
+
+   * **パターン A: 無料開発用 URL (`r2.dev`) を使う場合（独自ドメイン不要・最速）**:
+     1. 作成したバケットの **[Settings]** タブを開きます。
+     2. **[Public access]** 項目にある **R2.dev bucket access** の **[Allow Access]** ボタンを押します。
+     3. 確認モーダルで `allow` と入力して有効化すると、`https://pub-xxxxxx.r2.dev` という公開 URL が即座に発行されます。
+
+   * **パターン B: 独自ドメイン (`Custom Domain`) を使う場合 (本番運用向け)**:
+     1. バケットの **[Settings]** タブ ➔ **Custom Domains** ➔ **[Connect Domain]** を選択します。
+     2. お持ちのドメインを入力 (例: `data.railglance.example`) して接続します。
+
+---
 
 ### Step 2: Cloudflare アカウント ID と R2 API トークンの取得
 1. 左メニュー **R2** のトップ画面（または Account 概要）を表示し、画面右側の **Account ID** をコピーします。
@@ -50,26 +60,16 @@ pnpm deploy:r2
 
 ---
 
-## 3. GitHub Actions CI/CD パイプラインでの自動デプロイ
-
-リポジトリの Secrets に以下を設定すると、`main` ブランチ更新時に自動デプロイされます：
-
-1. **GitHub Secret 設定**:
-   * `R2_ACCOUNT_ID`: Cloudflare アカウント ID
-   * `R2_ACCESS_KEY_ID`: R2 API Access Key ID
-   * `R2_SECRET_ACCESS_KEY`: R2 API Secret Access Key
-   * `R2_BUCKET_NAME`: `railglance-dataset-bucket`
-
-2. パイプライン設定ファイル: [.github/workflows/deploy-r2.yml](file:///Users/takuro/src/railglance/.github/workflows/deploy-r2.yml)
-
----
-
-## 4. クライアント アプリケーションでの受信設定
+## 3. クライアント アプリケーションでの受信設定
 
 Web アプリ（`.env` または `.env.production`）にて以下を設定します：
 
 ```env
-VITE_RAILWAY_DATA_BASE_URL=https://data.railglance.example
+# パターンAの場合 (r2.dev)
+VITE_RAILWAY_DATA_BASE_URL=https://pub-xxxxxx.r2.dev
+
+# パターンBの場合 (独自ドメイン)
+# VITE_RAILWAY_DATA_BASE_URL=https://data.railglance.example
 ```
 
 アプリ起動時に `VITE_RAILWAY_DATA_BASE_URL/datasets/latest.json` ➔ マニフェスト ➔ H3 タイルが自動参照・同期されます。
