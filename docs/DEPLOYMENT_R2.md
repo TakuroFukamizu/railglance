@@ -62,7 +62,13 @@ pnpm deploy:r2
 
 ## 3. クライアント アプリケーションでの受信設定
 
-Web アプリ（`.env` または `.env.production`）にて以下を設定します：
+リポジトリルートの `.env.example` をコピーして `.env` を作成します：
+
+```bash
+cp .env.example .env
+```
+
+`.env` 内の `VITE_RAILWAY_DATA_BASE_URL` を設定します：
 
 ```env
 # パターンAの場合 (r2.dev)
