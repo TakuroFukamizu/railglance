@@ -63,50 +63,92 @@ export class DexieRailwayDatabase extends Dexie implements RailwayDatabaseReader
       });
     }
 
-    // Optional Remote CDN Tile Sync using VITE_RAILWAY_DATA_BASE_URL
-    const baseUrl = (import.meta as any).env?.VITE_RAILWAY_DATA_BASE_URL;
+    // Access Vite environment variables safely
+    const envBaseUrl = (import.meta as any).env?.VITE_RAILWAY_DATA_BASE_URL;
+    const baseUrl = typeof envBaseUrl === 'string' && envBaseUrl.trim().length > 0 ? envBaseUrl.trim() : undefined;
+
     if (baseUrl) {
+      console.log('[CDN Tile Sync] VITE_RAILWAY_DATA_BASE_URL detected:', baseUrl);
       this.syncRemoteDataset(baseUrl).catch((err) => {
-        console.warn('[CDN Tile Sync] Notice:', err);
+        console.warn('[CDN Tile Sync Error]:', err);
         this.syncStatus = {
           status: 'ERROR',
           baseUrl,
           errorMessage: err instanceof Error ? err.message : String(err),
         };
       });
+    } else {
+      console.log('[CDN Tile Sync] No VITE_RAILWAY_DATA_BASE_URL provided. Using local sample dataset.');
+      this.syncStatus = {
+        status: 'LOCAL_SAMPLE',
+        version: sampleMetadata.version,
+        totalLines: await this.lines.count(),
+        totalStations: await this.stations.count(),
+      };
     }
   }
 
   public async syncRemoteDataset(baseUrl: string): Promise<void> {
+    const cleanBaseUrl = baseUrl.replace(/\/+$/, '');
     this.syncStatus = {
       status: 'SYNCING',
-      baseUrl,
+      baseUrl: cleanBaseUrl,
       version: 'Fetching...',
     };
 
     try {
-      const latestRes = await fetch(`${baseUrl}/datasets/latest.json`);
+      // 1. Fetch latest pointer
+      const latestRes = await fetch(`${cleanBaseUrl}/datasets/latest.json`, { mode: 'cors' });
       if (!latestRes.ok) throw new Error(`HTTP ${latestRes.status} on latest.json`);
       const latestInfo = await latestRes.json();
 
-      const manifestRes = await fetch(`${baseUrl}${latestInfo.manifestUrl}`);
+      // 2. Fetch manifest
+      const manifestUrl = `${cleanBaseUrl}${latestInfo.manifestUrl}`;
+      const manifestRes = await fetch(manifestUrl, { mode: 'cors' });
       if (!manifestRes.ok) throw new Error(`HTTP ${manifestRes.status} on manifest.json`);
       const manifest = await manifestRes.json();
 
-      console.log(`[CDN Tile Sync] Connected to ${baseUrl} (Dataset Version: ${manifest.version})`);
+      // 3. Fetch coverage-report for dataset items
+      const reportUrl = manifestUrl.replace('/manifest.json', '/coverage-report.json');
+      const reportRes = await fetch(reportUrl, { mode: 'cors' });
+
+      let remoteLines: RailwayLine[] = [];
+
+      if (reportRes.ok) {
+        const report = await reportRes.json();
+        if (report.linesDetail) {
+          remoteLines = report.linesDetail.map((l: any) => ({
+            id: l.lineId,
+            operatorId: l.operatorName,
+            operatorName: l.operatorName,
+            name: l.lineName,
+          }));
+        }
+      }
+
+      // If remote lines successfully loaded, populate DB
+      if (remoteLines.length > 0) {
+        await this.lines.clear();
+        await this.lines.bulkPut(remoteLines);
+      }
+
+      const lineCount = await this.lines.count();
+      const stationCount = await this.stations.count();
+
+      console.log(`[CDN Tile Sync] Successfully connected & synced with ${cleanBaseUrl} (Version ${manifest.version})`);
 
       this.syncStatus = {
         status: 'READY_R2',
-        baseUrl,
+        baseUrl: cleanBaseUrl,
         version: manifest.version,
-        totalLines: manifest.totalLines ?? 62,
-        totalStations: manifest.totalStations ?? 66,
+        totalLines: manifest.totalLines ?? lineCount,
+        totalStations: manifest.totalStations ?? stationCount,
       };
     } catch (err) {
-      console.warn('[CDN Tile Sync Error]:', err);
+      console.warn('[CDN Tile Sync Exception]:', err);
       this.syncStatus = {
         status: 'ERROR',
-        baseUrl,
+        baseUrl: cleanBaseUrl,
         errorMessage: err instanceof Error ? err.message : String(err),
       };
     }
