@@ -42,6 +42,28 @@ export class DexieRailwayDatabase extends Dexie implements RailwayDatabaseReader
         ...(sampleMetadata as DatasetMetadata),
       });
     }
+
+    // Optional Remote CDN Tile Sync using VITE_RAILWAY_DATA_BASE_URL
+    const baseUrl = (import.meta as any).env?.VITE_RAILWAY_DATA_BASE_URL;
+    if (baseUrl) {
+      this.syncRemoteDataset(baseUrl).catch((err) => console.warn('[CDN Tile Sync] Notice:', err));
+    }
+  }
+
+  public async syncRemoteDataset(baseUrl: string): Promise<void> {
+    try {
+      const latestRes = await fetch(`${baseUrl}/datasets/latest.json`);
+      if (!latestRes.ok) return;
+      const latestInfo = await latestRes.json();
+
+      const manifestRes = await fetch(`${baseUrl}${latestInfo.manifestUrl}`);
+      if (!manifestRes.ok) return;
+      const manifest = await manifestRes.json();
+
+      console.log(`[CDN Tile Sync] Connected to ${baseUrl} (Dataset Version: ${manifest.version})`);
+    } catch (err) {
+      console.warn('[CDN Tile Sync Error]:', err);
+    }
   }
 
   public async findSegmentsNear(

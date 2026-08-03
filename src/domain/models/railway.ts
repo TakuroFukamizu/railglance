@@ -1,10 +1,14 @@
+import { DataProvenance } from './provenance';
+
 export type RailwayLine = {
   id: string;
   operatorId: string;
+  operatorName?: string;
   name: string;
   shortName?: string;
   directionAName?: string;
   directionBName?: string;
+  provenance?: DataProvenance[];
 };
 
 export type Station = {
@@ -14,6 +18,7 @@ export type Station = {
   sequence: number;
   latitude: number;
   longitude: number;
+  provenance?: DataProvenance[];
 };
 
 export type TrackSegment = {
@@ -23,12 +28,21 @@ export type TrackSegment = {
   toStationId: string;
   coordinates: Array<[number, number]>; // [latitude, longitude]
   lengthMeters?: number;
+  cumulativeDistanceMeters?: number;
+  provenance?: DataProvenance[];
 };
 
 export type DatasetMetadata = {
   version: string;
   generatedAt: string;
   area: string;
+  licensing?: {
+    sources: Array<{
+      sourceId: string;
+      attributionText: string;
+      licenseId: string;
+    }>;
+  };
 };
 
 export type TravelDirection = 'UP' | 'DOWN' | 'DIRECTION_A' | 'DIRECTION_B' | 'UNKNOWN';
