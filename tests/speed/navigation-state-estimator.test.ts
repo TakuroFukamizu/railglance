@@ -91,4 +91,27 @@ describe('NavigationStateEstimator (Track-Constrained Dead Reckoning)', () => {
     // Smooth weighted blend: 20 * 0.65 + 25 * 0.35 = 21.75 m/s
     expect(reacquiredState.velocityMps).toBeCloseTo(21.75, 1);
   });
+
+  it('holds a non-zero coasting speed during a short tunnel and becomes lost after 60 seconds', () => {
+    const estimator = new NavigationStateEstimator(DEFAULT_TRACKING_CONFIG);
+    estimator.updateWithGps({
+      sample: {
+        latitude: 35.4526,
+        longitude: 139.39,
+        accuracyMeters: 5,
+        speedMps: 20,
+        headingDegrees: 45,
+        timestampMs: 10_000,
+      },
+      match: null,
+    });
+
+    const tunnel = estimator.predict(25_000);
+    expect(tunnel.mode).toBe('dead-reckoning');
+    expect(tunnel.velocityMps).toBe(20);
+
+    const lost = estimator.predict(71_000);
+    expect(lost.mode).toBe('lost');
+    expect(lost.confidence).toBe(0);
+  });
 });

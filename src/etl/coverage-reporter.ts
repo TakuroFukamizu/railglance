@@ -5,12 +5,6 @@ export type CoverageReportData = {
   version: string;
   generatedAt: string;
   targetPrefectures: string[];
-  prefectureStats: Array<{
-    prefectureName: string;
-    operatorCount: number;
-    lineCount: number;
-    stationCount: number;
-  }>;
   linesDetail: Array<{
     lineId: string;
     lineName: string;
@@ -68,18 +62,23 @@ export class CoverageReporter {
 
     const missingPolylineLines = lineStats.filter((ls) => !ls.hasPolyline).map((ls) => ls.lineName);
 
-    const prefectureStats = targetPrefectures.map((pref) => ({
-      prefectureName: pref,
-      operatorCount: Math.round(operators.size / targetPrefectures.length),
-      lineCount: Math.round(lines.length / targetPrefectures.length),
-      stationCount: Math.round(stations.length / targetPrefectures.length),
-    }));
+    const licensesBySource = new Map<string, CoverageReportData['licenses'][number]>();
+    for (const item of [...lines, ...stations, ...segments]) {
+      for (const provenance of item.provenance ?? []) {
+        if (!licensesBySource.has(provenance.sourceId)) {
+          licensesBySource.set(provenance.sourceId, {
+            sourceId: provenance.sourceId,
+            licenseId: provenance.licenseId,
+            attributionText: provenance.attributionText,
+          });
+        }
+      }
+    }
 
     return {
       version,
       generatedAt: new Date().toISOString(),
       targetPrefectures,
-      prefectureStats,
       linesDetail: lineStats,
       summary: {
         totalOperators: operators.size,
@@ -92,26 +91,16 @@ export class CoverageReporter {
         unassignedH3Count: 0,
         manualCorrectionsApplied: lines.reduce((acc, l) => acc + (l.provenance?.filter((p) => p.manuallyCorrected).length || 0), 0),
       },
-      licenses: [
-        {
-          sourceId: 'mlit-n02-23',
-          licenseId: 'MLIT-NLKPI-Terms',
-          attributionText: '「国土数値情報（鉄道データ N02-23）」（国土交通省）を加工して作成',
-        },
-        {
-          sourceId: 'railglance-existing-sample',
-          licenseId: 'MIT',
-          attributionText: 'RailGlance Core Team',
-        },
-      ],
+      licenses: [...licensesBySource.values()],
     };
   }
 
   public renderMarkdownReport(report: CoverageReportData): string {
-    return `# 関東圏 鉄道データカバレッジレポート (v${report.version})
+    return `# 関東圏 鉄道データ配信対象レポート (v${report.version})
 
 * **生成日時**: ${report.generatedAt}
-* **対象地域**: 1都6県 (${report.targetPrefectures.join(', ')}) ＋ 県境30km/3駅バッファ
+* **抽出対象地域**: 1都6県 (${report.targetPrefectures.join(', ')}) ＋ 県境バッファ
+* **収録条件**: 駅2件以上・駅間線形1件以上を持ち、トポロジー品質ゲートを通過した路線のみ
 
 ---
 

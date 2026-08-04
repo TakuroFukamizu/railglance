@@ -9,7 +9,7 @@
     "sim": "evenhub-simulator http://localhost:5173",
     "qr": "evenhub qr",
     "build": "tsc && vite build",
-    "build:data": "vitest run tests/etl/etl-runner.test.ts",
+    "build:data": "tsx src/scripts/build-kanto-dataset.ts",
     "deploy:r2": "pnpm build:data && tsx src/scripts/deploy-r2.ts",
     "ehpack": "pnpm build && evenhub pack app.json dist",
     "preview": "vite preview",
@@ -18,7 +18,8 @@
   },
   "dependencies": {
     "@evenrealities/even_hub_sdk": "^0.0.12",
-    "dexie": "^4.0.10"
+    "dexie": "^4.0.10",
+    "h3-js": "^4.5.0"
   },
   "devDependencies": {
     "@aws-sdk/client-s3": "^3.1101.0",
@@ -26,6 +27,7 @@
     "@evenrealities/evenhub-simulator": "^0.8.0",
     "@types/node": "^26.1.2",
     "concurrently": "^10.0.3",
+    "fake-indexeddb": "^6.2.5",
     "tsx": "^4.23.5",
     "typescript": "^5.7.2",
     "vite": "^6.0.7",

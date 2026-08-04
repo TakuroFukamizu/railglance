@@ -45,7 +45,14 @@ export R2_ACCOUNT_ID="your_cloudflare_account_id"
 export R2_ACCESS_KEY_ID="your_r2_access_key_id"
 export R2_SECRET_ACCESS_KEY="your_r2_secret_access_key"
 export R2_BUCKET_NAME="railglance-dataset-bucket" # 省略時はデフォルト
+export R2_CORS_ALLOWED_ORIGINS="https://app.example,https://preview.example"
+export DATASET_VERSION="1.4.0" # 公開済みでないSemVerを毎回明示
+export MLIT_N02_DIR="/path/to/N02-23/UTF-8"
 ```
+
+`MLIT_N02_DIR` には国土交通省「国土数値情報 鉄道データ N02-23」の
+`N02-23_RailroadSection.geojson` と `N02-23_Station.geojson` を置きます。2020年度以降の同データは
+CC BY 4.0 です。合成した路線名は使用せず、駅・線形・出典を GeoJSON から変換します。
 
 ### 2.2 データセット生成 ＆ デプロイの実行
 
@@ -54,9 +61,17 @@ pnpm deploy:r2
 ```
 
 このコマンドにより以下が自動実行されます：
-1. 関東1都6県全線データセット ETL ビルド (`pnpm build:data`)
-2. `dist/railway-dataset/v1.0.0/*` の全 H3 タイル・マニフェストを R2 へ長期キャッシュ付き送信 (`Cache-Control: public, max-age=31536000, immutable`)
+1. 品質ゲートを通過した関東圏データセットの ETL ビルド (`pnpm build:data`)
+2. `dist/railway-dataset/v${DATASET_VERSION}/*` の H3 タイル・マニフェストを R2 へ長期キャッシュ付き送信 (`Cache-Control: public, max-age=31536000, immutable`)
 3. 最後に `/datasets/latest.json` をアトミック切り替え送信 (`Cache-Control: public, max-age=300, must-revalidate`)
+
+デプロイ処理は先に R2 の manifest キーを確認し、同じ version が存在すれば失敗します。公開済み version の
+上書きはできません。認証情報がない場合も失敗し、ネットワーク変更を行わない確認だけが必要な場合に限り
+`pnpm tsx src/scripts/deploy-r2.ts --dry-run` を使います。
+
+デプロイ時には `R2_CORS_ALLOWED_ORIGINS` を使って bucket CORS も更新します。ブラウザの Origin と完全一致する
+値を列挙し、`*` は本番では使用しません。反映後はブラウザから `latest.json` と任意の H3 tile を取得し、
+レスポンスの `Access-Control-Allow-Origin` を確認します。
 
 ---
 
