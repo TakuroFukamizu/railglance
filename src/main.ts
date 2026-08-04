@@ -118,7 +118,7 @@ async function init() {
   });
 
   document.getElementById('btn-start')?.addEventListener('click', () => {
-    controller.switchLocationProvider(new BrowserLocationProvider());
+    void controller.switchLocationProvider(new BrowserLocationProvider());
   });
 
   document.getElementById('btn-stop')?.addEventListener('click', () => {
@@ -136,11 +136,11 @@ async function init() {
   });
 
   document.getElementById('btn-replay-odakyu')?.addEventListener('click', () => {
-    controller.switchLocationProvider(new DemoGpsReplayerProvider(ODAKYU_DEMO_POINTS));
+    void controller.switchLocationProvider(new DemoGpsReplayerProvider(ODAKYU_DEMO_POINTS));
   });
 
   document.getElementById('btn-replay-shinkansen')?.addEventListener('click', () => {
-    controller.switchLocationProvider(new DemoGpsReplayerProvider(SHINKANSEN_DEMO_POINTS));
+    void controller.switchLocationProvider(new DemoGpsReplayerProvider(SHINKANSEN_DEMO_POINTS));
   });
 
   // Auto-start controller and Even G2 Bridge connection

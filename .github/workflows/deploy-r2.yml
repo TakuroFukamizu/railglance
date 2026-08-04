@@ -1,15 +1,11 @@
 name: Deploy Dataset to Cloudflare R2
 
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - 'src/data/**'
-      - 'src/etl/**'
-      - 'src/scripts/**'
-      - 'data/corrections/**'
   workflow_dispatch:
+    inputs:
+      dataset_version:
+        description: New immutable dataset SemVer
+        required: true
 
 jobs:
   deploy-r2:
@@ -32,10 +28,21 @@ jobs:
       - name: Install Dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Download official MLIT N02-23 GeoJSON
+        run: |
+          mkdir -p "$RUNNER_TEMP/mlit-n02"
+          curl --fail --location --retry 3 \
+            https://nlftp.mlit.go.jp/ksj/gml/data/N02/N02-23/N02-23_GML.zip \
+            --output "$RUNNER_TEMP/mlit-n02/N02-23_GML.zip"
+          unzip -q "$RUNNER_TEMP/mlit-n02/N02-23_GML.zip" -d "$RUNNER_TEMP/mlit-n02"
+
       - name: Build & Deploy Dataset to Cloudflare R2
         env:
           R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           R2_BUCKET_NAME: ${{ secrets.R2_BUCKET_NAME || 'railglance-dataset-bucket' }}
+          R2_CORS_ALLOWED_ORIGINS: ${{ secrets.R2_CORS_ALLOWED_ORIGINS }}
+          DATASET_VERSION: ${{ inputs.dataset_version }}
+          MLIT_N02_DIR: ${{ runner.temp }}/mlit-n02/UTF-8
         run: pnpm deploy:r2

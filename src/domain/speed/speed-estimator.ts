@@ -5,7 +5,7 @@ import { SpeedFilter } from './speed-filter';
 import { DefaultSpeedSelector, SpeedSelector } from './speed-selector';
 import { DeviceMotionSensorFusionProvider } from '../../infrastructure/sensors/device-motion-sensor-fusion-provider';
 import { NavigationStateEstimator } from './navigation-state-estimator';
-import { RouteMatch } from '../models/railway';
+import { RouteMatch, TrackSegment } from '../models/railway';
 
 export class SpeedEstimator {
   private lastGpsSample: LocationSample | null = null;
@@ -26,6 +26,10 @@ export class SpeedEstimator {
     this.speedSelector = customSelector ?? new DefaultSpeedSelector();
     this.sensorFusionProvider = new DeviceMotionSensorFusionProvider();
     this.navEstimator = new NavigationStateEstimator(config);
+  }
+
+  public getNavStateEstimator(): NavigationStateEstimator {
+    return this.navEstimator;
   }
 
   /**
@@ -168,9 +172,9 @@ export class SpeedEstimator {
     return fullState;
   }
 
-  public async getEstimateAtAsync(currentTimeMs: number): Promise<FullSpeedState> {
-    // 1. Run time-driven prediction step on NavigationStateEstimator
-    const predictedNavState = this.navEstimator.predict(currentTimeMs);
+  public async getEstimateAtAsync(currentTimeMs: number, availableSegments?: TrackSegment[]): Promise<FullSpeedState> {
+    // 1. Run time-driven prediction step on NavigationStateEstimator with available segments
+    const predictedNavState = this.navEstimator.predict(currentTimeMs, availableSegments);
 
     if (!this.lastFullState) {
       const unknownEstimate: SpeedEstimate = {

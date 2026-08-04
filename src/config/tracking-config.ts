@@ -10,6 +10,7 @@ export type TrackingConfig = {
   routeSearchRadiusMeters: number;
   routeSwitchConsecutiveCount: number;
   routeSwitchMinimumMs: number;
+  routeMatchLossGraceMs: number;
   confidenceHigh: number;
   confidenceMedium: number;
   confidenceLow: number;
@@ -27,6 +28,7 @@ export const DEFAULT_TRACKING_CONFIG: TrackingConfig = {
   routeSearchRadiusMeters: 1000.0,
   routeSwitchConsecutiveCount: 3,
   routeSwitchMinimumMs: 5000,
+  routeMatchLossGraceMs: 8000,
   confidenceHigh: 0.85,
   confidenceMedium: 0.6,
   confidenceLow: 0.4,

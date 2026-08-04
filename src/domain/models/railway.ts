@@ -11,6 +11,16 @@ export type RailwayLine = {
   provenance?: DataProvenance[];
 };
 
+export type RailwayRoute = {
+  id: string;
+  lineId: string;
+  direction: TravelDirection;
+  stationIds: string[];
+  segmentIds: string[];
+  totalLengthMeters: number;
+  provenance?: DataProvenance[];
+};
+
 export type Station = {
   id: string;
   lineId: string;
@@ -18,22 +28,28 @@ export type Station = {
   sequence: number;
   latitude: number;
   longitude: number;
+  routeOffsetMeters?: number;
   provenance?: DataProvenance[];
 };
 
 export type TrackSegment = {
   id: string;
   lineId: string;
+  routeId?: string;
   fromStationId: string;
   toStationId: string;
   coordinates: Array<[number, number]>; // [latitude, longitude]
   lengthMeters?: number;
+  startOffsetMeters?: number;
   cumulativeDistanceMeters?: number;
+  previousSegmentIds?: string[];
+  nextSegmentIds?: string[];
   provenance?: DataProvenance[];
 };
 
 export type DatasetMetadata = {
   version: string;
+  schemaVersion: string;
   generatedAt: string;
   area: string;
   licensing?: {
@@ -75,6 +91,7 @@ export type JourneyState = {
   previousStation: Station | null;
   nextStation: Station | null;
   distanceToNextStationMeters: number | null;
+  progressRatio: number | null; // 0.0 to 1.0
   confidence: number;
   status: 'INITIALIZING' | 'WAITING_FOR_GPS' | 'MATCHING_ROUTE' | 'TRACKING' | 'GPS_UNAVAILABLE' | 'ROUTE_UNCERTAIN' | 'GPS_LOW_ACCURACY';
 };

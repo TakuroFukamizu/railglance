@@ -9,7 +9,7 @@ export class HudRenderer {
     currentTimeMs: number
   ): HudViewModel {
     const { selectedEstimate, smoothedSpeedKmh, navState } = speedState;
-    const { line, directionName, previousStation, nextStation, distanceToNextStationMeters, confidence, status } = journeyState;
+    const { line, directionName, previousStation, nextStation, distanceToNextStationMeters, progressRatio: journeyProgressRatio, confidence, status } = journeyState;
 
     const gpsAgeMs = navState.lastObservationTimestampMs
       ? currentTimeMs - navState.lastObservationTimestampMs
@@ -76,10 +76,7 @@ export class HudRenderer {
       }
     }
 
-    let progressRatio: number | null = null;
-    if (distanceToNextStationMeters !== null && previousStation && nextStation) {
-      progressRatio = 0.5; // Default fallback progress ratio
-    }
+    const progressRatio = journeyProgressRatio ?? (distanceToNextStationMeters !== null ? 0.5 : null);
 
     // 5. FOOTER Region Formulation
     let leftInfo = directionName ?? '走行中';
@@ -148,7 +145,6 @@ export class HudRenderer {
 
     const estMark = isEstimated ? ' ~' : '';
     
-    // Construct progress bar string using Unicode block characters e.g. "━━━●━━━━━"
     let progressBarStr = '━━━━━━━━━';
     if (progressRatio !== null) {
       const totalChars = 9;

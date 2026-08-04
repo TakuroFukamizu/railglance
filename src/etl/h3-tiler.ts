@@ -1,9 +1,12 @@
-import { RailwayLine, Station, TrackSegment } from '../domain/models/railway';
+import { RailwayLine, RailwayRoute, Station, TrackSegment } from '../domain/models/railway';
+import { gridDisk, latLngToCell } from 'h3-js';
+import { haversineDistance } from '../domain/geo/distance';
 
 export type H3TileData = {
   cellId: string;
   resolution: number;
   lines: RailwayLine[];
+  routes: RailwayRoute[];
   stations: Station[];
   segments: TrackSegment[];
 };
@@ -11,22 +14,23 @@ export type H3TileData = {
 export class H3Tiler {
   constructor(private resolution = 6) {}
 
-  /**
-   * Fast latitude/longitude to H3 Cell ID generator without external native bindings.
-   * Format: `h3_r6_{lat_bucket}_{lon_bucket}`
-   */
   public latLonToCellId(lat: number, lon: number): string {
-    const latIdx = Math.floor((lat + 90) * 2);
-    const lonIdx = Math.floor((lon + 180) * 2);
-    return `h3_r${this.resolution}_${latIdx}_${lonIdx}`;
+    return latLngToCell(lat, lon, this.resolution);
+  }
+
+  public coverageCellIds(lat: number, lon: number, ringSize = 1): string[] {
+    return gridDisk(this.latLonToCellId(lat, lon), ringSize);
   }
 
   public generateTiles(
     lines: RailwayLine[],
+    routes: RailwayRoute[],
     stations: Station[],
     segments: TrackSegment[]
   ): Map<string, H3TileData> {
     const lineMap = new Map<string, RailwayLine>(lines.map((l) => [l.id, l]));
+    const routeMap = new Map<string, RailwayRoute>(routes.map((r) => [r.id, r]));
+    const stationMap = new Map<string, Station>(stations.map((station) => [station.id, station]));
     const tiles = new Map<string, H3TileData>();
 
     const getOrCreateTile = (cellId: string): H3TileData => {
@@ -35,6 +39,7 @@ export class H3Tiler {
           cellId,
           resolution: this.resolution,
           lines: [],
+          routes: [],
           stations: [],
           segments: [],
         });
@@ -54,12 +59,12 @@ export class H3Tiler {
       }
     }
 
-    // 2. Group TrackSegments into Tiles
+    // 2. Group TrackSegments and Routes into Tiles
     for (const segment of segments) {
       const line = lineMap.get(segment.lineId);
+      const route = segment.routeId ? routeMap.get(segment.routeId) : undefined;
 
-      for (const [lat, lon] of segment.coordinates) {
-        const cellId = this.latLonToCellId(lat, lon);
+      for (const cellId of this.segmentCellIds(segment)) {
         const tile = getOrCreateTile(cellId);
 
         if (!tile.segments.some((s) => s.id === segment.id)) {
@@ -68,9 +73,44 @@ export class H3Tiler {
         if (line && !tile.lines.some((l) => l.id === line.id)) {
           tile.lines.push(line);
         }
+        if (route && !tile.routes.some((r) => r.id === route.id)) {
+          tile.routes.push(route);
+        }
+        for (const stationId of [segment.fromStationId, segment.toStationId]) {
+          const station = stationMap.get(stationId);
+          if (station && !tile.stations.some((candidate) => candidate.id === station.id)) {
+            tile.stations.push(station);
+          }
+        }
       }
     }
 
     return tiles;
+  }
+
+  private segmentCellIds(segment: TrackSegment): Set<string> {
+    const cells = new Set<string>();
+    const sampleIntervalMeters = 500;
+
+    for (let index = 0; index < segment.coordinates.length - 1; index++) {
+      const [startLat, startLon] = segment.coordinates[index];
+      const [endLat, endLon] = segment.coordinates[index + 1];
+      const distanceMeters = haversineDistance(startLat, startLon, endLat, endLon);
+      const steps = Math.max(1, Math.ceil(distanceMeters / sampleIntervalMeters));
+
+      for (let step = 0; step <= steps; step++) {
+        const ratio = step / steps;
+        const lat = startLat + (endLat - startLat) * ratio;
+        const lon = startLon + (endLon - startLon) * ratio;
+        cells.add(this.latLonToCellId(lat, lon));
+      }
+    }
+
+    if (segment.coordinates.length === 1) {
+      const [lat, lon] = segment.coordinates[0];
+      cells.add(this.latLonToCellId(lat, lon));
+    }
+
+    return cells;
   }
 }
