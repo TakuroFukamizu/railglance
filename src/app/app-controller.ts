@@ -92,10 +92,7 @@ export class AppController {
     this.isRunning = true;
 
     // 1. Immediately start location provider & GPS updates (non-blocking)
-    void this.locationProvider.start(
-      (sample) => void this.onLocationUpdate(sample),
-      (err) => this.onLocationError(err)
-    );
+    this.startLocationProvider(this.locationProvider);
 
     // 2. Immediately start HUD render timer (Web Viewport DOM / Local Preview)
     this.renderTimerId = setInterval(() => {
@@ -166,11 +163,26 @@ export class AppController {
 
     this.locationProvider = newProvider;
     if (this.isRunning) {
-      void this.locationProvider.start(
+      this.startLocationProvider(this.locationProvider);
+    }
+  }
+
+  private startLocationProvider(provider: LocationProvider): void {
+    try {
+      const startResult = provider.start(
         (sample) => void this.onLocationUpdate(sample),
         (err) => this.onLocationError(err)
       );
+      if (startResult) {
+        void startResult.catch((error) => this.onLocationError(this.toLocationProviderError(error)));
+      }
+    } catch (error) {
+      this.onLocationError(this.toLocationProviderError(error));
     }
+  }
+
+  private toLocationProviderError(error: unknown): { message: string } {
+    return { message: error instanceof Error ? error.message : String(error) };
   }
 
   public async onLocationUpdate(sample: LocationSample): Promise<void> {

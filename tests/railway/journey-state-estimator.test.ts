@@ -43,7 +43,7 @@ describe('JourneyStateEstimator', () => {
     const db = new MockStationDatabase();
     const estimator = new JourneyStateEstimator(db, DEFAULT_TRACKING_CONFIG);
 
-    const line: RailwayLine = { id: 'line-1', operatorId: 'odakyu', name: '小田急線', directionAName: '上り', directionBName: '下り' };
+    const line: RailwayLine = { id: 'line-1', operatorId: 'odakyu', name: '小田急線', directionAName: '内回り', directionBName: '外回り' };
     const seg: TrackSegment = {
       id: 'seg-1',
       lineId: 'line-1',
@@ -54,6 +54,7 @@ describe('JourneyStateEstimator', () => {
         [35.4806, 139.4005],
       ],
       lengthMeters: 3200,
+      startOffsetMeters: 0,
     };
 
     const match: RouteMatch = {
@@ -112,7 +113,7 @@ describe('JourneyStateEstimator', () => {
     const state = await estimator.update(sample, match, speedState);
 
     expect(state.direction).toBe('UP');
-    expect(state.directionName).toBe('上り');
+    expect(state.directionName).toBe('内回り');
     expect(state.previousStation?.name).toBe('海老名');
     expect(state.nextStation?.name).toBe('座間');
     expect(state.status).toBe('TRACKING');
@@ -122,7 +123,7 @@ describe('JourneyStateEstimator', () => {
     const db = new MockStationDatabase();
     const estimator = new JourneyStateEstimator(db, DEFAULT_TRACKING_CONFIG);
 
-    const line: RailwayLine = { id: 'line-1', operatorId: 'odakyu', name: '小田急線', directionAName: '上り', directionBName: '下り' };
+    const line: RailwayLine = { id: 'line-1', operatorId: 'odakyu', name: '小田急線', directionAName: '内回り', directionBName: '外回り' };
     const seg: TrackSegment = {
       id: 'seg-1',
       lineId: 'line-1',
@@ -133,6 +134,7 @@ describe('JourneyStateEstimator', () => {
         [35.4806, 139.4005],
       ],
       lengthMeters: 3200,
+      startOffsetMeters: 0,
     };
 
     const match: RouteMatch = {
@@ -191,9 +193,10 @@ describe('JourneyStateEstimator', () => {
     const state = await estimator.update(sample, match, speedState);
 
     expect(state.direction).toBe('DOWN');
-    expect(state.directionName).toBe('下り');
+    expect(state.directionName).toBe('外回り');
     expect(state.previousStation?.name).toBe('座間');
     expect(state.nextStation?.name).toBe('海老名');
+    expect(state.distanceToNextStationMeters).toBe(1500);
     expect(state.status).toBe('TRACKING');
   });
 });

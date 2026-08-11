@@ -168,7 +168,10 @@ export class JourneyStateEstimator {
       if (navState && navState.trackPositionMeters !== null && currentSeg.startOffsetMeters !== undefined) {
         const segLength = currentSeg.lengthMeters ?? 2000;
         const endOffset = currentSeg.startOffsetMeters + segLength;
-        distanceToNextStationMeters = Math.max(0, Math.round(endOffset - navState.trackPositionMeters));
+        const remainingMeters = direction === 'DOWN'
+          ? navState.trackPositionMeters - currentSeg.startOffsetMeters
+          : endOffset - navState.trackPositionMeters;
+        distanceToNextStationMeters = Math.max(0, Math.min(segLength, Math.round(remainingMeters)));
       }
     }
 
@@ -249,7 +252,11 @@ export class JourneyStateEstimator {
       }
     }
 
-    const directionName = direction === 'UP' ? '上り' : direction === 'DOWN' ? '下り' : null;
+    const directionName = direction === 'UP' || direction === 'DIRECTION_A'
+      ? selectedLine.directionAName ?? '上り'
+      : direction === 'DOWN' || direction === 'DIRECTION_B'
+        ? selectedLine.directionBName ?? '下り'
+        : null;
     const confidence = match ? match.confidence : (navState?.confidence ?? 0.5);
 
     let status: JourneyState['status'] = 'TRACKING';

@@ -43,6 +43,37 @@ function sample(timestampMs: number): LocationSample {
 }
 
 describe('AppController route loss', () => {
+  it('reports async location provider startup failures without an unhandled rejection', async () => {
+    const initialStart = vi.fn().mockRejectedValue(new Error('initial provider failed'));
+    const replacementStart = vi.fn().mockRejectedValue(new Error('replacement provider failed'));
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const controller = new AppController(
+      { start: initialStart, stop: vi.fn() },
+      { match: vi.fn(), reset: vi.fn() } as any,
+      new JourneyStateEstimator(repository, DEFAULT_TRACKING_CONFIG),
+      repository,
+      {
+        connect: async () => true,
+        render: vi.fn().mockResolvedValue(undefined),
+        clear: vi.fn(),
+        getLastImageResult: () => 'none',
+      },
+      new EstimationLogger(),
+      DEFAULT_TRACKING_CONFIG
+    );
+
+    await controller.start();
+    await Promise.resolve();
+    expect(warn).toHaveBeenCalledWith('[AppController] Location error:', 'initial provider failed');
+
+    controller.switchLocationProvider({ start: replacementStart, stop: vi.fn() });
+    await Promise.resolve();
+    expect(warn).toHaveBeenCalledWith('[AppController] Location error:', 'replacement provider failed');
+
+    await controller.stop();
+    warn.mockRestore();
+  });
+
   it('invalidates stale line/station state after grace and recovers on re-entry', async () => {
     const mapMatcher = { match: vi.fn(), reset: vi.fn() };
     mapMatcher.match
