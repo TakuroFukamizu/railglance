@@ -95,6 +95,12 @@ export class AdaptiveLocationProvider implements LocationProvider {
     onLocation: (sample: LocationSample) => void,
     onError?: (err: LocationProviderError) => void
   ): Promise<void> {
+    if (!isEvenAppRuntime()) {
+      await this.fallback.start(onLocation, onError);
+      this.activeProvider = this.fallback;
+      return;
+    }
+
     try {
       await this.primary.start(onLocation, onError);
       this.activeProvider = this.primary;

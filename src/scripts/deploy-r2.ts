@@ -109,9 +109,7 @@ export async function deployToR2(options: R2DeployOptions = {}): Promise<void> {
     throw new Error(`Dataset version ${latestPointer.version} already exists in R2 and is immutable`);
   } catch (error: any) {
     const statusCode = error?.$metadata?.httpStatusCode;
-    if (statusCode === 403 || error?.name === 'AccessDenied') {
-      console.warn(`[R2 Deploy Notice] HeadObject returned 403 AccessDenied for ${manifestKey}. Proceeding with upload...`);
-    } else if (statusCode !== 404 && error?.name !== 'NotFound' && !String(error?.message).includes('immutable')) {
+    if (statusCode !== 404 && error?.name !== 'NotFound' && !String(error?.message).includes('immutable')) {
       throw error;
     }
     if (String(error?.message).includes('immutable')) throw error;

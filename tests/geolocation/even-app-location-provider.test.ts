@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const sdk = vi.hoisted(() => ({
   bridge: {
@@ -25,6 +25,7 @@ import { LocationProvider } from '../../src/infrastructure/geolocation/browser-l
 describe('EvenAppLocationProvider', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.stubGlobal('window', { flutter_inappwebview: { callHandler: vi.fn() } });
     sdk.waitForEvenAppBridge.mockResolvedValue(sdk.bridge);
     sdk.bridge.getAppLocation.mockResolvedValue({
       latitude: 35.6812,
@@ -37,6 +38,10 @@ describe('EvenAppLocationProvider', () => {
     sdk.bridge.startAppLocationUpdates.mockResolvedValue(true);
     sdk.bridge.stopAppLocationUpdates.mockResolvedValue(true);
     sdk.bridge.onAppLocationChanged.mockReturnValue(vi.fn());
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
   });
 
   it('uses SDK App Location timestamps and releases both native and JS subscriptions', async () => {
@@ -77,6 +82,18 @@ describe('EvenAppLocationProvider', () => {
     expect(fallback.start).toHaveBeenCalledOnce();
     await provider.stop();
     expect(fallback.stop).toHaveBeenCalledOnce();
+  });
+
+  it('uses browser geolocation immediately outside the Even App runtime', async () => {
+    vi.unstubAllGlobals();
+    const primary: LocationProvider = { start: vi.fn(), stop: vi.fn() };
+    const fallback: LocationProvider = { start: vi.fn(), stop: vi.fn() };
+    const provider = new AdaptiveLocationProvider(primary, fallback);
+
+    await provider.start(vi.fn());
+
+    expect(primary.start).not.toHaveBeenCalled();
+    expect(fallback.start).toHaveBeenCalledOnce();
   });
 
   it('does not hide an SDK location failure behind browser geolocation', async () => {

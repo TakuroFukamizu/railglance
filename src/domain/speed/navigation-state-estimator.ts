@@ -172,7 +172,7 @@ export class NavigationStateEstimator {
     const prevObsTime = this.navState.lastObservationTimestampMs;
     const dtObs = prevObsTime ? (nowMs - prevObsTime) / 1000 : 0;
 
-    let obsVelocityMps = sample.speedMps ?? this.navState.velocityMps;
+    const obsVelocityMps = sample.speedMps ?? this.navState.velocityMps;
     let obsTrackPositionMeters: number | null = null;
 
     if (match) {

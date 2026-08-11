@@ -208,6 +208,9 @@ export class AppController {
       this.currentFullSpeedState,
       this.currentFullSpeedState.navState
     );
+    this.speedEstimator.getNavStateEstimator().setDirection(
+      this.toNavigationDirection(this.currentJourney.direction)
+    );
   }
 
   private onLocationError(err: { code?: number; message: string }): void {
@@ -236,9 +239,12 @@ export class AppController {
     const now = Date.now();
 
     // Check speed & DR estimate during render tick
-    const availableSegments = this.latestSample
-      ? await this.repository.findSegmentsNear(this.latestSample.latitude, this.latestSample.longitude, 2000)
-      : [];
+    const currentRouteId = this.speedEstimator.getNavStateEstimator().getState().routeId;
+    const availableSegments = currentRouteId
+      ? await this.repository.getSegmentsByRoute(currentRouteId)
+      : this.latestSample
+        ? await this.repository.findSegmentsNear(this.latestSample.latitude, this.latestSample.longitude, 2000)
+        : [];
 
     this.currentFullSpeedState = await this.speedEstimator.getEstimateAtAsync(now, availableSegments);
 
@@ -251,6 +257,9 @@ export class AppController {
       this.currentFullSpeedState,
       this.currentFullSpeedState.navState,
       currentSeg
+    );
+    this.speedEstimator.getNavStateEstimator().setDirection(
+      this.toNavigationDirection(this.currentJourney.direction)
     );
 
     if (!this.currentFullSpeedState.isValid) {
@@ -278,5 +287,11 @@ export class AppController {
       hudViewModel: this.currentViewModel,
     };
     this.logger.log(logEntry);
+  }
+
+  private toNavigationDirection(direction: JourneyState['direction']): 'UP' | 'DOWN' | 'UNKNOWN' {
+    if (direction === 'UP' || direction === 'DIRECTION_A') return 'UP';
+    if (direction === 'DOWN' || direction === 'DIRECTION_B') return 'DOWN';
+    return 'UNKNOWN';
   }
 }

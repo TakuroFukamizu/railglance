@@ -77,4 +77,46 @@ describe('AppController route loss', () => {
     await controller.onLocationUpdate(sample(11_000));
     expect((controller as any).currentJourney.line?.id).toBe('line');
   });
+
+  it('propagates an observed DOWN direction into dead reckoning', async () => {
+    const mapMatcher = { match: vi.fn().mockResolvedValue(match), reset: vi.fn() };
+    const controller = new AppController(
+      { start: vi.fn(), stop: vi.fn() },
+      mapMatcher as any,
+      new JourneyStateEstimator(repository, DEFAULT_TRACKING_CONFIG),
+      repository,
+      { connect: async () => true, render: vi.fn(), clear: vi.fn(), getLastImageResult: () => 'none' },
+      new EstimationLogger(),
+      DEFAULT_TRACKING_CONFIG
+    );
+
+    await controller.onLocationUpdate({ ...sample(1_000), headingDegrees: 180 });
+    await controller.onLocationUpdate({ ...sample(2_000), headingDegrees: 180 });
+
+    const navState = (controller as any).speedEstimator.getNavStateEstimator().getState();
+    expect(navState.direction).toBe('DOWN');
+  });
+
+  it('loads the full active route for dead-reckoning segment transitions', async () => {
+    const getSegmentsByRoute = vi.fn().mockResolvedValue([segment]);
+    const findSegmentsNear = vi.fn().mockResolvedValue([segment]);
+    const routeRepository = { ...repository, getSegmentsByRoute, findSegmentsNear };
+    const mapMatcher = { match: vi.fn().mockResolvedValue(match), reset: vi.fn() };
+    const controller = new AppController(
+      { start: vi.fn(), stop: vi.fn() },
+      mapMatcher as any,
+      new JourneyStateEstimator(routeRepository, DEFAULT_TRACKING_CONFIG),
+      routeRepository,
+      { connect: async () => true, render: vi.fn().mockResolvedValue(undefined), clear: vi.fn(), getLastImageResult: () => 'none' },
+      new EstimationLogger(),
+      DEFAULT_TRACKING_CONFIG
+    );
+
+    await controller.onLocationUpdate(sample(1_000));
+    findSegmentsNear.mockClear();
+    await (controller as any).onRenderTick();
+
+    expect(getSegmentsByRoute).toHaveBeenCalledWith('route-line-main');
+    expect(findSegmentsNear).not.toHaveBeenCalled();
+  });
 });

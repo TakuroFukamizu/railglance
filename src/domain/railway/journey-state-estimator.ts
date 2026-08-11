@@ -94,24 +94,31 @@ export class JourneyStateEstimator {
     }
 
     let direction: TravelDirection = 'UNKNOWN';
-    if (navState && navState.direction !== 'UNKNOWN') {
-      direction = navState.direction;
+    if (match && sample) {
+      const heading = sample.headingDegrees ?? (this.lastSample
+        ? calculateBearing(
+            this.lastSample.latitude,
+            this.lastSample.longitude,
+            sample.latitude,
+            sample.longitude
+          )
+        : null);
+
+      if (heading !== null) {
+        const coords = match.selectedSegment.coordinates;
+        const startPoint = coords[0];
+        const endPoint = coords[coords.length - 1];
+        const segmentBearing = calculateBearing(startPoint[0], startPoint[1], endPoint[0], endPoint[1]);
+        const diff = calculateHeadingDifference(heading, segmentBearing);
+
+        direction = diff < 90 ? 'UP' : 'DOWN';
+      }
+    }
+
+    if (direction !== 'UNKNOWN') {
       this.lastConfirmedDirection = direction;
-    } else if (match && sample && this.lastSample) {
-      const heading = sample.headingDegrees ?? calculateBearing(
-        this.lastSample.latitude,
-        this.lastSample.longitude,
-        sample.latitude,
-        sample.longitude
-      );
-
-      const coords = match.selectedSegment.coordinates;
-      const startPoint = coords[0];
-      const endPoint = coords[coords.length - 1];
-      const segmentBearing = calculateBearing(startPoint[0], startPoint[1], endPoint[0], endPoint[1]);
-      const diff = calculateHeadingDifference(heading, segmentBearing);
-
-      direction = diff < 90 ? 'UP' : 'DOWN';
+    } else if (navState && navState.direction !== 'UNKNOWN') {
+      direction = navState.direction;
       this.lastConfirmedDirection = direction;
     } else if (this.lastConfirmedDirection !== 'UNKNOWN') {
       direction = this.lastConfirmedDirection;

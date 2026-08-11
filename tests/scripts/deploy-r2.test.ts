@@ -87,4 +87,14 @@ describe('deployToR2', () => {
     await expect(deployToR2({ datasetBaseDir: datasetRoot })).rejects.toThrow(/immutable/);
     expect(aws.send).toHaveBeenCalledTimes(1);
   });
+
+  it('fails closed when manifest existence cannot be checked', async () => {
+    setCredentials();
+    aws.send.mockRejectedValueOnce(Object.assign(new Error('Access denied'), {
+      name: 'AccessDenied', $metadata: { httpStatusCode: 403 },
+    }));
+
+    await expect(deployToR2({ datasetBaseDir: datasetRoot })).rejects.toThrow(/Access denied/);
+    expect(aws.send).toHaveBeenCalledTimes(1);
+  });
 });
