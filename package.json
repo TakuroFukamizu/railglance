@@ -19,6 +19,7 @@
   },
   "dependencies": {
     "@evenrealities/even_hub_sdk": "^0.0.12",
+    "@sentry/browser": "^10.70.0",
     "dexie": "^4.0.10",
     "h3-js": "^4.5.0"
   },
@@ -27,6 +28,7 @@
     "@eslint/js": "10.0.1",
     "@evenrealities/evenhub-cli": "^0.1.13",
     "@evenrealities/evenhub-simulator": "^0.8.0",
+    "@sentry/vite-plugin": "^5.4.0",
     "@types/node": "^26.1.2",
     "concurrently": "^10.0.3",
     "eslint": "10.8.1",

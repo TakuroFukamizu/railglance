@@ -1,0 +1,22 @@
+name = "railglance-telemetry"
+main = "src/index.ts"
+compatibility_date = "2026-08-01"
+
+[[r2_buckets]]
+binding = "TELEMETRY_BUCKET"
+bucket_name = "railglance-telemetry-bucket"
+
+[[queues.producers]]
+binding = "TELEMETRY_QUEUE"
+queue = "railglance-telemetry"
+
+[[queues.consumers]]
+queue = "railglance-telemetry"
+max_batch_size = 10
+max_batch_timeout = 10
+max_retries = 5
+dead_letter_queue = "railglance-telemetry-dlq"
+
+[vars]
+# Override with an exact comma-separated allowlist per environment.
+TELEMETRY_ALLOWED_ORIGINS = "http://localhost:5173"

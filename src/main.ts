@@ -5,6 +5,7 @@ import { LocationSample } from './domain/models/location';
 import { LocationProvider, BrowserLocationProvider } from './infrastructure/geolocation/browser-location-provider';
 import { DeviceMotionSensorFusionProvider } from './infrastructure/sensors/device-motion-sensor-fusion-provider';
 import { HudViewModel } from './domain/models/hud';
+import { captureRuntimeError } from './infrastructure/observability/sentry';
 
 class DemoGpsReplayerProvider implements LocationProvider {
   private listener: ((sample: LocationSample) => void) | null = null;
@@ -147,4 +148,7 @@ async function init() {
   await controller.start();
 }
 
-init().catch(console.error);
+init().catch((error) => {
+  captureRuntimeError(error, 'app-initialization');
+  console.error(error);
+});

@@ -11,6 +11,7 @@ import { HudRenderer } from '../infrastructure/even-g2/hud-renderer';
 import { LocationProvider } from '../infrastructure/geolocation/browser-location-provider';
 import { EstimationLogEntry, EstimationLogger } from '../infrastructure/logging/logger';
 import { findClosestPointOnPolyline } from '../domain/geo/polyline';
+import { addRuntimeBreadcrumb, captureRuntimeError } from '../infrastructure/observability/sentry';
 
 export class AppController {
   private latestSample: LocationSample | null = null;
@@ -114,6 +115,7 @@ export class AppController {
         console.log(`[AppController] Connecting to Even G2 / Prototype Bridge (Attempt ${attempt})...`);
         const connected = await this.evenG2Adapter.connect();
         if (connected) {
+          addRuntimeBreadcrumb('railglance.bridge', 'Even G2 connected', { attempt });
           console.log('[AppController] Even G2 / Prototype Bridge connected successfully! Rendering HUD...');
           await this.evenG2Adapter.render(this.currentViewModel);
           attempt = 0;
@@ -123,6 +125,7 @@ export class AppController {
             await this.evenG2Adapter.waitUntilDisconnected();
             if (!this.isRunning) break;
             console.warn('[AppController] Even G2 disconnected — scheduling reconnect...');
+            addRuntimeBreadcrumb('railglance.bridge', 'Even G2 disconnected', { attempt }, 'warning');
           } else {
             // Adapter without disconnect signaling: single connect is enough.
             break;
@@ -130,6 +133,7 @@ export class AppController {
           continue;
         }
       } catch (error) {
+        captureRuntimeError(error, 'even-g2-connect', { attempt });
         console.warn(
           `[AppController] Even G2 connection attempt ${attempt} notice:`,
           error instanceof Error ? error.message : String(error)
@@ -153,6 +157,7 @@ export class AppController {
       this.renderTimerId = null;
     }
     await this.evenG2Adapter.clear();
+    await this.logger.shutdown();
   }
 
   public switchLocationProvider(newProvider: LocationProvider): void {
@@ -170,7 +175,12 @@ export class AppController {
   private startLocationProvider(provider: LocationProvider): void {
     try {
       const startResult = provider.start(
-        (sample) => void this.onLocationUpdate(sample),
+        (sample) => {
+          void this.onLocationUpdate(sample).catch((error) => {
+            captureRuntimeError(error, 'location-update-processing');
+            console.warn('[AppController] Location update processing failed:', error);
+          });
+        },
         (err) => this.onLocationError(err)
       );
       if (startResult) {
@@ -187,10 +197,18 @@ export class AppController {
 
   public async onLocationUpdate(sample: LocationSample): Promise<void> {
     this.latestSample = sample;
+    const gpsAccepted = sample.accuracyMeters <= this.config.maxGpsAccuracyMeters;
+    this.logger.logGpsObservation(
+      sample,
+      gpsAccepted,
+      gpsAccepted ? undefined : 'accuracy-above-configured-limit'
+    );
 
     // 1. NON-BLOCKING: Trigger background coverage fetch (do not await)
     void this.repository.ensureCoverageAround(sample.latitude, sample.longitude).catch((err) => {
       console.warn('[AppController] Background coverage fetch notice:', err);
+      captureRuntimeError(err, 'railway-coverage-fetch');
+      addRuntimeBreadcrumb('railglance.dataset', 'Railway coverage fetch failed', {}, 'warning');
     });
 
     // 2. Perform map matching with currently available segments
@@ -227,6 +245,7 @@ export class AppController {
 
   private onLocationError(err: { code?: number; message: string }): void {
     console.warn('[AppController] Location error:', err.message);
+    captureRuntimeError(new Error(err.message), 'geolocation', { code: err.code ?? null });
   }
 
   private async runRenderTick(): Promise<void> {
@@ -241,6 +260,7 @@ export class AppController {
       await this.onRenderTick();
     } catch (error) {
       console.warn('[AppController] HUD render tick failed:', error);
+      captureRuntimeError(error, 'hud-render-tick');
     } finally {
       this.renderTickInFlight = false;
       if (this.renderTickPending && this.isRunning) void this.runRenderTick();
@@ -288,6 +308,7 @@ export class AppController {
     // slow/hung bridge transfer stall the AppController render loop.
     void this.evenG2Adapter.render(this.currentViewModel).catch((error) => {
       console.warn('[AppController] Even G2 render notice:', error);
+      captureRuntimeError(error, 'even-g2-render');
     });
 
     const logEntry: EstimationLogEntry = {
@@ -297,6 +318,8 @@ export class AppController {
       match: this.currentMatch,
       journey: this.currentJourney,
       hudViewModel: this.currentViewModel,
+      bridgeConnected: this.evenG2Adapter.isBridgeConnected?.() ?? false,
+      lastImageResult: this.evenG2Adapter.getLastImageResult(),
     };
     this.logger.log(logEntry);
   }

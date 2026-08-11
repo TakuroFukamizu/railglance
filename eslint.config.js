@@ -4,7 +4,7 @@ import tseslint from 'typescript-eslint';
 
 export default tseslint.config(
   {
-    ignores: ['dist/**', 'node_modules/**', 'infra/**/.terraform/**'],
+    ignores: ['dist/**', 'node_modules/**', '.claude/**', 'infra/**/.terraform/**'],
   },
   {
     ...js.configs.recommended,
@@ -15,7 +15,7 @@ export default tseslint.config(
   },
   ...tseslint.configs.recommended,
   {
-    files: ['src/**/*.ts', 'tests/**/*.ts', 'vite.config.ts'],
+    files: ['src/**/*.ts', 'tests/**/*.ts', 'infra/cloudflare/telemetry-worker/src/**/*.ts', 'vite.config.ts'],
     languageOptions: {
       globals: {
         ...globals.browser,

@@ -14,6 +14,7 @@ import sampleLines from '../../data/sample/lines.json';
 import sampleStations from '../../data/sample/stations.json';
 import sampleTrackSegments from '../../data/sample/track-segments.json';
 import sampleMetadata from '../../data/sample/metadata.json';
+import { addRuntimeBreadcrumb, captureRuntimeError } from '../observability/sentry';
 
 export type DatasetSyncStatus = {
   status: RailwayDataState;
@@ -131,6 +132,8 @@ export class DexieRailwayDatabase extends Dexie implements RailwayDataRepository
           schemaVersion: targetSchemaVersion,
           errorMessage: err instanceof Error ? err.message : String(err),
         };
+        captureRuntimeError(err, 'dataset-manifest-fetch', { baseUrl: this.activeBaseUrl });
+        addRuntimeBreadcrumb('railglance.dataset', 'Dataset manifest fetch failed', {}, 'warning');
       });
     } else {
       this.currentState = 'bundled';
@@ -194,6 +197,8 @@ export class DexieRailwayDatabase extends Dexie implements RailwayDataRepository
         schemaVersion: RAILWAY_DATASET_SCHEMA_VERSION,
         errorMessage: err instanceof Error ? err.message : String(err),
       };
+      captureRuntimeError(err, 'dataset-manifest-fetch', { baseUrl });
+      addRuntimeBreadcrumb('railglance.dataset', 'Dataset manifest fetch failed', {}, 'warning');
       throw err;
     }
   }
@@ -226,6 +231,8 @@ export class DexieRailwayDatabase extends Dexie implements RailwayDataRepository
       };
     } catch (err) {
       console.warn(`[H3 Tile Streamer Error ${cellId}]:`, err);
+      captureRuntimeError(err, 'dataset-tile-fetch', { cellId });
+      addRuntimeBreadcrumb('railglance.dataset', 'Railway tile fetch failed', { cellId }, 'warning');
       return {
         state: 'error',
         cellId,

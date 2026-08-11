@@ -74,6 +74,13 @@ resource "cloudflare_r2_bucket" "railway_dataset" {
   location   = "APAC" # Asia Pacific
 }
 
+# Private diagnostic telemetry storage. Do not attach a public r2.dev URL or custom domain.
+resource "cloudflare_r2_bucket" "diagnostic_telemetry" {
+  account_id = var.account_id
+  name       = "railglance-telemetry-bucket"
+  location   = "APAC"
+}
+
 resource "aws_s3_bucket_cors_configuration" "railway_dataset" {
   bucket = cloudflare_r2_bucket.railway_dataset.name
 

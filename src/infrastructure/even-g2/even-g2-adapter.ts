@@ -12,6 +12,7 @@ import {
 } from '@evenrealities/even_hub_sdk';
 import { HudViewModel } from '../../domain/models/hud';
 import { createSpeedPng } from './speed-png-generator';
+import { addRuntimeBreadcrumb, captureRuntimeError } from '../observability/sentry';
 
 export interface EvenG2Adapter {
   connect(): Promise<boolean>;
@@ -116,6 +117,7 @@ export class HybridEvenG2Adapter implements EvenG2Adapter {
     this.pageReady = false;
     if (wasConnected) {
       console.warn(`[EvenG2Adapter] Disconnected: ${reason}`);
+      addRuntimeBreadcrumb('railglance.bridge', 'Even G2 disconnected', { reason }, 'warning');
       const waiters = this.disconnectWaiters;
       this.disconnectWaiters = [];
       for (const resolve of waiters) resolve();
@@ -161,6 +163,7 @@ export class HybridEvenG2Adapter implements EvenG2Adapter {
         this.flushedGeneration = 0;
         this.pageReady = true;
         this.isConnected = true;
+        addRuntimeBreadcrumb('railglance.bridge', 'Even G2 page initialized');
         this.subscribeToLifecycleEvents();
 
         // Initial image after page is ready (must stay on bridgeQueue). Failures must not block text/GPS.
@@ -175,6 +178,7 @@ export class HybridEvenG2Adapter implements EvenG2Adapter {
       }
     } catch (err) {
       console.log('[EvenG2Adapter] Bridge connection notice:', err);
+      captureRuntimeError(err, 'even-g2-connect');
       this.isConnected = false;
       this.pageReady = false;
     }
@@ -251,6 +255,7 @@ export class HybridEvenG2Adapter implements EvenG2Adapter {
       }
     }).catch((error) => {
       console.warn('[EvenG2Adapter] HUD flush failed:', error);
+      captureRuntimeError(error, 'even-g2-hud-flush');
     });
   }
 
@@ -285,6 +290,7 @@ export class HybridEvenG2Adapter implements EvenG2Adapter {
         }
       } catch (error) {
         console.warn('[EvenG2Adapter] header textContainerUpgrade error:', error);
+        captureRuntimeError(error, 'even-g2-text-update', { container: 'header' });
       }
     }
 
@@ -300,6 +306,7 @@ export class HybridEvenG2Adapter implements EvenG2Adapter {
         }
       } catch (error) {
         console.warn('[EvenG2Adapter] segment textContainerUpgrade error:', error);
+        captureRuntimeError(error, 'even-g2-text-update', { container: 'segment' });
       }
     }
 
@@ -315,6 +322,7 @@ export class HybridEvenG2Adapter implements EvenG2Adapter {
         }
       } catch (error) {
         console.warn('[EvenG2Adapter] footer textContainerUpgrade error:', error);
+        captureRuntimeError(error, 'even-g2-text-update', { container: 'footer' });
       }
     }
   }
@@ -366,6 +374,8 @@ export class HybridEvenG2Adapter implements EvenG2Adapter {
       const errMessage = err?.message || String(err);
       this.lastImageResult = `error: ${errMessage}`;
       console.warn('[EvenG2Adapter] Error in speed image update operation:', errMessage);
+      captureRuntimeError(err, 'even-g2-image-update');
+      addRuntimeBreadcrumb('railglance.bridge', 'Even G2 image update failed', {}, 'error');
     }
   }
 
@@ -461,7 +471,9 @@ export class HybridEvenG2Adapter implements EvenG2Adapter {
         // Pause outbound updates while backgrounded; keep isConnected so ENTER can recover.
         this.pageReady = false;
         console.log('[EvenG2Adapter] FOREGROUND_EXIT — pausing HUD updates');
+        addRuntimeBreadcrumb('railglance.lifecycle', 'Even Hub foreground exit');
       } else if (eventType === OsEventTypeList.FOREGROUND_ENTER_EVENT) {
+        addRuntimeBreadcrumb('railglance.lifecycle', 'Even Hub foreground enter');
         void this.recoverPage();
       } else if (
         eventType === OsEventTypeList.SYSTEM_EXIT_EVENT ||
@@ -505,6 +517,7 @@ export class HybridEvenG2Adapter implements EvenG2Adapter {
     } catch (error) {
       this.pageReady = false;
       console.warn('[EvenG2Adapter] Page recovery failed:', error);
+      captureRuntimeError(error, 'even-g2-page-recovery');
     }
   }
 }
