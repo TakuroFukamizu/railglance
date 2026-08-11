@@ -41,6 +41,13 @@ describe('build-kanto-dataset CLI contract', () => {
     expect(resolveDatasetBuildCliArguments(['node', 'build'], { ALLOW_SAMPLE_DATASET: 'true' }))
       .toEqual({ version: SAMPLE_DATASET_VERSION, allowSample: true });
   });
+
+  it('never labels a sample-only build with a requested release version', () => {
+    expect(resolveDatasetBuildCliArguments(['node', 'build', '--allow-sample'], { DATASET_VERSION: '1.4.0' }))
+      .toEqual({ version: SAMPLE_DATASET_VERSION, allowSample: true });
+    expect(resolveDatasetBuildCliArguments(['node', 'build', '--allow-sample', '--version', '1.4.0'], {}))
+      .toEqual({ version: SAMPLE_DATASET_VERSION, allowSample: true });
+  });
 });
 
 describe('dataset manifest provenance', () => {

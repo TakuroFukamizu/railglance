@@ -198,15 +198,21 @@ export function resolveDatasetBuildCliArguments(
         'or pass --allow-sample (pnpm build:data:sample) to build a local sample-only dataset that must not be deployed.'
     );
   }
-  if (!explicitVersion) {
-    if (allowSample) {
-      return { version: SAMPLE_DATASET_VERSION, allowSample };
+  if (allowSample) {
+    // A sample build never carries a release version, even when DATASET_VERSION is exported in the shell.
+    if (explicitVersion && explicitVersion !== SAMPLE_DATASET_VERSION) {
+      console.warn(
+        `[ETL] Ignoring requested version ${explicitVersion} for a sample-only build; using ${SAMPLE_DATASET_VERSION}.`
+      );
     }
+    return { version: SAMPLE_DATASET_VERSION, allowSample };
+  }
+  if (!explicitVersion) {
     throw new Error(
       'DATASET_VERSION (or --version <x.y.z>) is required to build a publishable dataset; there is no default version.'
     );
   }
-  if (!allowSample && !EXPLICIT_SEMVER.test(explicitVersion)) {
+  if (!EXPLICIT_SEMVER.test(explicitVersion)) {
     throw new Error(`Dataset version must be an explicit semantic version, received: ${explicitVersion}`);
   }
   return { version: explicitVersion, allowSample };
