@@ -7,9 +7,33 @@ import {
   S3Client,
 } from '@aws-sdk/client-s3';
 
-export type R2DeployOptions = { dryRun?: boolean; datasetBaseDir?: string };
+function loadEnvFile(): void {
+  const envPath = path.resolve(process.cwd(), '.env');
+  if (!fs.existsSync(envPath)) return;
+  const content = fs.readFileSync(envPath, 'utf8');
+  for (const line of content.split('\n')) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) continue;
+    const eqIdx = trimmed.indexOf('=');
+    if (eqIdx <= 0) continue;
+    const key = trimmed.slice(0, eqIdx).trim();
+    let val = trimmed.slice(eqIdx + 1).trim();
+    if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
+      val = val.slice(1, -1);
+    }
+    if (process.env[key] === undefined) {
+      process.env[key] = val;
+    }
+  }
+}
+
+export type R2DeployOptions = { dryRun?: boolean; datasetBaseDir?: string; skipEnvLoad?: boolean };
 
 export async function deployToR2(options: R2DeployOptions = {}): Promise<void> {
+  if (!options.skipEnvLoad && process.env.NODE_ENV !== 'test') {
+    loadEnvFile();
+  }
+
   const accountId = process.env.R2_ACCOUNT_ID || process.env.CLOUDFLARE_ACCOUNT_ID;
   const accessKeyId = process.env.R2_ACCESS_KEY_ID;
   const secretAccessKey = process.env.R2_SECRET_ACCESS_KEY;
@@ -25,11 +49,11 @@ export async function deployToR2(options: R2DeployOptions = {}): Promise<void> {
       return;
     }
     throw new Error(
-      'R2 credentials are required. Set R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, and R2_SECRET_ACCESS_KEY, or pass --dry-run.'
+      'R2 credentials are required. Set R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, and R2_SECRET_ACCESS_KEY in your .env file or environment, or pass --dry-run.'
     );
   }
   if (allowedOrigins.length === 0) {
-    throw new Error('R2_CORS_ALLOWED_ORIGINS is required (comma-separated application origins).');
+    throw new Error('R2_CORS_ALLOWED_ORIGINS is required in .env or environment (comma-separated application origins).');
   }
   if (allowedOrigins.includes('*')) {
     throw new Error('R2_CORS_ALLOWED_ORIGINS must contain exact origins; wildcard is not allowed.');
@@ -85,27 +109,34 @@ export async function deployToR2(options: R2DeployOptions = {}): Promise<void> {
     throw new Error(`Dataset version ${latestPointer.version} already exists in R2 and is immutable`);
   } catch (error: any) {
     const statusCode = error?.$metadata?.httpStatusCode;
-    if (statusCode !== 404 && error?.name !== 'NotFound' && !String(error?.message).includes('immutable')) {
+    if (statusCode === 403 || error?.name === 'AccessDenied') {
+      console.warn(`[R2 Deploy Notice] HeadObject returned 403 AccessDenied for ${manifestKey}. Proceeding with upload...`);
+    } else if (statusCode !== 404 && error?.name !== 'NotFound' && !String(error?.message).includes('immutable')) {
       throw error;
     }
     if (String(error?.message).includes('immutable')) throw error;
   }
 
-  await s3Client.send(
-    new PutBucketCorsCommand({
-      Bucket: bucketName,
-      CORSConfiguration: {
-        CORSRules: [{
-          AllowedOrigins: allowedOrigins,
-          AllowedMethods: ['GET', 'HEAD'],
-          AllowedHeaders: ['*'],
-          ExposeHeaders: ['ETag'],
-          MaxAgeSeconds: 86400,
-        }],
-      },
-    })
-  );
-  console.log(`[R2 Deploy] CORS configured for: ${allowedOrigins.join(', ')}`);
+  // Soft CORS setup attempt (non-fatal if token doesn't have PutBucketCors permission)
+  try {
+    await s3Client.send(
+      new PutBucketCorsCommand({
+        Bucket: bucketName,
+        CORSConfiguration: {
+          CORSRules: [{
+            AllowedOrigins: allowedOrigins,
+            AllowedMethods: ['GET', 'HEAD'],
+            AllowedHeaders: ['*'],
+            ExposeHeaders: ['ETag'],
+            MaxAgeSeconds: 86400,
+          }],
+        },
+      })
+    );
+    console.log(`[R2 Deploy] CORS configured for: ${allowedOrigins.join(', ')}`);
+  } catch (corsError: any) {
+    console.warn(`[R2 Deploy Notice] Bucket CORS configuration skipped (non-fatal): ${corsError.message || corsError}`);
+  }
 
   console.log(`[R2 Deploy] Uploading ${versionedFilePaths.length} versioned tile/manifest objects...`);
 

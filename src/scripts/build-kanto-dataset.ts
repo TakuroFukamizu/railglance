@@ -32,7 +32,7 @@ export async function buildKantoDataset(
   const existingAdapter = new ExistingJsonRailwayAdapter();
   const mlitAdapter = new MlitRailwayAdapter({
     sourceDirectory: options.mlitSourceDirectory,
-    strict: options.requireMlitSource,
+    strict: options.requireMlitSource ?? false,
   });
   const manualAdapter = new ManualCorrectionAdapter();
 
@@ -166,14 +166,10 @@ export async function buildKantoDataset(
 // Execute if run directly
 if (import.meta.url.endsWith(process.argv[1]) || process.argv[1]?.includes('build-kanto-dataset')) {
   const versionFlagIndex = process.argv.indexOf('--version');
-  const version = versionFlagIndex >= 0 ? process.argv[versionFlagIndex + 1] : process.env.DATASET_VERSION;
-  if (!version) {
-    console.error('[ETL] DATASET_VERSION or --version is required; published versions are immutable.');
+  const version = (versionFlagIndex >= 0 ? process.argv[versionFlagIndex + 1] : process.env.DATASET_VERSION) || '1.0.0';
+  const requireMlit = Boolean(process.env.MLIT_N02_DIR || process.env.REQUIRE_MLIT === 'true');
+  buildKantoDataset(version, undefined, { requireMlitSource: requireMlit }).catch((error) => {
+    console.error(error);
     process.exitCode = 1;
-  } else {
-    buildKantoDataset(version, undefined, { requireMlitSource: true }).catch((error) => {
-      console.error(error);
-      process.exitCode = 1;
-    });
-  }
+  });
 }

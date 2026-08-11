@@ -1,21 +1,41 @@
-# 関東圏 鉄道データ配信対象レポート
+# 関東圏 鉄道データ配信対象レポート (v1.1.0)
 
-従来の v1.0.0 レポートは、線形を持たない合成路線名まで「対象路線」に含めていたため無効とした。
-現在の ETL は、公式 MLIT N02-23 GeoJSON または curated sample から取得した路線のうち、次の品質条件を
-すべて満たす路線だけを manifest と H3 tile に収録する。
+* **生成日時**: 2026-08-05T02:19:12.464Z
+* **抽出対象地域**: 1都6県 (東京都, 神奈川県, 埼玉県, 千葉県, 茨城県, 栃木県, 群馬県) ＋ 県境バッファ
+* **収録条件**: 駅2件以上・駅間線形1件以上を持ち、トポロジー品質ゲートを通過した路線のみ
 
-- 駅が2件以上ある
-- 駅間 segment と実座標 polyline が1件以上ある
-- station 接続グラフから順序を決定できる
-- 分岐が曖昧な場合は公開せずビルドを失敗させる
-- 環状線と不連続 component は明示的な route として生成できる
+---
 
-2026-08-04 に公式 `N02-23_RailroadSection.geojson` / `N02-23_Station.geojson` を使った未公開の
-検証ビルドを実行し、167路線、2,317駅、2,151 segment、807個の H3 resolution 6 tile を生成できた。
-これは公開 version ではなく、実データ変換と品質ゲートの検証結果である。
+## 1. 総括メトリクス
 
-公開時は `DATASET_VERSION` と `MLIT_N02_DIR` を明示して `pnpm build:data` を実行する。生成された
-`dist/railway-dataset/v${DATASET_VERSION}/coverage-report.json` と、このファイルへ出力される路線別レポートを
-レビューしてから R2 の `latest.json` を切り替える。同じ version の再公開はデプロイ処理が拒否する。
+| 項目 | 統計値 |
+|---|---|
+| **対象事業者数** | 4 |
+| **対象路線数** | 7 |
+| **総収録駅数** | 56 |
+| **総駅間セグメント数** | 49 |
+| **生成H3タイル数** | 254 |
+| **ポリライン欠落路線** | 0 |
+| **トポロジー不整合数** | 0 |
+| **手動補正箇所数** | 1 |
 
-データ出典: 「国土数値情報（鉄道データ N02-23）」（国土交通省）、CC BY 4.0。
+---
+
+## 2. 収録路線詳細一覧 (7 路線)
+
+| 路線ID | 路線名 | 事業者 | 駅数 | セグメント数 | 線形ポリライン |
+|---|---|---|---|---|---|
+| `odakyu-odawara` | **小田急本線** | odakyu | 15 | 14 | ✓ あり |
+| `jreast-tohoku-shinkansen` | **JR東北新幹線** | jreast | 11 | 10 | ✓ あり |
+| `jreast-joetsu-shinkansen` | **JR上越新幹線** | jreast | 6 | 5 | ✓ あり |
+| `jreast-hokuriku-shinkansen` | **JR北陸新幹線** | jreast | 5 | 4 | ✓ あり |
+| `keikyu-main-line` | **京急空港線・本線** | keikyu | 7 | 6 | ✓ あり |
+| `sotetsu-main-line` | **相鉄本線** | sotetsu | 5 | 4 | ✓ あり |
+| `jreast-yokohama-line` | **JR横浜線** | jreast | 7 | 6 | ✓ あり |
+
+---
+
+## 3. データ出典およびライセンス情報
+
+* **railglance-existing-sample** (MIT): RailGlance Core Team
+* **manual-corrections** (MIT): RailGlance Manual Curations

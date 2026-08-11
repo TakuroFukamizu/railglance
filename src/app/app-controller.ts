@@ -6,9 +6,9 @@ import { SpeedEstimator } from '../domain/speed/speed-estimator';
 import { MapMatcher } from '../domain/railway/map-matcher';
 import { JourneyStateEstimator } from '../domain/railway/journey-state-estimator';
 import { RailwayDataRepository } from '../domain/railway/repository';
-import { HudRenderer } from '../infrastructure/even-g2/hud-renderer';
 import { EvenG2Adapter } from '../infrastructure/even-g2/even-g2-adapter';
-import { LocationProvider, LocationProviderError } from '../infrastructure/geolocation/browser-location-provider';
+import { HudRenderer } from '../infrastructure/even-g2/hud-renderer';
+import { LocationProvider } from '../infrastructure/geolocation/browser-location-provider';
 import { EstimationLogEntry, EstimationLogger } from '../infrastructure/logging/logger';
 import { findClosestPointOnPolyline } from '../domain/geo/polyline';
 
@@ -23,7 +23,7 @@ export class AppController {
   private hudRenderer: HudRenderer;
   private renderTimerId: any = null;
   private isRunning = false;
-  private routeMissStartedAtMs: number | null = null;
+  private isConnectingEvenG2 = false;
   private renderTickInFlight = false;
   private renderTickPending = false;
 
@@ -90,22 +90,60 @@ export class AppController {
   public async start(): Promise<void> {
     if (this.isRunning) return;
     this.isRunning = true;
-    try {
-      await this.evenG2Adapter.connect();
-      await this.locationProvider.start(
-        (sample) => this.onLocationUpdate(sample),
-        (err) => this.onLocationError(err)
-      );
 
-      this.renderTimerId = setInterval(() => {
-        void this.runRenderTick();
-      }, this.config.hudRefreshMs);
-    } catch (error) {
-      this.isRunning = false;
-      await this.locationProvider.stop();
-      await this.evenG2Adapter.clear();
-      throw error;
+    // 1. Immediately start location provider & GPS updates (non-blocking)
+    void this.locationProvider.start(
+      (sample) => void this.onLocationUpdate(sample),
+      (err) => this.onLocationError(err)
+    );
+
+    // 2. Immediately start HUD render timer (Web Viewport DOM / Local Preview)
+    this.renderTimerId = setInterval(() => {
+      void this.runRenderTick();
+    }, this.config.hudRefreshMs);
+
+    // 3. Connect Even G2 in background with persistent auto-reconnect
+    void this.connectEvenG2InBackground();
+  }
+
+  private async connectEvenG2InBackground(): Promise<void> {
+    if (this.isConnectingEvenG2) return;
+    this.isConnectingEvenG2 = true;
+
+    let attempt = 0;
+    while (this.isRunning) {
+      attempt++;
+      try {
+        console.log(`[AppController] Connecting to Even G2 / Prototype Bridge (Attempt ${attempt})...`);
+        const connected = await this.evenG2Adapter.connect();
+        if (connected) {
+          console.log('[AppController] Even G2 / Prototype Bridge connected successfully! Rendering HUD...');
+          await this.evenG2Adapter.render(this.currentViewModel);
+          attempt = 0;
+
+          // Stay subscribed until OS exit / clear / disconnect, then reconnect.
+          if (typeof this.evenG2Adapter.waitUntilDisconnected === 'function') {
+            await this.evenG2Adapter.waitUntilDisconnected();
+            if (!this.isRunning) break;
+            console.warn('[AppController] Even G2 disconnected — scheduling reconnect...');
+          } else {
+            // Adapter without disconnect signaling: single connect is enough.
+            break;
+          }
+          continue;
+        }
+      } catch (error) {
+        console.warn(
+          `[AppController] Even G2 connection attempt ${attempt} notice:`,
+          error instanceof Error ? error.message : String(error)
+        );
+      }
+
+      const backoffMs = Math.min(10000, 1000 * Math.pow(1.5, Math.min(attempt, 5)));
+      await new Promise((resolve) => setTimeout(resolve, backoffMs));
     }
+
+    this.isConnectingEvenG2 = false;
   }
 
   public async stop(): Promise<void> {
@@ -120,17 +158,16 @@ export class AppController {
     await this.evenG2Adapter.clear();
   }
 
-  public async switchLocationProvider(newProvider: LocationProvider): Promise<void> {
-    await this.locationProvider.stop();
+  public switchLocationProvider(newProvider: LocationProvider): void {
+    void this.locationProvider.stop();
     this.speedEstimator.reset();
     this.journeyEstimator.reset();
     this.mapMatcher.reset();
-    this.routeMissStartedAtMs = null;
 
     this.locationProvider = newProvider;
     if (this.isRunning) {
-      await this.locationProvider.start(
-        (sample) => this.onLocationUpdate(sample),
+      void this.locationProvider.start(
+        (sample) => void this.onLocationUpdate(sample),
         (err) => this.onLocationError(err)
       );
     }
@@ -139,23 +176,13 @@ export class AppController {
   public async onLocationUpdate(sample: LocationSample): Promise<void> {
     this.latestSample = sample;
 
-    // 1. NON-BLOCKING: Trigger background coverage fetch (do not await, to ensure speed calculation is un-blocked)
+    // 1. NON-BLOCKING: Trigger background coverage fetch (do not await)
     void this.repository.ensureCoverageAround(sample.latitude, sample.longitude).catch((err) => {
       console.warn('[AppController] Background coverage fetch notice:', err);
     });
 
     // 2. Perform map matching with currently available segments
     this.currentMatch = await this.mapMatcher.match(sample);
-
-    if (this.currentMatch) {
-      this.routeMissStartedAtMs = null;
-    } else if (sample.accuracyMeters <= this.config.maxGpsAccuracyMeters) {
-      this.routeMissStartedAtMs ??= sample.timestampMs;
-      if (sample.timestampMs - this.routeMissStartedAtMs >= this.config.routeMatchLossGraceMs) {
-        this.speedEstimator.getNavStateEstimator().clearRoute();
-        this.journeyEstimator.invalidateRoute();
-      }
-    }
 
     // 3. Compute track distance progress if match is valid
     let trackProgress: { distanceAlongPolylineMeters: number; timestampMs: number } | undefined;
@@ -175,24 +202,15 @@ export class AppController {
     this.currentFullSpeedState = this.speedEstimator.update(sample, this.currentMatch, trackProgress);
 
     // 5. Estimate journey state & recover status if valid GPS returned
-    const currentSegment = this.speedEstimator.getNavStateEstimator().getCurrentSegment();
     this.currentJourney = await this.journeyEstimator.update(
       sample,
       this.currentMatch,
       this.currentFullSpeedState,
-      this.currentFullSpeedState.navState,
-      currentSegment
+      this.currentFullSpeedState.navState
     );
-    this.speedEstimator.getNavStateEstimator().setDirection(
-      this.toNavigationDirection(this.currentJourney.direction)
-    );
-
-    if (this.currentFullSpeedState.isValid && this.currentJourney.status === 'GPS_UNAVAILABLE') {
-      this.currentJourney.status = this.currentMatch ? 'TRACKING' : 'ROUTE_UNCERTAIN';
-    }
   }
 
-  private onLocationError(err: LocationProviderError): void {
+  private onLocationError(err: { code?: number; message: string }): void {
     console.warn('[AppController] Location error:', err.message);
   }
 
@@ -217,19 +235,16 @@ export class AppController {
   private async onRenderTick(): Promise<void> {
     const now = Date.now();
 
-    // Check speed & sensor fusion DR estimate during render tick (time-driven prediction)
-    const currentRouteId = this.speedEstimator.getNavStateEstimator().getState().routeId;
-    const availableSegments = currentRouteId
-      ? await this.repository.getSegmentsByRoute(currentRouteId)
-      : this.latestSample
-        ? await this.repository.findSegmentsNear(this.latestSample.latitude, this.latestSample.longitude, 2000)
-        : [];
+    // Check speed & DR estimate during render tick
+    const availableSegments = this.latestSample
+      ? await this.repository.findSegmentsNear(this.latestSample.latitude, this.latestSample.longitude, 2000)
+      : [];
 
     this.currentFullSpeedState = await this.speedEstimator.getEstimateAtAsync(now, availableSegments);
 
     const currentSeg = this.speedEstimator.getNavStateEstimator().getCurrentSegment();
 
-    // Update journey state during DR (continuous station & progress updates during GPS tunnel/outage)
+    // Update journey state during DR
     this.currentJourney = await this.journeyEstimator.update(
       this.latestSample,
       this.currentMatch,
@@ -237,14 +252,9 @@ export class AppController {
       this.currentFullSpeedState.navState,
       currentSeg
     );
-    this.speedEstimator.getNavStateEstimator().setDirection(
-      this.toNavigationDirection(this.currentJourney.direction)
-    );
 
     if (!this.currentFullSpeedState.isValid) {
       this.currentJourney.status = 'GPS_UNAVAILABLE';
-    } else if (this.currentJourney.status === 'GPS_UNAVAILABLE') {
-      this.currentJourney.status = this.currentMatch ? 'TRACKING' : 'ROUTE_UNCERTAIN';
     }
 
     this.currentViewModel = this.hudRenderer.createViewModel(
@@ -253,7 +263,11 @@ export class AppController {
       now
     );
 
-    await this.evenG2Adapter.render(this.currentViewModel);
+    // render() is non-blocking for Glass BLE (coalesced flush). Do not let a
+    // slow/hung bridge transfer stall the AppController render loop.
+    void this.evenG2Adapter.render(this.currentViewModel).catch((error) => {
+      console.warn('[AppController] Even G2 render notice:', error);
+    });
 
     const logEntry: EstimationLogEntry = {
       timestampMs: now,
@@ -264,11 +278,5 @@ export class AppController {
       hudViewModel: this.currentViewModel,
     };
     this.logger.log(logEntry);
-  }
-
-  private toNavigationDirection(direction: JourneyState['direction']): 'UP' | 'DOWN' | 'UNKNOWN' {
-    if (direction === 'UP' || direction === 'DIRECTION_A') return 'UP';
-    if (direction === 'DOWN' || direction === 'DIRECTION_B') return 'DOWN';
-    return 'UNKNOWN';
   }
 }

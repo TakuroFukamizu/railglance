@@ -41,6 +41,7 @@ export class MlitRailwayAdapter implements RailwaySourceAdapter {
       if (this.options.strict) {
         throw new Error('MLIT_N02_DIR is required for a publishable Kanto dataset build');
       }
+      console.log('[MlitRailwayAdapter] MLIT_N02_DIR is not set. Building dataset from bundled JSON data sources.');
       return { lines: [], stations: [], segments: [] };
     }
 
