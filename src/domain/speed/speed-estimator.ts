@@ -201,9 +201,29 @@ export class SpeedEstimator {
 
     const timeSinceLastGps = currentTimeMs - (this.lastFullState.navState.lastObservationTimestampMs ?? currentTimeMs);
 
-    // 2. Dead Reckoning Mode during GPS Pause/Tunnel
+    // 2. GPS considered unavailable: coasting budget exhausted, or navigation state lost.
+    //    This is checked BEFORE dead-reckoning so that an expired fix can never be
+    //    reported as a coasted speed (issue #20).
+    if (timeSinceLastGps > this.config.coastingMaxMs || predictedNavState.mode === 'lost') {
+      const unknownEstimate: SpeedEstimate = {
+        speedKmh: null,
+        confidence: 0.0,
+        source: 'unknown',
+        timestamp: currentTimeMs,
+      };
+      return {
+        ...this.lastFullState,
+        selectedEstimate: unknownEstimate,
+        smoothedSpeedKmh: null,
+        isValid: false,
+        navState: predictedNavState,
+      };
+    }
+
+    // 3. Dead Reckoning Mode during GPS Pause/Tunnel (fix is stale but still within
+    //    the coasting budget).
     if (
-      timeSinceLastGps > 2000 ||
+      timeSinceLastGps > this.config.staleLocationMs ||
       predictedNavState.mode === 'dead-reckoning' ||
       predictedNavState.mode === 'dead-reckoning-low-confidence'
     ) {
@@ -222,28 +242,12 @@ export class SpeedEstimator {
         selectedEstimate: drEstimate,
         smoothedSpeedKmh: smoothedKmh,
         isStopped,
-        isValid: (predictedNavState.mode as string) !== 'lost',
+        isValid: true,
         navState: predictedNavState,
       };
     }
 
-    // 3. Declare GPS Unavailable only after coastingMaxMs (45 seconds) or when lost
-    if (timeSinceLastGps > this.config.staleLocationMs || (predictedNavState.mode as string) === 'lost') {
-      const unknownEstimate: SpeedEstimate = {
-        speedKmh: null,
-        confidence: 0.0,
-        source: 'unknown',
-        timestamp: currentTimeMs,
-      };
-      return {
-        ...this.lastFullState,
-        selectedEstimate: unknownEstimate,
-        smoothedSpeedKmh: null,
-        isValid: false,
-        navState: predictedNavState,
-      };
-    }
-
+    // 4. Fix is still fresh: keep reporting the last GPS-derived state.
     return {
       ...this.lastFullState,
       navState: predictedNavState,
