@@ -15,12 +15,20 @@ export type DatasetBuildOptions = {
   requireMlitSource?: boolean;
 };
 
+/** Source id reported by MlitRailwayAdapter; recorded in the manifest so deploys can require it. */
+export const MLIT_SOURCE_ID = 'mlit-n02-23';
+
+/** Version used for sample-only local builds so they can never be mistaken for a release. */
+export const SAMPLE_DATASET_VERSION = '0.0.0-sample';
+
+const EXPLICIT_SEMVER = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;
+
 export async function buildKantoDataset(
   version: string,
   schemaVersion = RAILWAY_DATASET_SCHEMA_VERSION,
   options: DatasetBuildOptions = {}
 ): Promise<void> {
-  if (!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(version)) {
+  if (!EXPLICIT_SEMVER.test(version)) {
     throw new Error(`Dataset version must be an explicit semantic version, received: ${version || '(empty)'}`);
   }
   if (schemaVersion !== RAILWAY_DATASET_SCHEMA_VERSION) {
@@ -120,11 +128,15 @@ export async function buildKantoDataset(
   fs.mkdirSync(h3Dir, { recursive: true });
 
   // Write Manifest
+  const sourceIds = reportData.licenses.map((license) => license.sourceId);
   const manifest = {
     version,
     schemaVersion,
     generatedAt: new Date().toISOString(),
     area: 'Kanto buffer; only lines passing station, polyline, and topology quality gates',
+    sources: sourceIds,
+    // Deploy tooling refuses to publish a dataset that was not built from the official MLIT source.
+    mlitSourced: sourceIds.includes(MLIT_SOURCE_ID),
     totalLines: topologizedData.lines.length,
     totalRoutes: topologizedData.routes.length,
     totalStations: topologizedData.stations.length,
@@ -163,12 +175,62 @@ export async function buildKantoDataset(
   console.log(`[ETL] Kanto Dataset Build (Schema v${schemaVersion}) Completed Successfully! Output: ${outDir}`);
 }
 
+export type DatasetBuildCliArguments = {
+  version: string;
+  allowSample: boolean;
+};
+
+/**
+ * Resolves the CLI contract. Publishable builds are fail closed: an explicit SemVer and the
+ * official MLIT source are both mandatory unless the caller opted into a sample-only build.
+ */
+export function resolveDatasetBuildCliArguments(
+  argv: string[],
+  env: NodeJS.ProcessEnv = process.env
+): DatasetBuildCliArguments {
+  const versionFlagIndex = argv.indexOf('--version');
+  const explicitVersion = (versionFlagIndex >= 0 ? argv[versionFlagIndex + 1] : env.DATASET_VERSION)?.trim();
+  const allowSample = argv.includes('--allow-sample') || env.ALLOW_SAMPLE_DATASET === 'true';
+
+  if (!allowSample && !env.MLIT_N02_DIR) {
+    throw new Error(
+      'MLIT_N02_DIR is required to build a publishable dataset. Set it to the extracted N02-23 GeoJSON directory, ' +
+        'or pass --allow-sample (pnpm build:data:sample) to build a local sample-only dataset that must not be deployed.'
+    );
+  }
+  if (!explicitVersion) {
+    if (allowSample) {
+      return { version: SAMPLE_DATASET_VERSION, allowSample };
+    }
+    throw new Error(
+      'DATASET_VERSION (or --version <x.y.z>) is required to build a publishable dataset; there is no default version.'
+    );
+  }
+  if (!allowSample && !EXPLICIT_SEMVER.test(explicitVersion)) {
+    throw new Error(`Dataset version must be an explicit semantic version, received: ${explicitVersion}`);
+  }
+  return { version: explicitVersion, allowSample };
+}
+
+export async function runDatasetBuildCli(argv: string[] = process.argv): Promise<void> {
+  const { version, allowSample } = resolveDatasetBuildCliArguments(argv);
+  if (allowSample) {
+    console.warn(
+      `[ETL] Sample-only build requested (--allow-sample). Output v${version} is for local development and must never be deployed to R2.`
+    );
+    // Keep the committed coverage report describing the published dataset, not a sample build.
+    await buildKantoDataset(version, undefined, {
+      requireMlitSource: false,
+      reportPath: path.resolve(process.cwd(), 'dist/railway-dataset/kanto-coverage-report.sample.md'),
+    });
+    return;
+  }
+  await buildKantoDataset(version, undefined, { requireMlitSource: true });
+}
+
 // Execute if run directly
 if (import.meta.url.endsWith(process.argv[1]) || process.argv[1]?.includes('build-kanto-dataset')) {
-  const versionFlagIndex = process.argv.indexOf('--version');
-  const version = (versionFlagIndex >= 0 ? process.argv[versionFlagIndex + 1] : process.env.DATASET_VERSION) || '1.0.0';
-  const requireMlit = Boolean(process.env.MLIT_N02_DIR || process.env.REQUIRE_MLIT === 'true');
-  buildKantoDataset(version, undefined, { requireMlitSource: requireMlit }).catch((error) => {
+  runDatasetBuildCli().catch((error) => {
     console.error(error);
     process.exitCode = 1;
   });
