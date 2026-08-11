@@ -2,7 +2,8 @@ import { DEFAULT_TRACKING_CONFIG } from '../config/tracking-config';
 import { DexieRailwayDatabase } from '../infrastructure/storage/dexie-railway-database';
 import { MapMatcher } from '../domain/railway/map-matcher';
 import { JourneyStateEstimator } from '../domain/railway/journey-state-estimator';
-import { BrowserLocationProvider, LocationProvider } from '../infrastructure/geolocation/browser-location-provider';
+import { LocationProvider } from '../infrastructure/geolocation/browser-location-provider';
+import { AdaptiveLocationProvider } from '../infrastructure/geolocation/even-app-location-provider';
 import { HybridEvenG2Adapter } from '../infrastructure/even-g2/even-g2-adapter';
 import { EstimationLogger } from '../infrastructure/logging/logger';
 import { AppController } from './app-controller';
@@ -26,7 +27,8 @@ export async function bootstrapApp(
   const mapMatcher = new MapMatcher(db, config);
   const journeyEstimator = new JourneyStateEstimator(db, config);
 
-  const locationProvider = customLocationProvider ?? new BrowserLocationProvider();
+  // AdaptiveLocationProvider tries Even App location first (for Prototype mode & native app), falling back to Browser Geolocation
+  const locationProvider = customLocationProvider ?? new AdaptiveLocationProvider();
   const evenG2Adapter = new HybridEvenG2Adapter(onHudRender);
   const logger = new EstimationLogger();
 
@@ -34,6 +36,7 @@ export async function bootstrapApp(
     locationProvider,
     mapMatcher,
     journeyEstimator,
+    db,
     evenG2Adapter,
     logger,
     config

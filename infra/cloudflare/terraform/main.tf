@@ -4,11 +4,34 @@ terraform {
       source  = "cloudflare/cloudflare"
       version = "~> 4.0"
     }
+    aws = {
+      source  = "hashicorp/aws"
+      version = "~> 5.0"
+    }
   }
 }
 
 provider "cloudflare" {
   # api_token is read from CLOUDFLARE_API_TOKEN environment variable
+}
+
+provider "aws" {
+  region                      = "auto"
+  access_key                  = var.r2_access_key_id
+  secret_key                  = var.r2_secret_access_key
+  skip_credentials_validation = true
+  skip_region_validation      = true
+  skip_requesting_account_id  = true
+  skip_metadata_api_check     = true
+
+  endpoints {
+    s3 = "https://${var.account_id}.r2.cloudflarestorage.com"
+  }
+}
+
+variable "account_id" {
+  type        = string
+  description = "Cloudflare Account ID"
 }
 
 variable "zone_id" {
@@ -22,11 +45,46 @@ variable "domain_name" {
   description = "Custom domain for R2 data bucket"
 }
 
+variable "r2_access_key_id" {
+  type        = string
+  sensitive   = true
+  description = "R2 S3-compatible Access Key ID"
+}
+
+variable "r2_secret_access_key" {
+  type        = string
+  sensitive   = true
+  description = "R2 S3-compatible Secret Access Key"
+}
+
+variable "cors_allowed_origins" {
+  type        = list(string)
+  description = "Exact web application origins allowed to read public dataset objects"
+
+  validation {
+    condition     = length(var.cors_allowed_origins) > 0 && !contains(var.cors_allowed_origins, "*")
+    error_message = "At least one exact CORS origin is required; wildcard is not allowed."
+  }
+}
+
 # 1. Cloudflare R2 Bucket for Static Railway Dataset Tiles
 resource "cloudflare_r2_bucket" "railway_dataset" {
-  account_id = var.zone_id
+  account_id = var.account_id
   name       = "railglance-dataset-bucket"
-  location   = "apac" # Asia Pacific (Tokyo)
+  location   = "APAC" # Asia Pacific
+}
+
+resource "aws_s3_bucket_cors_configuration" "railway_dataset" {
+  bucket = cloudflare_r2_bucket.railway_dataset.name
+
+  cors_rule {
+    id              = "railglance-web-read"
+    allowed_methods = ["GET", "HEAD"]
+    allowed_origins = var.cors_allowed_origins
+    allowed_headers = ["*"]
+    expose_headers  = ["ETag"]
+    max_age_seconds = 86400
+  }
 }
 
 # 2. Cache Rules for Versioned Datasets & Latest Pointer

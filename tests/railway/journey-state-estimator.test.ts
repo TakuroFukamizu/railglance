@@ -1,21 +1,40 @@
 import { describe, it, expect } from 'vitest';
 import { DEFAULT_TRACKING_CONFIG } from '../../src/config/tracking-config';
-import { JourneyStateEstimator, StationDatabaseReader } from '../../src/domain/railway/journey-state-estimator';
-import { RailwayLine, RouteMatch, Station, TrackSegment } from '../../src/domain/models/railway';
+import { JourneyStateEstimator } from '../../src/domain/railway/journey-state-estimator';
+import { RailwayCoverageResult, RailwayDataRepository, RailwayDataState } from '../../src/domain/railway/repository';
+import { RailwayLine, RailwayRoute, RouteMatch, Station, TrackSegment } from '../../src/domain/models/railway';
 import { LocationSample, FullSpeedState, SpeedEstimate } from '../../src/domain/models/location';
 
-class MockStationDatabase implements StationDatabaseReader {
+class MockStationDatabase implements RailwayDataRepository {
   private stations: Station[] = [
     { id: 'st-1', lineId: 'line-1', name: '海老名', sequence: 1, latitude: 35.4526, longitude: 139.3900 },
     { id: 'st-2', lineId: 'line-1', name: '座間', sequence: 2, latitude: 35.4806, longitude: 139.4005 },
     { id: 'st-3', lineId: 'line-1', name: '相武台前', sequence: 3, latitude: 35.4988, longitude: 139.4144 },
   ];
 
-  async getStationsByLine(): Promise<Station[]> {
-    return this.stations;
+  async ensureCoverageAround(): Promise<RailwayCoverageResult> {
+    return { state: 'bundled', loadedTileCount: 0 };
+  }
+  async findSegmentsNear(): Promise<TrackSegment[]> {
+    return [];
+  }
+  async getLine(lineId: string): Promise<RailwayLine | undefined> {
+    return { id: lineId, operatorId: 'odakyu', name: '小田急線', directionAName: '上り', directionBName: '下り' };
+  }
+  async getRoute(): Promise<RailwayRoute | undefined> {
+    return undefined;
   }
   async getStation(id: string): Promise<Station | undefined> {
     return this.stations.find((s) => s.id === id);
+  }
+  async getStationsByLine(): Promise<Station[]> {
+    return this.stations;
+  }
+  async getSegmentsByRoute(): Promise<TrackSegment[]> {
+    return [];
+  }
+  getDataState(): RailwayDataState {
+    return 'bundled';
   }
 }
 
@@ -24,7 +43,7 @@ describe('JourneyStateEstimator', () => {
     const db = new MockStationDatabase();
     const estimator = new JourneyStateEstimator(db, DEFAULT_TRACKING_CONFIG);
 
-    const line: RailwayLine = { id: 'line-1', operatorId: 'odakyu', name: '小田急線', directionAName: '上り', directionBName: '下り' };
+    const line: RailwayLine = { id: 'line-1', operatorId: 'odakyu', name: '小田急線', directionAName: '内回り', directionBName: '外回り' };
     const seg: TrackSegment = {
       id: 'seg-1',
       lineId: 'line-1',
@@ -35,6 +54,7 @@ describe('JourneyStateEstimator', () => {
         [35.4806, 139.4005],
       ],
       lengthMeters: 3200,
+      startOffsetMeters: 0,
     };
 
     const match: RouteMatch = {
@@ -93,7 +113,7 @@ describe('JourneyStateEstimator', () => {
     const state = await estimator.update(sample, match, speedState);
 
     expect(state.direction).toBe('UP');
-    expect(state.directionName).toBe('上り');
+    expect(state.directionName).toBe('内回り');
     expect(state.previousStation?.name).toBe('海老名');
     expect(state.nextStation?.name).toBe('座間');
     expect(state.status).toBe('TRACKING');
@@ -103,7 +123,7 @@ describe('JourneyStateEstimator', () => {
     const db = new MockStationDatabase();
     const estimator = new JourneyStateEstimator(db, DEFAULT_TRACKING_CONFIG);
 
-    const line: RailwayLine = { id: 'line-1', operatorId: 'odakyu', name: '小田急線', directionAName: '上り', directionBName: '下り' };
+    const line: RailwayLine = { id: 'line-1', operatorId: 'odakyu', name: '小田急線', directionAName: '内回り', directionBName: '外回り' };
     const seg: TrackSegment = {
       id: 'seg-1',
       lineId: 'line-1',
@@ -114,6 +134,7 @@ describe('JourneyStateEstimator', () => {
         [35.4806, 139.4005],
       ],
       lengthMeters: 3200,
+      startOffsetMeters: 0,
     };
 
     const match: RouteMatch = {
@@ -172,9 +193,10 @@ describe('JourneyStateEstimator', () => {
     const state = await estimator.update(sample, match, speedState);
 
     expect(state.direction).toBe('DOWN');
-    expect(state.directionName).toBe('下り');
+    expect(state.directionName).toBe('外回り');
     expect(state.previousStation?.name).toBe('座間');
     expect(state.nextStation?.name).toBe('海老名');
+    expect(state.distanceToNextStationMeters).toBe(1500);
     expect(state.status).toBe('TRACKING');
   });
 });

@@ -1,21 +1,24 @@
 import { LocationSample } from '../../domain/models/location';
 
 export interface LocationProvider {
-  start(onLocation: (sample: LocationSample) => void, onError?: (err: GeolocationPositionError) => void): void;
-  stop(): void;
+  start(onLocation: (sample: LocationSample) => void, onError?: (err: LocationProviderError) => void): void | Promise<void>;
+  stop(): void | Promise<void>;
 }
+
+export type LocationProviderError = {
+  code?: number;
+  message: string;
+};
 
 export class BrowserLocationProvider implements LocationProvider {
   private watchId: number | null = null;
   private onLocationCallback: ((sample: LocationSample) => void) | null = null;
-  private onErrorCallback: ((err: GeolocationPositionError) => void) | null = null;
+  private onErrorCallback: ((err: LocationProviderError) => void) | null = null;
   private useHighAccuracy = false;
-  private heartbeatTimer: any = null;
-  private lastSample: LocationSample | null = null;
 
   public start(
     onLocation: (sample: LocationSample) => void,
-    onError?: (err: GeolocationPositionError) => void
+    onError?: (err: LocationProviderError) => void
   ): void {
     this.onLocationCallback = onLocation;
     this.onErrorCallback = onError ?? null;
@@ -30,15 +33,6 @@ export class BrowserLocationProvider implements LocationProvider {
 
     this.startWatch();
 
-    this.heartbeatTimer = setInterval(() => {
-      if (this.lastSample && this.onLocationCallback) {
-        const refreshedSample: LocationSample = {
-          ...this.lastSample,
-          timestampMs: Date.now(),
-        };
-        this.onLocationCallback(refreshedSample);
-      }
-    }, 3000);
   }
 
   private startWatch(): void {
@@ -47,9 +41,6 @@ export class BrowserLocationProvider implements LocationProvider {
         this.onErrorCallback({
           code: 2,
           message: 'Geolocation API is not available on this browser/device.',
-          PERMISSION_DENIED: 1,
-          POSITION_UNAVAILABLE: 2,
-          TIMEOUT: 3,
         });
       }
       return;
@@ -88,7 +79,6 @@ export class BrowserLocationProvider implements LocationProvider {
       headingDegrees: pos.coords.heading,
       timestampMs: pos.timestamp || Date.now(),
     };
-    this.lastSample = sample;
     if (this.onLocationCallback) {
       this.onLocationCallback(sample);
     }
@@ -98,10 +88,6 @@ export class BrowserLocationProvider implements LocationProvider {
     if (this.watchId !== null && 'geolocation' in navigator) {
       navigator.geolocation.clearWatch(this.watchId);
       this.watchId = null;
-    }
-    if (this.heartbeatTimer) {
-      clearInterval(this.heartbeatTimer);
-      this.heartbeatTimer = null;
     }
   }
 }

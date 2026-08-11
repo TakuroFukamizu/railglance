@@ -6,13 +6,34 @@ import { ManualCorrectionAdapter } from '../etl/adapters/manual-correction-adapt
 import { TopologyBuilder } from '../etl/topology-builder';
 import { H3Tiler } from '../etl/h3-tiler';
 import { CoverageReporter } from '../etl/coverage-reporter';
+import { RAILWAY_DATASET_SCHEMA_VERSION } from '../infrastructure/storage/railway-dataset-schema';
 
-export async function buildKantoDataset(version = '1.0.0'): Promise<void> {
-  console.log(`[ETL] Starting Kanto Region Railway Dataset Build (v${version})...`);
+export type DatasetBuildOptions = {
+  outputRoot?: string;
+  reportPath?: string | null;
+  mlitSourceDirectory?: string;
+  requireMlitSource?: boolean;
+};
+
+export async function buildKantoDataset(
+  version: string,
+  schemaVersion = RAILWAY_DATASET_SCHEMA_VERSION,
+  options: DatasetBuildOptions = {}
+): Promise<void> {
+  if (!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(version)) {
+    throw new Error(`Dataset version must be an explicit semantic version, received: ${version || '(empty)'}`);
+  }
+  if (schemaVersion !== RAILWAY_DATASET_SCHEMA_VERSION) {
+    throw new Error(`Unsupported schemaVersion ${schemaVersion}; expected ${RAILWAY_DATASET_SCHEMA_VERSION}`);
+  }
+  console.log(`[ETL] Starting Kanto Region Railway Dataset Build (v${version}, schemaVersion ${schemaVersion})...`);
 
   // 1. Load data from adapters
   const existingAdapter = new ExistingJsonRailwayAdapter();
-  const mlitAdapter = new MlitRailwayAdapter();
+  const mlitAdapter = new MlitRailwayAdapter({
+    sourceDirectory: options.mlitSourceDirectory,
+    strict: options.requireMlitSource ?? false,
+  });
   const manualAdapter = new ManualCorrectionAdapter();
 
   const existingData = await existingAdapter.load();
@@ -34,55 +55,80 @@ export async function buildKantoDataset(version = '1.0.0'): Promise<void> {
     segmentMap.set(seg.id, seg);
   }
 
-  const rawDataset = {
+  const mergedDataset = {
     lines: Array.from(lineMap.values()),
     stations: Array.from(stationMap.values()),
     segments: Array.from(segmentMap.values()),
   };
 
-  // 2. Build Topology
+  // 2. Corrections can alter connectivity, so apply them before route generation.
+  const correctedRawData = manualAdapter.applyCorrections(mergedDataset);
+  const stationIds = new Set(correctedRawData.stations.map((station) => station.id));
+  const supportedLineIds = new Set(
+    correctedRawData.lines
+      .filter((line) => {
+        const stationCount = correctedRawData.stations.filter((station) => station.lineId === line.id).length;
+        const segmentCount = correctedRawData.segments.filter(
+          (segment) => segment.lineId === line.id &&
+            stationIds.has(segment.fromStationId) && stationIds.has(segment.toStationId)
+        ).length;
+        return stationCount >= 2 && segmentCount >= 1;
+      })
+      .map((line) => line.id)
+  );
+  const publishableData = {
+    lines: correctedRawData.lines.filter((line) => supportedLineIds.has(line.id)),
+    stations: correctedRawData.stations.filter((station) => supportedLineIds.has(station.lineId)),
+    segments: correctedRawData.segments.filter((segment) => supportedLineIds.has(segment.lineId)),
+  };
+  if (publishableData.lines.length === 0) {
+    throw new Error('Dataset quality gate failed: no line has at least two stations and one segment');
+  }
+
+  // 3. Build topology after corrections with offsets, graph connections, and routes.
   const topologyBuilder = new TopologyBuilder();
   const topologizedData = topologyBuilder.buildTopology(
-    rawDataset.lines,
-    rawDataset.stations,
-    rawDataset.segments
+    publishableData.lines,
+    publishableData.stations,
+    publishableData.segments
   );
-
-  // 3. Apply Manual Corrections
-  const correctedData = manualAdapter.applyCorrections(topologizedData);
 
   // 4. Generate H3 Spatial Tiles
   const h3Tiler = new H3Tiler(6);
   const tiles = h3Tiler.generateTiles(
-    correctedData.lines,
-    correctedData.stations,
-    correctedData.segments
+    topologizedData.lines,
+    topologizedData.routes,
+    topologizedData.stations,
+    topologizedData.segments
   );
 
   // 5. Generate Coverage Report
   const coverageReporter = new CoverageReporter();
   const reportData = coverageReporter.generateReport(
     version,
-    correctedData.lines,
-    correctedData.stations,
-    correctedData.segments,
+    topologizedData.lines,
+    topologizedData.stations,
+    topologizedData.segments,
     tiles
   );
   const markdownReport = coverageReporter.renderMarkdownReport(reportData);
 
   // 6. Write Output Files to dist/railway-dataset/v{version}/ and docs/
-  const outDir = path.resolve(process.cwd(), `dist/railway-dataset/v${version}`);
+  const outputRoot = options.outputRoot ?? path.resolve(process.cwd(), 'dist/railway-dataset');
+  const outDir = path.join(outputRoot, `v${version}`);
   const h3Dir = path.join(outDir, 'h3', '6');
   fs.mkdirSync(h3Dir, { recursive: true });
 
   // Write Manifest
   const manifest = {
     version,
+    schemaVersion,
     generatedAt: new Date().toISOString(),
-    area: 'Kanto 1 Metropolis & 6 Prefectures + County Boundary Buffers',
-    totalLines: correctedData.lines.length,
-    totalStations: correctedData.stations.length,
-    totalSegments: correctedData.segments.length,
+    area: 'Kanto buffer; only lines passing station, polyline, and topology quality gates',
+    totalLines: topologizedData.lines.length,
+    totalRoutes: topologizedData.routes.length,
+    totalStations: topologizedData.stations.length,
+    totalSegments: topologizedData.segments.length,
     totalTiles: tiles.size,
     licensing: reportData.licenses,
   };
@@ -94,11 +140,11 @@ export async function buildKantoDataset(version = '1.0.0'): Promise<void> {
   // Write Latest Pointer
   const latestPointer = {
     version,
+    schemaVersion,
     releasedAt: new Date().toISOString(),
     manifestUrl: `/datasets/v${version}/manifest.json`,
   };
-  const rootDatasetDir = path.resolve(process.cwd(), 'dist/railway-dataset');
-  fs.writeFileSync(path.join(rootDatasetDir, 'latest.json'), JSON.stringify(latestPointer, null, 2));
+  fs.writeFileSync(path.join(outputRoot, 'latest.json'), JSON.stringify(latestPointer, null, 2));
 
   // Write H3 Tiles
   for (const [cellId, tileData] of tiles.entries()) {
@@ -106,14 +152,24 @@ export async function buildKantoDataset(version = '1.0.0'): Promise<void> {
   }
 
   // Write Markdown Report to docs/implementations/kanto-coverage-report.md
-  const docsDir = path.resolve(process.cwd(), 'docs/implementations');
-  fs.mkdirSync(docsDir, { recursive: true });
-  fs.writeFileSync(path.join(docsDir, 'kanto-coverage-report.md'), markdownReport);
+  const reportPath = options.reportPath === undefined
+    ? path.resolve(process.cwd(), 'docs/implementations/kanto-coverage-report.md')
+    : options.reportPath;
+  if (reportPath) {
+    fs.mkdirSync(path.dirname(reportPath), { recursive: true });
+    fs.writeFileSync(reportPath, markdownReport);
+  }
 
-  console.log(`[ETL] Kanto Dataset Build Completed Successfully! Output: ${outDir}`);
+  console.log(`[ETL] Kanto Dataset Build (Schema v${schemaVersion}) Completed Successfully! Output: ${outDir}`);
 }
 
 // Execute if run directly
-if (require.main === module || process.argv[1]?.includes('build-kanto-dataset')) {
-  buildKantoDataset().catch(console.error);
+if (import.meta.url.endsWith(process.argv[1]) || process.argv[1]?.includes('build-kanto-dataset')) {
+  const versionFlagIndex = process.argv.indexOf('--version');
+  const version = (versionFlagIndex >= 0 ? process.argv[versionFlagIndex + 1] : process.env.DATASET_VERSION) || '1.0.0';
+  const requireMlit = Boolean(process.env.MLIT_N02_DIR || process.env.REQUIRE_MLIT === 'true');
+  buildKantoDataset(version, undefined, { requireMlitSource: requireMlit }).catch((error) => {
+    console.error(error);
+    process.exitCode = 1;
+  });
 }

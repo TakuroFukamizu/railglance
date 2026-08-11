@@ -8,11 +8,14 @@ export default defineConfig({
     },
   },
   server: {
+    port: 5173,
+    strictPort: true,
     host: true,
     allowedHosts: true, // Allow ngrok and external hosts (Vite 6 security option)
   },
   test: {
     globals: true,
     environment: 'node',
+    setupFiles: ['./tests/setup.ts'],
   },
 });

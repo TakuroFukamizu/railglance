@@ -42,7 +42,7 @@ export class DebugPanel {
       }
     };
 
-    let html = `
+    const html = `
       <div class="debug-grid">
         <div class="debug-card" style="border-left: 4px solid #00AAFF;">
           <h3>Cloudflare R2 On-Demand H3 Tile Status</h3>

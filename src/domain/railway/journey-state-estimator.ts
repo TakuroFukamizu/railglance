@@ -1,30 +1,50 @@
 import { TrackingConfig } from '../../config/tracking-config';
-import { LocationSample, FullSpeedState } from '../models/location';
-import { JourneyState, RouteMatch, Station, TravelDirection } from '../models/railway';
+import { LocationSample, FullSpeedState, TrackNavigationState } from '../models/location';
+import { JourneyState, RailwayLine, RouteMatch, Station, TrackSegment, TravelDirection } from '../models/railway';
 import { calculateBearing, calculateHeadingDifference } from '../geo/heading';
-import { findClosestPointOnPolyline } from '../geo/polyline';
 import { haversineDistance } from '../geo/distance';
-
-export interface StationDatabaseReader {
-  getStationsByLine(lineId: string): Promise<Station[]>;
-  getStation(stationId: string): Promise<Station | undefined>;
-}
+import { RailwayDataRepository } from './repository';
 
 export class JourneyStateEstimator {
   private lastSample: LocationSample | null = null;
   private lastConfirmedDirection: TravelDirection = 'UNKNOWN';
+  private cachedLine: RailwayLine | null = null;
+  private lastMatchTimestampMs: number | null = null;
 
   constructor(
-    private stationDb: StationDatabaseReader,
+    private repository: RailwayDataRepository,
     private config: TrackingConfig
   ) {}
 
   public async update(
-    sample: LocationSample,
+    sample: LocationSample | null,
     match: RouteMatch | null,
-    speedState: FullSpeedState
+    speedState: FullSpeedState,
+    navStateInput?: TrackNavigationState,
+    currentSegmentInput?: TrackSegment | null
   ): Promise<JourneyState> {
-    if (!match) {
+    const navState = navStateInput ?? speedState?.navState;
+    const now = sample?.timestampMs ?? navState?.lastPredictionTimestampMs ?? Date.now();
+
+    if (match?.selectedLine) {
+      this.cachedLine = match.selectedLine;
+      this.lastMatchTimestampMs = now;
+    }
+
+    const isDrActive = navState?.mode === 'dead-reckoning' || navState?.mode === 'dead-reckoning-low-confidence';
+    if (isDrActive || navState?.mode === 'gps-locked' || navState?.mode === 'reacquiring') {
+      if (this.lastMatchTimestampMs === null) {
+        this.lastMatchTimestampMs = now;
+      }
+    }
+
+    const isGraceExpired =
+      !isDrActive &&
+      this.lastMatchTimestampMs !== null &&
+      now - this.lastMatchTimestampMs >= this.config.routeMatchLossGraceMs;
+
+    if (!match && !isDrActive && (navState?.mode === 'lost' || isGraceExpired)) {
+      this.cachedLine = null;
       return {
         line: null,
         direction: 'UNKNOWN',
@@ -32,108 +52,217 @@ export class JourneyStateEstimator {
         previousStation: null,
         nextStation: null,
         distanceToNextStationMeters: null,
+        progressRatio: null,
         confidence: 0.0,
-        status: sample.accuracyMeters > this.config.maxGpsAccuracyMeters ? 'GPS_LOW_ACCURACY' : 'ROUTE_UNCERTAIN',
+        status: 'ROUTE_UNCERTAIN',
       };
     }
 
-    const { selectedLine, selectedSegment, confidence } = match;
-    const stations = await this.stationDb.getStationsByLine(selectedLine.id);
-    stations.sort((a, b) => a.sequence - b.sequence);
+    const activeLineId = match?.selectedLine.id || navState?.lineId || this.cachedLine?.id;
 
-    const fromStation = stations.find((s) => s.id === selectedSegment.fromStationId) ?? null;
-    const toStation = stations.find((s) => s.id === selectedSegment.toStationId) ?? null;
-
-    // 1. Determine direction (Direction A / Up vs Direction B / Down)
-    let direction: TravelDirection = this.lastConfirmedDirection;
-
-    let trackBearing = 0;
-    if (selectedSegment.coordinates.length >= 2) {
-      const p1 = selectedSegment.coordinates[0];
-      const p2 = selectedSegment.coordinates[selectedSegment.coordinates.length - 1];
-      trackBearing = calculateBearing(p1[0], p1[1], p2[0], p2[1]);
+    if (!activeLineId) {
+      return {
+        line: null,
+        direction: 'UNKNOWN',
+        directionName: null,
+        previousStation: null,
+        nextStation: null,
+        distanceToNextStationMeters: null,
+        progressRatio: null,
+        confidence: 0.0,
+        status: sample && sample.accuracyMeters > this.config.maxGpsAccuracyMeters ? 'GPS_LOW_ACCURACY' : 'ROUTE_UNCERTAIN',
+      };
     }
 
-    let currentHeading: number | null = sample.headingDegrees;
-    if (currentHeading === null && this.lastSample) {
-      const movedDist = haversineDistance(
-        this.lastSample.latitude,
-        this.lastSample.longitude,
-        sample.latitude,
-        sample.longitude
-      );
-      if (movedDist >= 5) {
-        currentHeading = calculateBearing(
-          this.lastSample.latitude,
-          this.lastSample.longitude,
-          sample.latitude,
-          sample.longitude
-        );
-      }
+    const selectedLine = match?.selectedLine || this.cachedLine || (await this.repository.getLine(activeLineId));
+    if (selectedLine) {
+      this.cachedLine = selectedLine;
     }
 
-    const currentSpeedKmh = speedState.smoothedSpeedKmh;
-    if (fromStation && toStation && currentHeading !== null && currentSpeedKmh !== null && currentSpeedKmh >= 3) {
-      const diffForward = calculateHeadingDifference(currentHeading, trackBearing);
-      const diffBackward = calculateHeadingDifference(currentHeading, (trackBearing + 180) % 360);
+    if (!selectedLine) {
+      return {
+        line: null,
+        direction: 'UNKNOWN',
+        directionName: null,
+        previousStation: null,
+        nextStation: null,
+        distanceToNextStationMeters: null,
+        progressRatio: null,
+        confidence: 0.0,
+        status: 'ROUTE_UNCERTAIN',
+      };
+    }
 
-      const isIncreasingSeq = fromStation.sequence < toStation.sequence;
+    let direction: TravelDirection = 'UNKNOWN';
+    if (match && sample) {
+      const heading = sample.headingDegrees ?? (this.lastSample
+        ? calculateBearing(
+            this.lastSample.latitude,
+            this.lastSample.longitude,
+            sample.latitude,
+            sample.longitude
+          )
+        : null);
 
-      if (diffForward < diffBackward && diffForward < 60) {
-        // Heading matches p1 -> p2 (fromStation to toStation vector)
-        direction = isIncreasingSeq ? 'UP' : 'DOWN';
-      } else if (diffBackward < diffForward && diffBackward < 60) {
-        // Heading matches p2 -> p1 (toStation to fromStation vector)
-        direction = isIncreasingSeq ? 'DOWN' : 'UP';
+      if (heading !== null) {
+        const coords = match.selectedSegment.coordinates;
+        const startPoint = coords[0];
+        const endPoint = coords[coords.length - 1];
+        const segmentBearing = calculateBearing(startPoint[0], startPoint[1], endPoint[0], endPoint[1]);
+        const diff = calculateHeadingDifference(heading, segmentBearing);
+
+        direction = diff < 90 ? 'UP' : 'DOWN';
       }
     }
 
     if (direction !== 'UNKNOWN') {
       this.lastConfirmedDirection = direction;
+    } else if (navState && navState.direction !== 'UNKNOWN') {
+      direction = navState.direction;
+      this.lastConfirmedDirection = direction;
+    } else if (this.lastConfirmedDirection !== 'UNKNOWN') {
+      direction = this.lastConfirmedDirection;
+    } else {
+      direction = 'UP';
     }
 
-    this.lastSample = sample;
+    if (sample) {
+      this.lastSample = sample;
+    }
 
-    // 2. Determine previousStation, nextStation, and distanceToNextStation
+    const lineStations = await this.repository.getStationsByLine(selectedLine.id);
+    if (lineStations.length === 0) {
+      return {
+        line: selectedLine,
+        direction,
+        directionName: null,
+        previousStation: null,
+        nextStation: null,
+        distanceToNextStationMeters: null,
+        progressRatio: null,
+        confidence: match ? match.confidence : 0.5,
+        status: 'ROUTE_UNCERTAIN',
+      };
+    }
+
+    const orderedStations = [...lineStations].sort((a, b) => a.sequence - b.sequence);
     let previousStation: Station | null = null;
     let nextStation: Station | null = null;
     let distanceToNextStationMeters: number | null = null;
+    let progressRatio: number | null = null;
 
-    if (fromStation && toStation) {
-      const isFromToUp = fromStation.sequence < toStation.sequence;
+    const currentSeg = currentSegmentInput || match?.selectedSegment;
+
+    if (currentSeg && (currentSeg.fromStationId || currentSeg.toStationId)) {
+      const fromSt = lineStations.find((st) => st.id === currentSeg.fromStationId) ?? null;
+      const toSt = lineStations.find((st) => st.id === currentSeg.toStationId) ?? null;
+
+      if (direction === 'DOWN') {
+        previousStation = toSt || fromSt;
+        nextStation = fromSt || toSt;
+      } else {
+        previousStation = fromSt || toSt;
+        nextStation = toSt || fromSt;
+      }
+
+      if (navState && navState.trackPositionMeters !== null && currentSeg.startOffsetMeters !== undefined) {
+        const segLength = currentSeg.lengthMeters ?? 2000;
+        const endOffset = currentSeg.startOffsetMeters + segLength;
+        const remainingMeters = direction === 'DOWN'
+          ? navState.trackPositionMeters - currentSeg.startOffsetMeters
+          : endOffset - navState.trackPositionMeters;
+        distanceToNextStationMeters = Math.max(0, Math.min(segLength, Math.round(remainingMeters)));
+      }
+    }
+
+    if (!previousStation || !nextStation) {
+      let refLat: number | null = null;
+      let refLon: number | null = null;
+      let refTrackOffset: number | null = null;
+
+      if (navState && navState.trackPositionMeters !== null) {
+        refTrackOffset = navState.trackPositionMeters;
+      } else if (sample) {
+        refLat = sample.latitude;
+        refLon = sample.longitude;
+      }
 
       if (direction === 'UP') {
-        previousStation = isFromToUp ? fromStation : toStation;
-        nextStation = isFromToUp ? toStation : fromStation;
+        for (let i = 0; i < orderedStations.length; i++) {
+          const st = orderedStations[i];
+          let stDistFromRef: number | null = null;
+
+          if (refLat !== null && refLon !== null) {
+            stDistFromRef = haversineDistance(refLat, refLon, st.latitude, st.longitude);
+          }
+
+          if (refTrackOffset !== null) {
+            const stOffset = (st.sequence - 1) * 2000;
+            if (stOffset <= refTrackOffset) {
+              previousStation = st;
+            } else if (!nextStation) {
+              nextStation = st;
+              distanceToNextStationMeters = Math.max(0, Math.round(stOffset - refTrackOffset));
+              break;
+            }
+          } else if (refLat !== null && refLon !== null) {
+            if (!nextStation) {
+              nextStation = st;
+              previousStation = i > 0 ? orderedStations[i - 1] : st;
+              distanceToNextStationMeters = Math.round(stDistFromRef!);
+              break;
+            }
+          }
+        }
       } else if (direction === 'DOWN') {
-        previousStation = isFromToUp ? toStation : fromStation;
-        nextStation = isFromToUp ? fromStation : toStation;
-      } else {
-        previousStation = fromStation;
-        nextStation = toStation;
+        const reversed = [...orderedStations].reverse();
+        for (let i = 0; i < reversed.length; i++) {
+          const st = reversed[i];
+          if (refTrackOffset !== null) {
+            const stOffset = (st.sequence - 1) * 2000;
+            if (stOffset >= refTrackOffset) {
+              previousStation = st;
+            } else if (!nextStation) {
+              nextStation = st;
+              distanceToNextStationMeters = Math.max(0, Math.round(refTrackOffset - stOffset));
+              break;
+            }
+          } else if (refLat !== null && refLon !== null) {
+            if (!nextStation) {
+              nextStation = st;
+              previousStation = i > 0 ? reversed[i - 1] : st;
+              distanceToNextStationMeters = Math.round(haversineDistance(refLat, refLon, st.latitude, st.longitude));
+              break;
+            }
+          }
+        }
       }
-
-      const polylineRes = findClosestPointOnPolyline(sample.latitude, sample.longitude, selectedSegment.coordinates);
-      if (nextStation === toStation) {
-        distanceToNextStationMeters = Math.max(
-          0,
-          polylineRes.totalPolylineLengthMeters - polylineRes.distanceAlongPolylineMeters
-        );
-      } else {
-        distanceToNextStationMeters = Math.max(0, polylineRes.distanceAlongPolylineMeters);
-      }
-      distanceToNextStationMeters = Math.round(distanceToNextStationMeters);
     }
 
-    let directionName: string | null = null;
-    if (direction === 'UP') {
-      directionName = selectedLine.directionAName || '上り';
-    } else if (direction === 'DOWN') {
-      directionName = selectedLine.directionBName || '下り';
+    if (previousStation && nextStation && distanceToNextStationMeters !== null) {
+      const totalSegDist = haversineDistance(
+        previousStation.latitude,
+        previousStation.longitude,
+        nextStation.latitude,
+        nextStation.longitude
+      );
+      if (totalSegDist > 0) {
+        const traveled = Math.max(0, totalSegDist - distanceToNextStationMeters);
+        progressRatio = Math.min(1.0, Math.max(0.0, traveled / totalSegDist));
+      }
     }
+
+    const directionName = direction === 'UP' || direction === 'DIRECTION_A'
+      ? selectedLine.directionAName ?? '上り'
+      : direction === 'DOWN' || direction === 'DIRECTION_B'
+        ? selectedLine.directionBName ?? '下り'
+        : null;
+    const confidence = match ? match.confidence : (navState?.confidence ?? 0.5);
 
     let status: JourneyState['status'] = 'TRACKING';
-    if (confidence < this.config.confidenceMedium) {
+    if (navState?.mode === 'dead-reckoning' || navState?.mode === 'dead-reckoning-low-confidence') {
+      status = 'TRACKING';
+    } else if (confidence < this.config.confidenceMedium) {
       status = 'ROUTE_UNCERTAIN';
     }
 
@@ -144,6 +273,7 @@ export class JourneyStateEstimator {
       previousStation,
       nextStation,
       distanceToNextStationMeters,
+      progressRatio,
       confidence,
       status,
     };
@@ -152,5 +282,13 @@ export class JourneyStateEstimator {
   public reset(): void {
     this.lastSample = null;
     this.lastConfirmedDirection = 'UNKNOWN';
+    this.cachedLine = null;
+    this.lastMatchTimestampMs = null;
+  }
+
+  public invalidateRoute(): void {
+    this.lastConfirmedDirection = 'UNKNOWN';
+    this.cachedLine = null;
+    this.lastMatchTimestampMs = null;
   }
 }
