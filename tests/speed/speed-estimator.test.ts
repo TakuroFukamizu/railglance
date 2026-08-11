@@ -245,6 +245,18 @@ describe('SpeedEstimator GPS loss transitions (issue #20)', () => {
     expect(state.isValid).toBe(false);
   });
 
+  it('applies the same branch priority to the synchronous getEstimateAt()', () => {
+    const drState = seedEstimator().getEstimateAt(LAST_GPS_MS + 3000);
+    expect(drState.selectedEstimate.source).toBe('dead-reckoning');
+
+    const expiredState = seedEstimator().getEstimateAt(
+      LAST_GPS_MS + DEFAULT_TRACKING_CONFIG.coastingMaxMs + 1000
+    );
+    expect(expiredState.selectedEstimate.source).toBe('unknown');
+    expect(expiredState.smoothedSpeedKmh).toBeNull();
+    expect(expiredState.isValid).toBe(false);
+  });
+
   it('renders the HUD speed as "--" after the coasting budget expires', async () => {
     const journeyState: JourneyState = {
       line: null,

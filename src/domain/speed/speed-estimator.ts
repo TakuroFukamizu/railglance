@@ -1,5 +1,11 @@
 import { TrackingConfig } from '../../config/tracking-config';
-import { LocationSample, SpeedEstimate, FullSpeedState, MultiSpeedCandidates } from '../models/location';
+import {
+  LocationSample,
+  SpeedEstimate,
+  FullSpeedState,
+  MultiSpeedCandidates,
+  TrackNavigationState,
+} from '../models/location';
 import { haversineDistance } from '../geo/distance';
 import { SpeedFilter } from './speed-filter';
 import { DefaultSpeedSelector, SpeedSelector } from './speed-selector';
@@ -175,7 +181,23 @@ export class SpeedEstimator {
   public async getEstimateAtAsync(currentTimeMs: number, availableSegments?: TrackSegment[]): Promise<FullSpeedState> {
     // 1. Run time-driven prediction step on NavigationStateEstimator with available segments
     const predictedNavState = this.navEstimator.predict(currentTimeMs, availableSegments);
+    return this.resolveStateAt(currentTimeMs, predictedNavState);
+  }
 
+  public getEstimateAt(currentTimeMs: number): FullSpeedState {
+    const predictedNavState = this.navEstimator.predict(currentTimeMs);
+    return this.resolveStateAt(currentTimeMs, predictedNavState);
+  }
+
+  /**
+   * Resolves the reported speed state for a given time, given an already predicted
+   * navigation state. Branch priority is:
+   *   1. no previous state          -> unknown
+   *   2. coasting expired or lost   -> unknown
+   *   3. fix stale (or DR mode)     -> dead-reckoning
+   *   4. fix still fresh            -> last GPS-derived state
+   */
+  private resolveStateAt(currentTimeMs: number, predictedNavState: TrackNavigationState): FullSpeedState {
     if (!this.lastFullState) {
       const unknownEstimate: SpeedEstimate = {
         speedKmh: null,
@@ -248,37 +270,6 @@ export class SpeedEstimator {
     }
 
     // 4. Fix is still fresh: keep reporting the last GPS-derived state.
-    return {
-      ...this.lastFullState,
-      navState: predictedNavState,
-    };
-  }
-
-  public getEstimateAt(currentTimeMs: number): FullSpeedState {
-    const predictedNavState = this.navEstimator.predict(currentTimeMs);
-    if (!this.lastFullState) {
-      const unknownEstimate: SpeedEstimate = {
-        speedKmh: null,
-        confidence: 0.0,
-        source: 'unknown',
-        timestamp: currentTimeMs,
-      };
-      return {
-        selectedEstimate: unknownEstimate,
-        smoothedSpeedKmh: null,
-        isStopped: false,
-        isValid: false,
-        candidates: {
-          osSpeed: null,
-          positionDeltaSpeed: null,
-          trackDistanceSpeed: null,
-          deadReckoningSpeed: null,
-          sensorFusionSpeed: null,
-        },
-        navState: predictedNavState,
-      };
-    }
-
     return {
       ...this.lastFullState,
       navState: predictedNavState,
