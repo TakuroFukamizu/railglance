@@ -27,6 +27,16 @@ export class AppController {
   private renderTickInFlight = false;
   private renderTickPending = false;
 
+  // Location provider lifecycle serialization.
+  // - `locationLifecycle` is a never-rejecting tail promise used as a FIFO queue so that
+  //   start/stop/switch never overlap (a new provider is only started once the previous
+  //   provider has fully stopped).
+  // - `locationGeneration` is bumped whenever the active provider is invalidated, so
+  //   notifications arriving late from an outgoing provider are ignored.
+  private locationLifecycle: Promise<void> = Promise.resolve();
+  private locationGeneration = 0;
+  private activeLocationProvider: LocationProvider | null = null;
+
   constructor(
     private locationProvider: LocationProvider,
     private mapMatcher: MapMatcher,
@@ -91,16 +101,19 @@ export class AppController {
     if (this.isRunning) return;
     this.isRunning = true;
 
-    // 1. Immediately start location provider & GPS updates (non-blocking)
-    this.startLocationProvider(this.locationProvider);
-
-    // 2. Immediately start HUD render timer (Web Viewport DOM / Local Preview)
+    // 1. Immediately start HUD render timer (Web Viewport DOM / Local Preview)
     this.renderTimerId = setInterval(() => {
       void this.runRenderTick();
     }, this.config.hudRefreshMs);
 
-    // 3. Connect Even G2 in background with persistent auto-reconnect
+    // 2. Connect Even G2 in background with persistent auto-reconnect
     void this.connectEvenG2InBackground();
+
+    // 3. Start the location provider through the lifecycle queue so start/stop/switch
+    //    never interleave. Provider startup failures are reported through
+    //    onLocationError and leave the controller running (HUD keeps rendering and
+    //    falls back to GPS_UNAVAILABLE).
+    await this.enqueueLocationLifecycle(() => this.activateLocationProvider(this.locationProvider));
   }
 
   private async connectEvenG2InBackground(): Promise<void> {
@@ -147,38 +160,108 @@ export class AppController {
     if (!this.isRunning) return;
     this.isRunning = false;
 
-    await this.locationProvider.stop();
+    // Ignore any notification still in flight from the running provider.
+    this.locationGeneration++;
+
     if (this.renderTimerId) {
       clearInterval(this.renderTimerId);
       this.renderTimerId = null;
     }
+
+    // Wait for any queued start/switch to settle before stopping the provider.
+    await this.enqueueLocationLifecycle(() => this.deactivateLocationProvider());
     await this.evenG2Adapter.clear();
   }
 
-  public switchLocationProvider(newProvider: LocationProvider): void {
-    void this.locationProvider.stop();
-    this.speedEstimator.reset();
-    this.journeyEstimator.reset();
-    this.mapMatcher.reset();
-
+  /**
+   * Replaces the active location provider. The returned promise resolves once the
+   * previous provider has been stopped and the new one has been started (or has
+   * failed to start). Consecutive calls are serialized: only the most recently
+   * requested provider is ever started.
+   */
+  public switchLocationProvider(newProvider: LocationProvider): Promise<void> {
+    // Invalidate the outgoing provider immediately so its late notifications are
+    // dropped even before its stop() resolves.
+    this.locationGeneration++;
     this.locationProvider = newProvider;
-    if (this.isRunning) {
-      this.startLocationProvider(this.locationProvider);
+    this.resetEstimationState();
+
+    return this.enqueueLocationLifecycle(async () => {
+      await this.deactivateLocationProvider();
+      if (!this.isRunning) return;
+      // A newer switch superseded this one while we were stopping: skip straight to it.
+      if (this.locationProvider !== newProvider) return;
+      await this.activateLocationProvider(newProvider);
+    });
+  }
+
+  /** Serializes location provider lifecycle work (start / stop / switch) into a FIFO queue. */
+  private enqueueLocationLifecycle(task: () => Promise<void>): Promise<void> {
+    const run = this.locationLifecycle.then(task);
+    // Keep the queue tail non-rejecting so one failure cannot poison later transitions
+    // nor surface as an unhandled rejection.
+    this.locationLifecycle = run.then(
+      () => undefined,
+      () => undefined
+    );
+    return run;
+  }
+
+  private async activateLocationProvider(provider: LocationProvider): Promise<void> {
+    if (!this.isRunning) return;
+
+    const generation = ++this.locationGeneration;
+    this.activeLocationProvider = provider;
+    try {
+      await provider.start(
+        (sample) => {
+          if (generation !== this.locationGeneration) return;
+          void this.onLocationUpdate(sample).catch((error) => {
+            console.warn('[AppController] Location update failed:', error);
+          });
+        },
+        (err) => {
+          if (generation !== this.locationGeneration) return;
+          this.onLocationError(err);
+        }
+      );
+    } catch (error) {
+      // Recover to a consistent state: no provider is considered active, the partially
+      // started provider is torn down and stale estimation state is dropped so the HUD
+      // reports GPS_UNAVAILABLE instead of freezing on pre-failure values.
+      this.locationGeneration++;
+      this.activeLocationProvider = null;
+      await this.stopProviderSafely(provider);
+      this.resetEstimationState();
+      this.onLocationError(this.toLocationProviderError(error));
     }
   }
 
-  private startLocationProvider(provider: LocationProvider): void {
+  private async deactivateLocationProvider(): Promise<void> {
+    const provider = this.activeLocationProvider;
+    this.activeLocationProvider = null;
+    if (!provider) return;
+    this.locationGeneration++;
+    await this.stopProviderSafely(provider);
+  }
+
+  private async stopProviderSafely(provider: LocationProvider): Promise<void> {
     try {
-      const startResult = provider.start(
-        (sample) => void this.onLocationUpdate(sample),
-        (err) => this.onLocationError(err)
-      );
-      if (startResult) {
-        void startResult.catch((error) => this.onLocationError(this.toLocationProviderError(error)));
-      }
+      await provider.stop();
     } catch (error) {
-      this.onLocationError(this.toLocationProviderError(error));
+      console.warn(
+        '[AppController] Location provider stop notice:',
+        error instanceof Error ? error.message : String(error)
+      );
     }
+  }
+
+  private resetEstimationState(): void {
+    this.speedEstimator.reset();
+    this.journeyEstimator.reset();
+    this.mapMatcher.reset();
+    this.latestSample = null;
+    this.currentMatch = null;
   }
 
   private toLocationProviderError(error: unknown): { message: string } {
