@@ -147,8 +147,7 @@ export class HybridEvenG2Adapter implements EvenG2Adapter {
         const isSuccess = result === StartUpPageCreateResult.success;
 
         if (!isSuccess) {
-          this.isConnected = false;
-          this.pageReady = false;
+          this.markDisconnected('createStartUpPageContainer failed');
           throw new Error(`createStartUpPageContainer failed with code: ${String(result)}`);
         }
 
@@ -175,8 +174,9 @@ export class HybridEvenG2Adapter implements EvenG2Adapter {
       }
     } catch (err) {
       console.log('[EvenG2Adapter] Bridge connection notice:', err);
-      this.isConnected = false;
-      this.pageReady = false;
+      // Always route failures through markDisconnected so any waiter registered
+      // by a previous session is released instead of stranding the caller.
+      this.markDisconnected('connect() failed');
     }
     return this.isConnected;
   }
