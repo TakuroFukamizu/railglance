@@ -473,14 +473,19 @@ export class HybridEvenG2Adapter implements EvenG2Adapter {
   }
 
   private async recoverPage(): Promise<void> {
-    if (!this.bridge) return;
+    // Once disconnected, the reconnect loop owns recovery: never resurrect the
+    // session from a stale foreground event.
+    if (!this.bridge || !this.isConnected) return;
     console.log('[EvenG2Adapter] FOREGROUND_ENTER — rebuilding page containers');
     try {
       await this.enqueueBridgeOperation(async () => {
+        // A disconnect may have landed while this rebuild waited in the queue.
+        if (!this.isConnected) throw new Error('bridge disconnected before rebuild');
         const rebuilt = await this.bridge.rebuildPageContainer(
           new RebuildPageContainer({ containerTotalNum: 4, ...this.createPageDefinition() })
         );
         if (!rebuilt) throw new Error('rebuildPageContainer failed');
+        if (!this.isConnected) throw new Error('bridge disconnected during rebuild');
         this.lastHeaderContent = '';
         this.lastSegmentContent = '';
         this.lastFooterContent = '';
@@ -490,21 +495,31 @@ export class HybridEvenG2Adapter implements EvenG2Adapter {
         this.pageReady = true;
         this.isConnected = true;
       });
-
-      if (this.lastModel) {
-        // Force a fresh flush of the latest HUD after rebuild.
-        this.renderGeneration += 1;
-        this.queueHudFlush();
-      } else {
-        await this.queueSpeedImageUpdate(
-          this.latestRequestedSpeedKmh,
-          this.latestRequestedIsEstimated,
-          true
-        );
-      }
     } catch (error) {
-      this.pageReady = false;
       console.warn('[EvenG2Adapter] Page recovery failed:', error);
+      // A failed rebuild leaves no usable page: transition to the disconnected
+      // state so waitUntilDisconnected() resolves and AppController reconnects.
+      this.markDisconnected('page recovery failed');
+      return;
+    }
+
+    if (this.lastModel) {
+      // Force a fresh flush of the latest HUD after rebuild.
+      this.renderGeneration += 1;
+      this.queueHudFlush();
+      return;
+    }
+
+    // Mirrors connect(): the image push is a soft failure and must never drop a
+    // page that was rebuilt successfully.
+    try {
+      await this.queueSpeedImageUpdate(
+        this.latestRequestedSpeedKmh,
+        this.latestRequestedIsEstimated,
+        true
+      );
+    } catch (imgErr) {
+      console.warn('[EvenG2Adapter] Recovery speed PNG update notice:', imgErr);
     }
   }
 }
