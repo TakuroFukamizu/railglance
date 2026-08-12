@@ -5,6 +5,7 @@ import { FullSpeedState } from '../../src/domain/models/location';
 import { JourneyState } from '../../src/domain/models/railway';
 import { EstimationLogEntry, EstimationLogger } from '../../src/infrastructure/logging/logger';
 import { BufferedCloudTelemetrySink, PendingTelemetryStore, TelemetrySink } from '../../src/infrastructure/telemetry/sinks';
+import { RuntimeTelemetryManager } from '../../src/infrastructure/telemetry/runtime-telemetry';
 import { TelemetryEvent } from '../../src/infrastructure/telemetry/types';
 import { __testing as sentryTesting } from '../../src/infrastructure/observability/sentry';
 
@@ -98,10 +99,54 @@ function entry(timestampMs: number, mode: FullSpeedState['navState']['mode'], ro
 }
 
 describe('telemetry configuration', () => {
-  it('defaults to privacy-preserving errors-only mode and caps trace-independent batch settings', () => {
-    const config = readTelemetryConfig({ VITE_TELEMETRY_BATCH_SIZE: '999' });
-    expect(config.mode).toBe('errors-only');
+  it('does not accept a build-time diagnostic mode or bundled token', () => {
+    const config = readTelemetryConfig({
+      VITE_TELEMETRY_MODE: 'diagnostic',
+      VITE_TELEMETRY_UPLOAD_TOKEN: 'must-be-ignored',
+      VITE_TELEMETRY_BATCH_SIZE: '999',
+    });
+    expect(config).not.toHaveProperty('mode');
+    expect(config).not.toHaveProperty('uploadToken');
     expect(config.batchSize).toBe(200);
+  });
+});
+
+describe('RuntimeTelemetryManager', () => {
+  it('starts diagnostic collection only after runtime consent exchange and keeps the token in memory', async () => {
+    const sentrySink = new MemorySink();
+    const requests: Array<{ url: string; init?: RequestInit }> = [];
+    const expiresAt = new Date(Date.now() + 60_000).toISOString();
+    const fetchFn = vi.fn<typeof fetch>().mockImplementation(async (input, init) => {
+      const url = String(input);
+      requests.push({ url, init });
+      return url.endsWith('/session')
+        ? new Response(JSON.stringify({ token: 'runtime-token', expiresAt }), { status: 201 })
+        : new Response('{}', { status: 202 });
+    });
+    const manager = new RuntimeTelemetryManager(
+      sentrySink,
+      readTelemetryConfig({ VITE_TELEMETRY_ENDPOINT: 'https://telemetry.example' }),
+      { sessionId: 'session-1', release: 'test', environment: 'test' },
+      fetchFn
+    );
+    await manager.initialize();
+    expect(manager.isDiagnosticEnabled()).toBe(false);
+
+    await manager.startDiagnostic('tester-code');
+    expect(manager.isDiagnosticEnabled()).toBe(true);
+    const consentBody = JSON.parse(String(requests[0].init?.body));
+    expect(consentBody).toMatchObject({ consent: true, accessCode: 'tester-code', sessionId: 'session-1' });
+
+    manager.write({
+      schemaVersion: 1, type: 'state-transition', eventId: 'event-1', sessionId: 'session-1',
+      timestampMs: Date.now(), release: 'test', environment: 'test', datasetVersion: null,
+      evenSdkVersion: 'test', category: 'lifecycle', message: 'started', data: {},
+    });
+    await manager.flush();
+    expect(requests[1].init?.headers).toMatchObject({ authorization: 'Bearer runtime-token' });
+    expect(sentrySink.events).toHaveLength(1);
+    await manager.stopDiagnostic();
+    expect(manager.isDiagnosticEnabled()).toBe(false);
   });
 });
 

@@ -1,6 +1,7 @@
 import { gunzipSync } from 'node:zlib';
 import { describe, expect, it, vi } from 'vitest';
 import worker, {
+  createUploadToken,
   parseTelemetryBatch,
   persistBatch,
   TelemetryBatch,
@@ -34,11 +35,25 @@ function batch(): TelemetryBatch {
 
 function environment(send = vi.fn().mockResolvedValue(undefined)): WorkerEnvironment {
   return {
-    TELEMETRY_UPLOAD_TOKEN: 'secret-token',
+    TELEMETRY_DIAGNOSTIC_ACCESS_CODE: 'tester-code',
+    TELEMETRY_TOKEN_SIGNING_SECRET: 'signing-secret-at-least-for-tests',
     TELEMETRY_ALLOWED_ORIGINS: 'https://app.example',
     TELEMETRY_QUEUE: { send },
     TELEMETRY_BUCKET: { put: vi.fn().mockResolvedValue(undefined) },
   };
+}
+
+async function validToken(overrides: Partial<Parameters<typeof createUploadToken>[0]> = {}): Promise<string> {
+  const now = Math.floor(Date.now() / 1000);
+  return createUploadToken({
+    version: 1,
+    sessionId: 'session-1',
+    release: 'railglance@test',
+    environment: 'prototype',
+    issuedAt: now,
+    expiresAt: now + 3_600,
+    ...overrides,
+  }, 'signing-secret-at-least-for-tests');
 }
 
 describe('Cloudflare telemetry Worker', () => {
@@ -50,7 +65,7 @@ describe('Cloudflare telemetry Worker', () => {
     const response = await worker.fetch(new Request('https://worker.example/v1/telemetry', {
       method: 'POST',
       headers: {
-        origin: 'https://app.example', authorization: 'Bearer secret-token',
+        origin: 'https://app.example', authorization: `Bearer ${await validToken()}`,
         'content-type': 'application/json',
       },
       body: JSON.stringify(payload),
@@ -68,11 +83,51 @@ describe('Cloudflare telemetry Worker', () => {
       'https://worker.example/v1/telemetry',
       { method: 'POST', headers: { origin, authorization: `Bearer ${token}` }, body: JSON.stringify(body) }
     );
-    expect((await worker.fetch(makeRequest('https://evil.example', 'secret-token', batch()), env)).status).toBe(403);
+    expect((await worker.fetch(makeRequest('https://evil.example', await validToken(), batch()), env)).status).toBe(403);
     expect((await worker.fetch(makeRequest('https://app.example', 'wrong', batch()), env)).status).toBe(401);
     const invalid = batch();
     invalid.events = [gpsEvent({ location: { latitude: 120, longitude: 139.7, accuracyMeters: 8, speedMps: 1, headingDegrees: 2 } })];
-    expect((await worker.fetch(makeRequest('https://app.example', 'secret-token', invalid), env)).status).toBe(400);
+    expect((await worker.fetch(makeRequest('https://app.example', await validToken(), invalid), env)).status).toBe(400);
+  });
+
+  it('issues a short-lived scoped token only after explicit consent and a valid tester code', async () => {
+    const env = environment();
+    const requestBody = {
+      schemaVersion: 1,
+      sessionId: 'session-1',
+      release: 'railglance@test',
+      environment: 'prototype',
+      consent: true,
+      accessCode: 'tester-code',
+    };
+    const response = await worker.fetch(new Request('https://worker.example/v1/telemetry/session', {
+      method: 'POST',
+      headers: { origin: 'https://app.example', 'content-type': 'application/json' },
+      body: JSON.stringify(requestBody),
+    }), env);
+    const result = await response.json() as { token: string; expiresAt: string };
+
+    expect(response.status).toBe(201);
+    expect(result.token).not.toContain('tester-code');
+    expect(Date.parse(result.expiresAt)).toBeGreaterThan(Date.now());
+
+    const denied = await worker.fetch(new Request('https://worker.example/v1/telemetry/session', {
+      method: 'POST', body: JSON.stringify({ ...requestBody, accessCode: 'wrong' }),
+    }), env);
+    expect(denied.status).toBe(401);
+  });
+
+  it('rejects expired tokens and tokens scoped to another session', async () => {
+    const env = environment();
+    const now = Math.floor(Date.now() / 1000);
+    const expired = await validToken({ issuedAt: now - 20, expiresAt: now - 10 });
+    const anotherSession = await validToken({ sessionId: 'session-2' });
+    const request = (token: string) => new Request('https://worker.example/v1/telemetry', {
+      method: 'POST', headers: { authorization: `Bearer ${token}` }, body: JSON.stringify(batch()),
+    });
+
+    expect((await worker.fetch(request(expired), env)).status).toBe(401);
+    expect((await worker.fetch(request(anotherSession), env)).status).toBe(403);
   });
 
   it('validates session consistency and event count', () => {
@@ -87,7 +142,7 @@ describe('Cloudflare telemetry Worker', () => {
     const response = await worker.fetch(new Request('https://worker.example/v1/telemetry', {
       method: 'POST',
       headers: {
-        origin: 'https://app.example', authorization: 'Bearer secret-token',
+        origin: 'https://app.example', authorization: `Bearer ${await validToken()}`,
         'content-length': '120001',
       },
       body: '{}',
@@ -100,7 +155,7 @@ describe('Cloudflare telemetry Worker', () => {
     delete env.TELEMETRY_QUEUE;
     const response = await worker.fetch(new Request('https://worker.example/v1/telemetry', {
       method: 'POST',
-      headers: { authorization: 'Bearer secret-token' },
+      headers: { authorization: `Bearer ${await validToken()}` },
       body: JSON.stringify(batch()),
     }), env);
     expect(response.status).toBe(202);

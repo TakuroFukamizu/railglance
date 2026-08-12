@@ -20,3 +20,8 @@ dead_letter_queue = "railglance-telemetry-dlq"
 [vars]
 # Override with an exact comma-separated allowlist per environment.
 TELEMETRY_ALLOWED_ORIGINS = "http://localhost:5173"
+TELEMETRY_TOKEN_TTL_SECONDS = "21600"
+
+# Set with `wrangler secret put`; never place either value in this file or the .ehpk.
+# TELEMETRY_DIAGNOSTIC_ACCESS_CODE
+# TELEMETRY_TOKEN_SIGNING_SECRET

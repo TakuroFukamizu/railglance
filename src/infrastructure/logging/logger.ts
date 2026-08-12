@@ -34,7 +34,7 @@ export class EstimationLogger {
       evenSdkVersion: 'unknown',
     },
     private readonly sink: TelemetrySink = new NoopTelemetrySink(),
-    private readonly diagnosticEnabled = false
+    private readonly diagnosticEnabled: boolean | (() => boolean) = false
   ) {}
 
   public subscribe(listener: (entry: EstimationLogEntry) => void): void {
@@ -63,13 +63,13 @@ export class EstimationLogger {
     }
 
     const event = createEstimationTelemetryEvent(this.identity, entry);
-    if (this.diagnosticEnabled) this.sink.write(event);
+    if (this.isDiagnosticEnabled()) this.sink.write(event);
     this.emitTransitions(event);
     this.previousEstimation = event;
   }
 
   public logGpsObservation(sample: LocationSample, accepted = true, rejectionReason?: string): void {
-    if (!this.diagnosticEnabled) return;
+    if (!this.isDiagnosticEnabled()) return;
     this.sink.write(createGpsTelemetryEvent(this.identity, sample, accepted, rejectionReason));
   }
 
@@ -79,6 +79,12 @@ export class EstimationLogger {
 
   public shutdown(): Promise<void> {
     return this.sink.shutdown();
+  }
+
+  private isDiagnosticEnabled(): boolean {
+    return typeof this.diagnosticEnabled === 'function'
+      ? this.diagnosticEnabled()
+      : this.diagnosticEnabled;
   }
 
   private emitTransitions(current: EstimationTelemetryEvent): void {

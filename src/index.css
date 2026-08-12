@@ -35,6 +35,7 @@ body {
 
 .controls {
   display: flex;
+  flex-wrap: wrap;
   gap: 10px;
 }
 
@@ -58,6 +59,80 @@ body {
 .btn-secondary {
   background-color: #1f6feb;
   color: #ffffff;
+}
+
+.btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.diagnostic-section {
+  margin-top: 20px;
+  background-color: var(--panel-bg);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 16px;
+  line-height: 1.6;
+}
+
+.diagnostic-section > p {
+  margin-top: 10px;
+}
+
+.diagnostic-consent {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.diagnostic-consent input {
+  margin-top: 6px;
+}
+
+.diagnostic-controls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.diagnostic-controls input {
+  min-width: 220px;
+  padding: 8px 10px;
+  color: var(--text-color);
+  background: #0d1117;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+}
+
+.diagnostic-status {
+  color: #8c959f;
+}
+
+.diagnostic-status.is-active {
+  color: #3fb950;
+}
+
+.diagnostic-status.is-error {
+  color: #f85149;
+}
+
+@media (max-width: 720px) {
+  body {
+    padding: 12px;
+  }
+
+  .app-header {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .preview-section {
+    overflow-x: auto;
+  }
 }
 
 .glasses-viewport {

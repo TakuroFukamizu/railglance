@@ -9,19 +9,15 @@ import { EstimationLogger } from '../infrastructure/logging/logger';
 import { AppController } from './app-controller';
 import { HudViewModel } from '../domain/models/hud';
 import { createTelemetrySessionId, readTelemetryConfig } from '../config/telemetry-config';
-import {
-  BufferedCloudTelemetrySink,
-  clearBufferedTelemetry,
-  CompositeTelemetrySink,
-  TelemetrySink,
-} from '../infrastructure/telemetry/sinks';
 import { captureRuntimeError, initializeSentry, SentryTelemetrySink } from '../infrastructure/observability/sentry';
+import { RuntimeTelemetryManager } from '../infrastructure/telemetry/runtime-telemetry';
 
 export type AppBootstrapResult = {
   controller: AppController;
   db: DexieRailwayDatabase;
   logger: EstimationLogger;
   evenG2Adapter: HybridEvenG2Adapter;
+  telemetryManager: RuntimeTelemetryManager;
 };
 
 export async function bootstrapApp(
@@ -32,31 +28,17 @@ export async function bootstrapApp(
   const telemetrySessionId = createTelemetrySessionId();
   await initializeSentry(telemetryConfig, telemetrySessionId);
 
-  const telemetrySinks: TelemetrySink[] = [new SentryTelemetrySink()];
-  if (
-    telemetryConfig.mode === 'diagnostic' &&
-    telemetryConfig.endpoint &&
-    telemetryConfig.uploadToken
-  ) {
-    telemetrySinks.push(
-      new BufferedCloudTelemetrySink({
-        endpoint: telemetryConfig.endpoint,
-        uploadToken: telemetryConfig.uploadToken,
-        batchSize: telemetryConfig.batchSize,
-        flushIntervalMs: telemetryConfig.flushIntervalMs,
-        maxStoredEvents: telemetryConfig.maxStoredEvents,
-        maxAgeMs: telemetryConfig.maxAgeMs,
-        onError: (error) => captureRuntimeError(error, 'telemetry-buffer-or-upload'),
-      })
-    );
-  } else if (telemetryConfig.mode === 'diagnostic') {
-    console.warn(
-      '[Telemetry] diagnostic mode requires VITE_TELEMETRY_ENDPOINT and VITE_TELEMETRY_UPLOAD_TOKEN; cloud logging is disabled.'
-    );
-    await clearBufferedTelemetry().catch((error) => captureRuntimeError(error, 'telemetry-buffer-clear'));
-  } else {
-    await clearBufferedTelemetry().catch((error) => captureRuntimeError(error, 'telemetry-buffer-clear'));
-  }
+  const telemetryIdentity = {
+    sessionId: telemetrySessionId,
+    release: telemetryConfig.release,
+    environment: telemetryConfig.environment,
+    datasetVersion: telemetryConfig.datasetVersion,
+    evenSdkVersion: telemetryConfig.evenSdkVersion,
+  };
+  const telemetryManager = new RuntimeTelemetryManager(
+    new SentryTelemetrySink(), telemetryConfig, telemetryIdentity
+  );
+  await telemetryManager.initialize().catch((error) => captureRuntimeError(error, 'telemetry-buffer-clear'));
 
   const db = new DexieRailwayDatabase();
   await db.initialize();
@@ -69,15 +51,9 @@ export async function bootstrapApp(
   const locationProvider = customLocationProvider ?? new AdaptiveLocationProvider();
   const evenG2Adapter = new HybridEvenG2Adapter(onHudRender);
   const logger = new EstimationLogger(
-    {
-      sessionId: telemetrySessionId,
-      release: telemetryConfig.release,
-      environment: telemetryConfig.environment,
-      datasetVersion: telemetryConfig.datasetVersion,
-      evenSdkVersion: telemetryConfig.evenSdkVersion,
-    },
-    new CompositeTelemetrySink(telemetrySinks),
-    telemetryConfig.mode === 'diagnostic'
+    telemetryIdentity,
+    telemetryManager,
+    () => telemetryManager.isDiagnosticEnabled()
   );
 
   if (typeof window !== 'undefined') {
@@ -99,5 +75,6 @@ export async function bootstrapApp(
     db,
     logger,
     evenG2Adapter,
+    telemetryManager,
   };
 }

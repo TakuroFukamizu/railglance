@@ -106,7 +106,7 @@ async function init() {
   const debugPanel = new DebugPanel('debug-panel');
   const motionSensorProvider = new DeviceMotionSensorFusionProvider();
 
-  const { controller, db, evenG2Adapter, logger } = await bootstrapApp(undefined, (_formattedText, model) => {
+  const { controller, db, evenG2Adapter, logger, telemetryManager } = await bootstrapApp(undefined, (_formattedText, model) => {
     if (model) {
       updateViewportDOM(model);
     }
@@ -142,6 +142,50 @@ async function init() {
 
   document.getElementById('btn-replay-shinkansen')?.addEventListener('click', () => {
     void controller.switchLocationProvider(new DemoGpsReplayerProvider(SHINKANSEN_DEMO_POINTS));
+  });
+
+  const diagnosticConsent = document.getElementById('diagnostic-consent') as HTMLInputElement | null;
+  const diagnosticAccessCode = document.getElementById('diagnostic-access-code') as HTMLInputElement | null;
+  const diagnosticStart = document.getElementById('btn-diagnostic-start') as HTMLButtonElement | null;
+  const diagnosticStop = document.getElementById('btn-diagnostic-stop') as HTMLButtonElement | null;
+  const diagnosticStatus = document.getElementById('diagnostic-status');
+
+  diagnosticStart?.addEventListener('click', async () => {
+    diagnosticStatus?.classList.remove('is-active', 'is-error');
+    if (!diagnosticConsent?.checked) {
+      diagnosticStatus?.classList.add('is-error');
+      if (diagnosticStatus) diagnosticStatus.textContent = '収集内容を確認し、同意欄をチェックしてください。';
+      return;
+    }
+    diagnosticStart.disabled = true;
+    try {
+      const session = await telemetryManager.startDiagnostic(diagnosticAccessCode?.value ?? '');
+      if (diagnosticAccessCode) diagnosticAccessCode.value = '';
+      if (diagnosticStop) diagnosticStop.disabled = false;
+      diagnosticStatus?.classList.add('is-active');
+      if (diagnosticStatus) {
+        diagnosticStatus.textContent = `現在: 診断記録中（${new Date(session.expiresAt).toLocaleString()} まで）`;
+      }
+    } catch (error) {
+      diagnosticStart.disabled = false;
+      diagnosticStatus?.classList.add('is-error');
+      if (diagnosticStatus) diagnosticStatus.textContent = error instanceof Error ? error.message : String(error);
+    }
+  });
+
+  diagnosticStop?.addEventListener('click', async () => {
+    diagnosticStop.disabled = true;
+    try {
+      await telemetryManager.stopDiagnostic();
+      if (diagnosticConsent) diagnosticConsent.checked = false;
+      if (diagnosticStart) diagnosticStart.disabled = false;
+      diagnosticStatus?.classList.remove('is-active', 'is-error');
+      if (diagnosticStatus) diagnosticStatus.textContent = '現在: エラーのみ';
+    } catch (error) {
+      diagnosticStatus?.classList.add('is-error');
+      if (diagnosticStatus) diagnosticStatus.textContent = '停止しました。未送信の端末内データは削除されました。';
+      captureRuntimeError(error, 'diagnostic-session-stop');
+    }
   });
 
   // Auto-start controller and Even G2 Bridge connection

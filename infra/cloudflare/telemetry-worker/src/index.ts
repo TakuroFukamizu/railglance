@@ -1,7 +1,9 @@
 // Cloudflare Queues accepts at most 128 KB per message. Keep room for serialization metadata.
 const MAX_BODY_BYTES = 120_000;
+const MAX_SESSION_BODY_BYTES = 4_096;
 const MAX_EVENTS_PER_BATCH = 200;
 const ID_PATTERN = /^[A-Za-z0-9_-]{1,160}$/;
+const DEFAULT_TOKEN_TTL_SECONDS = 6 * 60 * 60;
 
 type JsonObject = Record<string, unknown>;
 
@@ -25,8 +27,19 @@ type R2Binding = {
 export type WorkerEnvironment = {
   TELEMETRY_BUCKET: R2Binding;
   TELEMETRY_QUEUE?: QueueBinding;
-  TELEMETRY_UPLOAD_TOKEN: string;
+  TELEMETRY_DIAGNOSTIC_ACCESS_CODE: string;
+  TELEMETRY_TOKEN_SIGNING_SECRET: string;
+  TELEMETRY_TOKEN_TTL_SECONDS?: string;
   TELEMETRY_ALLOWED_ORIGINS?: string;
+};
+
+export type UploadTokenPayload = {
+  version: 1;
+  sessionId: string;
+  release: string;
+  environment: string;
+  issuedAt: number;
+  expiresAt: number;
 };
 
 type QueueMessage = { body: TelemetryBatch };
@@ -51,13 +64,72 @@ function allowedOrigin(request: Request, env: WorkerEnvironment): string | null 
   return allowed.includes(origin) ? origin : false;
 }
 
-function matchesToken(actual: string, expected: string): boolean {
+function matchesSecret(actual: string, expected: string): boolean {
   if (!actual || !expected || actual.length !== expected.length) return false;
   let mismatch = 0;
   for (let index = 0; index < actual.length; index += 1) {
     mismatch |= actual.charCodeAt(index) ^ expected.charCodeAt(index);
   }
   return mismatch === 0;
+}
+
+function base64UrlEncode(bytes: Uint8Array): string {
+  let binary = '';
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+function base64UrlDecode(value: string): Uint8Array | null {
+  try {
+    const padded = value.replace(/-/g, '+').replace(/_/g, '/').padEnd(Math.ceil(value.length / 4) * 4, '=');
+    const binary = atob(padded);
+    return Uint8Array.from(binary, (character) => character.charCodeAt(0));
+  } catch {
+    return null;
+  }
+}
+
+async function hmac(value: string, secret: string): Promise<Uint8Array> {
+  const key = await crypto.subtle.importKey(
+    'raw', new TextEncoder().encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']
+  );
+  return new Uint8Array(await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(value)));
+}
+
+export async function createUploadToken(
+  payload: UploadTokenPayload,
+  secret: string
+): Promise<string> {
+  const encodedPayload = base64UrlEncode(new TextEncoder().encode(JSON.stringify(payload)));
+  return `${encodedPayload}.${base64UrlEncode(await hmac(encodedPayload, secret))}`;
+}
+
+export async function verifyUploadToken(
+  token: string,
+  secret: string,
+  nowMs = Date.now()
+): Promise<UploadTokenPayload | null> {
+  const [encodedPayload, encodedSignature, extra] = token.split('.');
+  if (!encodedPayload || !encodedSignature || extra || !secret) return null;
+  const expectedSignature = base64UrlEncode(await hmac(encodedPayload, secret));
+  if (!matchesSecret(encodedSignature, expectedSignature)) return null;
+  const decoded = base64UrlDecode(encodedPayload);
+  if (!decoded) return null;
+  try {
+    const payload = JSON.parse(new TextDecoder().decode(decoded)) as Partial<UploadTokenPayload>;
+    if (
+      payload.version !== 1 ||
+      typeof payload.sessionId !== 'string' || !ID_PATTERN.test(payload.sessionId) ||
+      typeof payload.release !== 'string' || payload.release.length === 0 || payload.release.length > 200 ||
+      typeof payload.environment !== 'string' || payload.environment.length === 0 || payload.environment.length > 80 ||
+      typeof payload.issuedAt !== 'number' || !Number.isFinite(payload.issuedAt) ||
+      typeof payload.expiresAt !== 'number' || !Number.isFinite(payload.expiresAt) ||
+      payload.expiresAt <= Math.floor(nowMs / 1000) || payload.expiresAt <= payload.issuedAt
+    ) return null;
+    return payload as UploadTokenPayload;
+  } catch {
+    return null;
+  }
 }
 
 function finiteNumber(value: unknown): number | null {
@@ -276,13 +348,96 @@ export async function persistBatch(batch: TelemetryBatch, bucket: R2Binding): Pr
   });
 }
 
+async function readJsonBody(request: Request, maxBytes: number): Promise<unknown | Response> {
+  const contentLength = Number(request.headers.get('content-length') ?? '0');
+  if (contentLength > maxBytes) return jsonResponse(413, { error: 'body_too_large' }, null);
+  const bodyText = await request.text();
+  if (new TextEncoder().encode(bodyText).byteLength > maxBytes) {
+    return jsonResponse(413, { error: 'body_too_large' }, null);
+  }
+  try {
+    return JSON.parse(bodyText) as unknown;
+  } catch {
+    return jsonResponse(400, { error: 'invalid_json' }, null);
+  }
+}
+
+function tokenTtlSeconds(env: WorkerEnvironment): number {
+  const configured = Number(env.TELEMETRY_TOKEN_TTL_SECONDS ?? DEFAULT_TOKEN_TTL_SECONDS);
+  if (!Number.isFinite(configured)) return DEFAULT_TOKEN_TTL_SECONDS;
+  return Math.min(24 * 60 * 60, Math.max(5 * 60, Math.floor(configured)));
+}
+
+async function createDiagnosticSession(
+  request: Request,
+  env: WorkerEnvironment,
+  origin: string | null
+): Promise<Response> {
+  if (!env.TELEMETRY_DIAGNOSTIC_ACCESS_CODE || !env.TELEMETRY_TOKEN_SIGNING_SECRET) {
+    return jsonResponse(503, { error: 'diagnostic_not_configured' }, origin);
+  }
+  const body = await readJsonBody(request, MAX_SESSION_BODY_BYTES);
+  if (body instanceof Response) return jsonResponse(body.status, { error: body.status === 413 ? 'body_too_large' : 'invalid_json' }, origin);
+  const source = object(body);
+  if (
+    !source || source.schemaVersion !== 1 || source.consent !== true ||
+    typeof source.sessionId !== 'string' || !ID_PATTERN.test(source.sessionId) ||
+    typeof source.release !== 'string' || source.release.length === 0 || source.release.length > 200 ||
+    typeof source.environment !== 'string' || source.environment.length === 0 || source.environment.length > 80 ||
+    typeof source.accessCode !== 'string' || source.accessCode.length === 0 || source.accessCode.length > 200
+  ) return jsonResponse(400, { error: 'invalid_session_request' }, origin);
+  if (!matchesSecret(source.accessCode, env.TELEMETRY_DIAGNOSTIC_ACCESS_CODE)) {
+    return jsonResponse(401, { error: 'unauthorized' }, origin);
+  }
+
+  const issuedAt = Math.floor(Date.now() / 1000);
+  const payload: UploadTokenPayload = {
+    version: 1,
+    sessionId: source.sessionId,
+    release: source.release,
+    environment: source.environment,
+    issuedAt,
+    expiresAt: issuedAt + tokenTtlSeconds(env),
+  };
+  const token = await createUploadToken(payload, env.TELEMETRY_TOKEN_SIGNING_SECRET);
+  return jsonResponse(201, { token, expiresAt: new Date(payload.expiresAt * 1000).toISOString() }, origin);
+}
+
+async function acceptTelemetryBatch(
+  request: Request,
+  env: WorkerEnvironment,
+  origin: string | null
+): Promise<Response> {
+  if (!env.TELEMETRY_TOKEN_SIGNING_SECRET) return jsonResponse(503, { error: 'upload_not_configured' }, origin);
+  const authorization = request.headers.get('authorization') ?? '';
+  const token = authorization.startsWith('Bearer ') ? authorization.slice(7) : '';
+  const tokenPayload = token ? await verifyUploadToken(token, env.TELEMETRY_TOKEN_SIGNING_SECRET) : null;
+  if (!tokenPayload) return jsonResponse(401, { error: 'unauthorized' }, origin);
+
+  const body = await readJsonBody(request, MAX_BODY_BYTES);
+  if (body instanceof Response) return jsonResponse(body.status, { error: body.status === 413 ? 'body_too_large' : 'invalid_json' }, origin);
+  const batch = parseTelemetryBatch(body);
+  if (!batch) return jsonResponse(400, { error: 'invalid_batch' }, origin);
+  if (
+    batch.sessionId !== tokenPayload.sessionId ||
+    batch.events.some((event) => (
+      event.release !== tokenPayload.release || event.environment !== tokenPayload.environment
+    ))
+  ) return jsonResponse(403, { error: 'token_scope_mismatch' }, origin);
+
+  if (env.TELEMETRY_QUEUE) await env.TELEMETRY_QUEUE.send(batch);
+  else await persistBatch(batch, env.TELEMETRY_BUCKET);
+  return jsonResponse(202, { accepted: true, batchId: batch.batchId }, origin);
+}
+
 async function handleFetch(request: Request, env: WorkerEnvironment): Promise<Response> {
   const origin = allowedOrigin(request, env);
   if (origin === false) return jsonResponse(403, { error: 'origin_not_allowed' }, null);
 
   const url = new URL(request.url);
+  const validPath = url.pathname === '/v1/telemetry' || url.pathname === '/v1/telemetry/session';
   if (request.method === 'OPTIONS') {
-    if (url.pathname !== '/v1/telemetry') return jsonResponse(404, { error: 'not_found' }, origin);
+    if (!validPath) return jsonResponse(404, { error: 'not_found' }, origin);
     const headers = new Headers({
       'access-control-allow-methods': 'POST, OPTIONS',
       'access-control-allow-headers': 'authorization, content-type',
@@ -295,33 +450,12 @@ async function handleFetch(request: Request, env: WorkerEnvironment): Promise<Re
     }
     return new Response(null, { status: 204, headers });
   }
-  if (request.method !== 'POST' || url.pathname !== '/v1/telemetry') {
+  if (request.method !== 'POST' || !validPath) {
     return jsonResponse(404, { error: 'not_found' }, origin);
   }
-  if (!env.TELEMETRY_UPLOAD_TOKEN) return jsonResponse(503, { error: 'upload_not_configured' }, origin);
-  const authorization = request.headers.get('authorization') ?? '';
-  if (!authorization.startsWith('Bearer ') || !matchesToken(authorization.slice(7), env.TELEMETRY_UPLOAD_TOKEN)) {
-    return jsonResponse(401, { error: 'unauthorized' }, origin);
-  }
-  const contentLength = Number(request.headers.get('content-length') ?? '0');
-  if (contentLength > MAX_BODY_BYTES) return jsonResponse(413, { error: 'body_too_large' }, origin);
-
-  const bodyText = await request.text();
-  if (new TextEncoder().encode(bodyText).byteLength > MAX_BODY_BYTES) {
-    return jsonResponse(413, { error: 'body_too_large' }, origin);
-  }
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(bodyText);
-  } catch {
-    return jsonResponse(400, { error: 'invalid_json' }, origin);
-  }
-  const batch = parseTelemetryBatch(parsed);
-  if (!batch) return jsonResponse(400, { error: 'invalid_batch' }, origin);
-
-  if (env.TELEMETRY_QUEUE) await env.TELEMETRY_QUEUE.send(batch);
-  else await persistBatch(batch, env.TELEMETRY_BUCKET);
-  return jsonResponse(202, { accepted: true, batchId: batch.batchId }, origin);
+  return url.pathname === '/v1/telemetry/session'
+    ? createDiagnosticSession(request, env, origin)
+    : acceptTelemetryBatch(request, env, origin);
 }
 
 async function handleQueue(batch: MessageBatch, env: WorkerEnvironment): Promise<void> {

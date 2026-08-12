@@ -1,9 +1,5 @@
-export type TelemetryMode = 'off' | 'errors-only' | 'diagnostic';
-
 export type TelemetryConfig = {
-  mode: TelemetryMode;
   endpoint: string | null;
-  uploadToken: string | null;
   release: string;
   environment: string;
   datasetVersion: string | null;
@@ -16,11 +12,6 @@ export type TelemetryConfig = {
 
 type ViteEnvironment = Record<string, string | undefined>;
 
-function parseMode(value: string | undefined): TelemetryMode {
-  if (value === 'diagnostic' || value === 'errors-only' || value === 'off') return value;
-  return 'errors-only';
-}
-
 function parsePositiveInteger(value: string | undefined, fallback: number): number {
   const parsed = Number(value);
   return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
@@ -32,11 +23,19 @@ function optionalString(value: string | undefined): string | null {
 }
 
 export function readTelemetryConfig(env?: ViteEnvironment): TelemetryConfig {
-  const source = env ?? ((import.meta as { env?: ViteEnvironment }).env ?? {});
+  const source = env ?? {
+    VITE_TELEMETRY_ENDPOINT: import.meta.env.VITE_TELEMETRY_ENDPOINT,
+    VITE_APP_RELEASE: import.meta.env.VITE_APP_RELEASE,
+    VITE_APP_ENVIRONMENT: import.meta.env.VITE_APP_ENVIRONMENT,
+    VITE_RAILWAY_DATASET_VERSION: import.meta.env.VITE_RAILWAY_DATASET_VERSION,
+    VITE_EVEN_SDK_VERSION: import.meta.env.VITE_EVEN_SDK_VERSION,
+    VITE_TELEMETRY_BATCH_SIZE: import.meta.env.VITE_TELEMETRY_BATCH_SIZE,
+    VITE_TELEMETRY_FLUSH_INTERVAL_MS: import.meta.env.VITE_TELEMETRY_FLUSH_INTERVAL_MS,
+    VITE_TELEMETRY_MAX_STORED_EVENTS: import.meta.env.VITE_TELEMETRY_MAX_STORED_EVENTS,
+    VITE_TELEMETRY_MAX_AGE_MS: import.meta.env.VITE_TELEMETRY_MAX_AGE_MS,
+  };
   return {
-    mode: parseMode(source.VITE_TELEMETRY_MODE),
     endpoint: optionalString(source.VITE_TELEMETRY_ENDPOINT)?.replace(/\/+$/, '') ?? null,
-    uploadToken: optionalString(source.VITE_TELEMETRY_UPLOAD_TOKEN),
     release: optionalString(source.VITE_APP_RELEASE) ?? 'railglance@development',
     environment: optionalString(source.VITE_APP_ENVIRONMENT) ?? 'development',
     datasetVersion: optionalString(source.VITE_RAILWAY_DATASET_VERSION),
