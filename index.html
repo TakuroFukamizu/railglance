@@ -58,26 +58,31 @@
           <h2 id="diagnostic-title">テスター向け診断記録</h2>
           <p>
             通常はエラーと、位置座標を除いた状態変化だけを Sentry に送信します。
-            診断記録を有効にすると、このセッション中の正確な GPS 座標、速度、路線・区間・駅の判定、
-            デッドレコニング状態を障害解析のため Cloudflare R2 に送信します。
+            キャンペーン参加中は正確な GPS 座標、速度、路線・区間・駅の判定、デッドレコニング状態を
+            障害解析のため Cloudflare R2 に送信します。参加コードは初回だけ入力し、資格期間中は起動時に
+            自動再開・再送します。
           </p>
           <label class="diagnostic-consent">
             <input id="diagnostic-consent" type="checkbox" />
             上記の収集内容と、管理者が設定した保持期間中の保存に同意します
           </label>
           <div class="diagnostic-controls">
-            <label for="diagnostic-access-code">テスターコード</label>
+            <label for="diagnostic-access-code">初回参加コード</label>
             <input
               id="diagnostic-access-code"
               type="password"
               autocomplete="off"
               spellcheck="false"
-              placeholder="配布されたコード"
+              placeholder="キャンペーン参加時のみ"
             />
-            <button id="btn-diagnostic-start" class="btn btn-secondary">診断記録を開始</button>
-            <button id="btn-diagnostic-stop" class="btn" disabled>診断記録を停止</button>
+            <button id="btn-diagnostic-start" class="btn btn-secondary">参加して診断収集を開始</button>
+            <button id="btn-diagnostic-stop" class="btn" disabled>診断収集を停止</button>
+            <button id="btn-diagnostic-delete" class="btn btn-danger">端末内ログを削除</button>
           </div>
-          <p id="diagnostic-status" class="diagnostic-status" role="status">現在: エラーのみ</p>
+          <aside id="diagnostic-indicator" class="diagnostic-indicator" aria-live="polite">
+            <strong id="diagnostic-status">診断収集: 停止</strong>
+            <span id="diagnostic-detail">通常のエラー収集のみ有効です。</span>
+          </aside>
         </section>
 
         <section class="debug-section">

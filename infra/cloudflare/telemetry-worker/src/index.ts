@@ -3,7 +3,8 @@ const MAX_BODY_BYTES = 120_000;
 const MAX_SESSION_BODY_BYTES = 4_096;
 const MAX_EVENTS_PER_BATCH = 200;
 const ID_PATTERN = /^[A-Za-z0-9_-]{1,160}$/;
-const DEFAULT_TOKEN_TTL_SECONDS = 6 * 60 * 60;
+const DEFAULT_TOKEN_TTL_SECONDS = 15 * 60;
+const DEFAULT_QUALIFICATION_DAYS = 14;
 
 type JsonObject = Record<string, unknown>;
 
@@ -23,23 +24,54 @@ type R2Binding = {
     options?: { httpMetadata?: { contentType?: string; contentEncoding?: string }; customMetadata?: Record<string, string> }
   ): Promise<unknown>;
 };
+type RateLimitBinding = { limit(options: { key: string }): Promise<{ success: boolean }> };
+type DurableObjectId = object;
+type DurableObjectStub = { fetch(request: Request): Promise<Response> };
+type DurableObjectNamespace = {
+  idFromName(name: string): DurableObjectId;
+  get(id: DurableObjectId): DurableObjectStub;
+};
+type DurableObjectStorage = {
+  get<T>(key: string): Promise<T | undefined>;
+  put<T>(key: string, value: T): Promise<void>;
+};
+type DurableObjectState = { storage: DurableObjectStorage };
 
 export type WorkerEnvironment = {
   TELEMETRY_BUCKET: R2Binding;
   TELEMETRY_QUEUE?: QueueBinding;
+  CAMPAIGN_QUALIFICATIONS: DurableObjectNamespace;
+  TELEMETRY_ENROLL_RATE_LIMITER: RateLimitBinding;
+  TELEMETRY_PARTICIPANT_RATE_LIMITER: RateLimitBinding;
   TELEMETRY_DIAGNOSTIC_ACCESS_CODE: string;
   TELEMETRY_TOKEN_SIGNING_SECRET: string;
+  TELEMETRY_ADMIN_TOKEN: string;
+  TELEMETRY_CAMPAIGN_ID?: string;
+  TELEMETRY_QUALIFICATION_DAYS?: string;
+  TELEMETRY_ALLOWED_RELEASES?: string;
   TELEMETRY_TOKEN_TTL_SECONDS?: string;
   TELEMETRY_ALLOWED_ORIGINS?: string;
 };
 
 export type UploadTokenPayload = {
   version: 1;
-  sessionId: string;
-  release: string;
+  participantId: string;
+  campaignId: string;
+  allowedReleases: string[];
   environment: string;
   issuedAt: number;
   expiresAt: number;
+};
+
+export type CampaignQualificationRecord = {
+  version: 1;
+  participantId: string;
+  campaignId: string;
+  credentialHash: string;
+  qualificationExpiresAt: number;
+  allowedReleases: string[];
+  enrolledAt: number;
+  revokedAt: number | null;
 };
 
 type QueueMessage = { body: TelemetryBatch };
@@ -96,6 +128,17 @@ async function hmac(value: string, secret: string): Promise<Uint8Array> {
   return new Uint8Array(await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(value)));
 }
 
+async function hashSecret(value: string): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value));
+  return base64UrlEncode(new Uint8Array(digest));
+}
+
+function randomCredentialPart(byteLength = 32): string {
+  const bytes = new Uint8Array(byteLength);
+  crypto.getRandomValues(bytes);
+  return base64UrlEncode(bytes);
+}
+
 export async function createUploadToken(
   payload: UploadTokenPayload,
   secret: string
@@ -119,8 +162,10 @@ export async function verifyUploadToken(
     const payload = JSON.parse(new TextDecoder().decode(decoded)) as Partial<UploadTokenPayload>;
     if (
       payload.version !== 1 ||
-      typeof payload.sessionId !== 'string' || !ID_PATTERN.test(payload.sessionId) ||
-      typeof payload.release !== 'string' || payload.release.length === 0 || payload.release.length > 200 ||
+      typeof payload.participantId !== 'string' || !ID_PATTERN.test(payload.participantId) ||
+      typeof payload.campaignId !== 'string' || !ID_PATTERN.test(payload.campaignId) ||
+      !Array.isArray(payload.allowedReleases) || payload.allowedReleases.length === 0 ||
+      !payload.allowedReleases.every((release) => typeof release === 'string' && release.length > 0 && release.length <= 200) ||
       typeof payload.environment !== 'string' || payload.environment.length === 0 || payload.environment.length > 80 ||
       typeof payload.issuedAt !== 'number' || !Number.isFinite(payload.issuedAt) ||
       typeof payload.expiresAt !== 'number' || !Number.isFinite(payload.expiresAt) ||
@@ -365,16 +410,85 @@ async function readJsonBody(request: Request, maxBytes: number): Promise<unknown
 function tokenTtlSeconds(env: WorkerEnvironment): number {
   const configured = Number(env.TELEMETRY_TOKEN_TTL_SECONDS ?? DEFAULT_TOKEN_TTL_SECONDS);
   if (!Number.isFinite(configured)) return DEFAULT_TOKEN_TTL_SECONDS;
-  return Math.min(24 * 60 * 60, Math.max(5 * 60, Math.floor(configured)));
+  return Math.min(60 * 60, Math.max(5 * 60, Math.floor(configured)));
 }
 
-async function createDiagnosticSession(
+function qualificationDays(env: WorkerEnvironment): number {
+  const configured = Number(env.TELEMETRY_QUALIFICATION_DAYS ?? DEFAULT_QUALIFICATION_DAYS);
+  if (!Number.isFinite(configured)) return DEFAULT_QUALIFICATION_DAYS;
+  return Math.min(30, Math.max(7, Math.floor(configured)));
+}
+
+function campaignId(env: WorkerEnvironment): string {
+  const configured = env.TELEMETRY_CAMPAIGN_ID?.trim() ?? 'railglance-diagnostic';
+  return ID_PATTERN.test(configured) ? configured : 'railglance-diagnostic';
+}
+
+function allowedReleases(env: WorkerEnvironment): string[] {
+  return (env.TELEMETRY_ALLOWED_RELEASES ?? '')
+    .split(',')
+    .map((release) => release.trim())
+    .filter((release) => release.length > 0 && release.length <= 200);
+}
+
+function qualificationStub(env: WorkerEnvironment, participantId: string): DurableObjectStub {
+  return env.CAMPAIGN_QUALIFICATIONS.get(env.CAMPAIGN_QUALIFICATIONS.idFromName(participantId));
+}
+
+async function storeQualification(
+  env: WorkerEnvironment,
+  record: CampaignQualificationRecord
+): Promise<void> {
+  const response = await qualificationStub(env, record.participantId).fetch(new Request('https://qualification.internal/record', {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(record),
+  }));
+  if (!response.ok) throw new Error(`Qualification store returned HTTP ${response.status}`);
+}
+
+async function readQualification(
+  env: WorkerEnvironment,
+  participantId: string
+): Promise<CampaignQualificationRecord | null> {
+  const response = await qualificationStub(env, participantId).fetch(new Request('https://qualification.internal/record'));
+  if (response.status === 404) return null;
+  if (!response.ok) throw new Error(`Qualification store returned HTTP ${response.status}`);
+  return response.json() as Promise<CampaignQualificationRecord>;
+}
+
+async function issueUploadToken(
+  env: WorkerEnvironment,
+  record: CampaignQualificationRecord,
+  environment: string
+): Promise<{ token: string; expiresAt: string }> {
+  const issuedAt = Math.floor(Date.now() / 1000);
+  const payload: UploadTokenPayload = {
+    version: 1,
+    participantId: record.participantId,
+    campaignId: record.campaignId,
+    allowedReleases: record.allowedReleases,
+    environment,
+    issuedAt,
+    expiresAt: issuedAt + tokenTtlSeconds(env),
+  };
+  return {
+    token: await createUploadToken(payload, env.TELEMETRY_TOKEN_SIGNING_SECRET),
+    expiresAt: new Date(payload.expiresAt * 1000).toISOString(),
+  };
+}
+
+async function enrollCampaign(
   request: Request,
   env: WorkerEnvironment,
   origin: string | null
 ): Promise<Response> {
-  if (!env.TELEMETRY_DIAGNOSTIC_ACCESS_CODE || !env.TELEMETRY_TOKEN_SIGNING_SECRET) {
+  if (!env.TELEMETRY_DIAGNOSTIC_ACCESS_CODE || !env.TELEMETRY_TOKEN_SIGNING_SECRET || !env.CAMPAIGN_QUALIFICATIONS) {
     return jsonResponse(503, { error: 'diagnostic_not_configured' }, origin);
+  }
+  const rateKey = `campaign-enroll:${campaignId(env)}`;
+  if (!(await env.TELEMETRY_ENROLL_RATE_LIMITER.limit({ key: rateKey })).success) {
+    return jsonResponse(429, { error: 'rate_limited' }, origin);
   }
   const body = await readJsonBody(request, MAX_SESSION_BODY_BYTES);
   if (body instanceof Response) return jsonResponse(body.status, { error: body.status === 413 ? 'body_too_large' : 'invalid_json' }, origin);
@@ -389,18 +503,105 @@ async function createDiagnosticSession(
   if (!matchesSecret(source.accessCode, env.TELEMETRY_DIAGNOSTIC_ACCESS_CODE)) {
     return jsonResponse(401, { error: 'unauthorized' }, origin);
   }
+  const releases = allowedReleases(env);
+  if (releases.length === 0) return jsonResponse(503, { error: 'allowed_releases_not_configured' }, origin);
+  if (!releases.includes(source.release)) return jsonResponse(403, { error: 'release_not_allowed' }, origin);
 
-  const issuedAt = Math.floor(Date.now() / 1000);
-  const payload: UploadTokenPayload = {
+  const participantId = `p_${randomCredentialPart(18)}`;
+  const credentialSecret = randomCredentialPart();
+  const nowSeconds = Math.floor(Date.now() / 1000);
+  const record: CampaignQualificationRecord = {
     version: 1,
-    sessionId: source.sessionId,
-    release: source.release,
-    environment: source.environment,
-    issuedAt,
-    expiresAt: issuedAt + tokenTtlSeconds(env),
+    participantId,
+    campaignId: campaignId(env),
+    credentialHash: await hashSecret(credentialSecret),
+    qualificationExpiresAt: nowSeconds + qualificationDays(env) * 86_400,
+    allowedReleases: releases,
+    enrolledAt: nowSeconds,
+    revokedAt: null,
   };
-  const token = await createUploadToken(payload, env.TELEMETRY_TOKEN_SIGNING_SECRET);
-  return jsonResponse(201, { token, expiresAt: new Date(payload.expiresAt * 1000).toISOString() }, origin);
+  await storeQualification(env, record);
+  const upload = await issueUploadToken(env, record, source.environment);
+  return jsonResponse(201, {
+    participantId,
+    campaignId: record.campaignId,
+    campaignCredential: `${participantId}.${credentialSecret}`,
+    qualificationExpiresAt: new Date(record.qualificationExpiresAt * 1000).toISOString(),
+    allowedReleases: record.allowedReleases,
+    uploadToken: upload.token,
+    uploadTokenExpiresAt: upload.expiresAt,
+  }, origin);
+}
+
+async function refreshDiagnosticSession(
+  request: Request,
+  env: WorkerEnvironment,
+  origin: string | null
+): Promise<Response> {
+  if (!env.TELEMETRY_TOKEN_SIGNING_SECRET || !env.CAMPAIGN_QUALIFICATIONS) {
+    return jsonResponse(503, { error: 'diagnostic_not_configured' }, origin);
+  }
+  const body = await readJsonBody(request, MAX_SESSION_BODY_BYTES);
+  if (body instanceof Response) return jsonResponse(body.status, { error: body.status === 413 ? 'body_too_large' : 'invalid_json' }, origin);
+  const source = object(body);
+  if (
+    !source || source.schemaVersion !== 1 ||
+    typeof source.campaignCredential !== 'string' || source.campaignCredential.length > 500 ||
+    typeof source.release !== 'string' || source.release.length === 0 || source.release.length > 200 ||
+    typeof source.environment !== 'string' || source.environment.length === 0 || source.environment.length > 80
+  ) return jsonResponse(400, { error: 'invalid_session_request' }, origin);
+  const separator = source.campaignCredential.indexOf('.');
+  if (separator <= 0) return jsonResponse(401, { error: 'qualification_invalid' }, origin);
+  const participantId = source.campaignCredential.slice(0, separator);
+  const credentialSecret = source.campaignCredential.slice(separator + 1);
+  if (!ID_PATTERN.test(participantId)) return jsonResponse(401, { error: 'qualification_invalid' }, origin);
+  if (!(await env.TELEMETRY_PARTICIPANT_RATE_LIMITER.limit({ key: participantId })).success) {
+    return jsonResponse(429, { error: 'rate_limited' }, origin);
+  }
+  const record = await readQualification(env, participantId);
+  if (!record || !matchesSecret(await hashSecret(credentialSecret), record.credentialHash)) {
+    return jsonResponse(401, { error: 'qualification_invalid' }, origin);
+  }
+  const nowSeconds = Math.floor(Date.now() / 1000);
+  if (record.revokedAt) return jsonResponse(401, { error: 'qualification_revoked' }, origin);
+  if (record.qualificationExpiresAt <= nowSeconds) return jsonResponse(410, { error: 'qualification_expired' }, origin);
+  if (record.campaignId !== campaignId(env)) return jsonResponse(410, { error: 'campaign_ended' }, origin);
+  const releases = allowedReleases(env);
+  if (!releases.includes(source.release)) return jsonResponse(403, { error: 'release_not_allowed' }, origin);
+  if (JSON.stringify(record.allowedReleases) !== JSON.stringify(releases)) {
+    record.allowedReleases = releases;
+    await storeQualification(env, record);
+  }
+  const upload = await issueUploadToken(env, record, source.environment);
+  return jsonResponse(201, {
+    token: upload.token,
+    expiresAt: upload.expiresAt,
+    qualificationExpiresAt: new Date(record.qualificationExpiresAt * 1000).toISOString(),
+    allowedReleases: record.allowedReleases,
+  }, origin);
+}
+
+async function revokeQualification(
+  request: Request,
+  env: WorkerEnvironment,
+  origin: string | null
+): Promise<Response> {
+  if (!env.TELEMETRY_ADMIN_TOKEN) return jsonResponse(503, { error: 'admin_not_configured' }, origin);
+  const authorization = request.headers.get('authorization') ?? '';
+  if (!authorization.startsWith('Bearer ') || !matchesSecret(authorization.slice(7), env.TELEMETRY_ADMIN_TOKEN)) {
+    return jsonResponse(401, { error: 'unauthorized' }, origin);
+  }
+  const body = await readJsonBody(request, MAX_SESSION_BODY_BYTES);
+  if (body instanceof Response) return jsonResponse(body.status, { error: 'invalid_request' }, origin);
+  const source = object(body);
+  if (!source || typeof source.participantId !== 'string' || !ID_PATTERN.test(source.participantId)) {
+    return jsonResponse(400, { error: 'invalid_participant' }, origin);
+  }
+  const record = await readQualification(env, source.participantId);
+  if (!record) return jsonResponse(404, { error: 'qualification_not_found' }, origin);
+  record.revokedAt = Math.floor(Date.now() / 1000);
+  await storeQualification(env, record);
+  return jsonResponse(200, { revoked: true, participantId: record.participantId }, origin);
 }
 
 async function acceptTelemetryBatch(
@@ -413,15 +614,27 @@ async function acceptTelemetryBatch(
   const token = authorization.startsWith('Bearer ') ? authorization.slice(7) : '';
   const tokenPayload = token ? await verifyUploadToken(token, env.TELEMETRY_TOKEN_SIGNING_SECRET) : null;
   if (!tokenPayload) return jsonResponse(401, { error: 'unauthorized' }, origin);
+  if (!(await env.TELEMETRY_PARTICIPANT_RATE_LIMITER.limit({ key: tokenPayload.participantId })).success) {
+    return jsonResponse(429, { error: 'rate_limited' }, origin);
+  }
+  const qualification = await readQualification(env, tokenPayload.participantId);
+  const nowSeconds = Math.floor(Date.now() / 1000);
+  if (
+    !qualification || qualification.revokedAt || qualification.qualificationExpiresAt <= nowSeconds ||
+    qualification.campaignId !== tokenPayload.campaignId || qualification.campaignId !== campaignId(env)
+  ) return jsonResponse(401, { error: 'qualification_inactive' }, origin);
 
   const body = await readJsonBody(request, MAX_BODY_BYTES);
   if (body instanceof Response) return jsonResponse(body.status, { error: body.status === 413 ? 'body_too_large' : 'invalid_json' }, origin);
   const batch = parseTelemetryBatch(body);
   if (!batch) return jsonResponse(400, { error: 'invalid_batch' }, origin);
   if (
-    batch.sessionId !== tokenPayload.sessionId ||
     batch.events.some((event) => (
-      event.release !== tokenPayload.release || event.environment !== tokenPayload.environment
+      typeof event.release !== 'string' ||
+      !tokenPayload.allowedReleases.includes(event.release) ||
+      !qualification.allowedReleases.includes(event.release) ||
+      !allowedReleases(env).includes(event.release) ||
+      event.environment !== tokenPayload.environment
     ))
   ) return jsonResponse(403, { error: 'token_scope_mismatch' }, origin);
 
@@ -435,7 +648,12 @@ async function handleFetch(request: Request, env: WorkerEnvironment): Promise<Re
   if (origin === false) return jsonResponse(403, { error: 'origin_not_allowed' }, null);
 
   const url = new URL(request.url);
-  const validPath = url.pathname === '/v1/telemetry' || url.pathname === '/v1/telemetry/session';
+  const validPath = [
+    '/v1/telemetry',
+    '/v1/telemetry/session',
+    '/v1/telemetry/campaign/enroll',
+    '/v1/telemetry/campaign/revoke',
+  ].includes(url.pathname);
   if (request.method === 'OPTIONS') {
     if (!validPath) return jsonResponse(404, { error: 'not_found' }, origin);
     const headers = new Headers({
@@ -453,13 +671,36 @@ async function handleFetch(request: Request, env: WorkerEnvironment): Promise<Re
   if (request.method !== 'POST' || !validPath) {
     return jsonResponse(404, { error: 'not_found' }, origin);
   }
+  if (url.pathname === '/v1/telemetry/campaign/enroll') return enrollCampaign(request, env, origin);
+  if (url.pathname === '/v1/telemetry/campaign/revoke') return revokeQualification(request, env, origin);
   return url.pathname === '/v1/telemetry/session'
-    ? createDiagnosticSession(request, env, origin)
+    ? refreshDiagnosticSession(request, env, origin)
     : acceptTelemetryBatch(request, env, origin);
 }
 
 async function handleQueue(batch: MessageBatch, env: WorkerEnvironment): Promise<void> {
   await Promise.all(batch.messages.map((message) => persistBatch(message.body, env.TELEMETRY_BUCKET)));
+}
+
+export class CampaignQualification {
+  constructor(private readonly state: DurableObjectState) {}
+
+  public async fetch(request: Request): Promise<Response> {
+    const url = new URL(request.url);
+    if (url.pathname !== '/record') return new Response('Not found', { status: 404 });
+    if (request.method === 'GET') {
+      const record = await this.state.storage.get<CampaignQualificationRecord>('record');
+      return record
+        ? new Response(JSON.stringify(record), { headers: { 'content-type': 'application/json' } })
+        : new Response('Not found', { status: 404 });
+    }
+    if (request.method === 'PUT') {
+      const record = await request.json() as CampaignQualificationRecord;
+      await this.state.storage.put('record', record);
+      return new Response(null, { status: 204 });
+    }
+    return new Response('Method not allowed', { status: 405 });
+  }
 }
 
 export default { fetch: handleFetch, queue: handleQueue };

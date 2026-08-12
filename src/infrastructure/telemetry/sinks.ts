@@ -4,6 +4,12 @@ import { TelemetryEvent } from './types';
 const MAX_UPLOAD_BODY_BYTES = 100_000;
 const MAX_KEEPALIVE_BODY_BYTES = 60_000;
 
+export class TelemetryHttpError extends Error {
+  constructor(public readonly status: number) {
+    super(`Telemetry upload returned HTTP ${status}`);
+  }
+}
+
 export interface TelemetrySink {
   write(event: TelemetryEvent): void;
   flush(): Promise<void>;
@@ -75,7 +81,8 @@ export async function clearBufferedTelemetry(databaseName = 'RailGlanceTelemetry
 
 export type BufferedCloudTelemetrySinkOptions = {
   endpoint: string;
-  uploadToken: string;
+  uploadToken?: string;
+  getUploadToken?: () => Promise<string>;
   batchSize: number;
   flushIntervalMs: number;
   maxStoredEvents: number;
@@ -125,12 +132,20 @@ export class BufferedCloudTelemetrySink implements TelemetrySink {
   }
 
   public async shutdown(): Promise<void> {
+    await this.close(true);
+  }
+
+  public async close(flush: boolean): Promise<void> {
     if (this.closed) return;
     if (this.flushTimer) clearInterval(this.flushTimer);
     this.flushTimer = null;
-    await this.flush();
-    this.closed = true;
-    this.store.close();
+    try {
+      if (flush) await this.flush();
+      else await this.operation.catch(() => {});
+    } finally {
+      this.closed = true;
+      this.store.close();
+    }
   }
 
   private queue(task: () => Promise<void>): Promise<void> {
@@ -153,16 +168,20 @@ export class BufferedCloudTelemetrySink implements TelemetrySink {
     if (uploadEvents.length === 0) throw new Error('A single telemetry event exceeds the upload size limit');
 
     const { body } = this.createPayload(uploadEvents);
+    const uploadToken = this.options.getUploadToken
+      ? await this.options.getUploadToken()
+      : this.options.uploadToken;
+    if (!uploadToken) throw new Error('Telemetry upload token is unavailable');
     const response = await this.fetchFn(`${this.options.endpoint}/v1/telemetry`, {
       method: 'POST',
       headers: {
-        authorization: `Bearer ${this.options.uploadToken}`,
+        authorization: `Bearer ${uploadToken}`,
         'content-type': 'application/json',
       },
       body,
       keepalive: new TextEncoder().encode(body).byteLength <= MAX_KEEPALIVE_BODY_BYTES,
     });
-    if (!response.ok) throw new Error(`Telemetry upload returned HTTP ${response.status}`);
+    if (!response.ok) throw new TelemetryHttpError(response.status);
     await this.store.remove(uploadEvents.map((event) => event.eventId));
   }
 

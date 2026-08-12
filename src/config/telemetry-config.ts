@@ -42,8 +42,8 @@ export function readTelemetryConfig(env?: ViteEnvironment): TelemetryConfig {
     evenSdkVersion: optionalString(source.VITE_EVEN_SDK_VERSION) ?? '0.0.12',
     batchSize: Math.min(parsePositiveInteger(source.VITE_TELEMETRY_BATCH_SIZE, 100), 200),
     flushIntervalMs: Math.max(parsePositiveInteger(source.VITE_TELEMETRY_FLUSH_INTERVAL_MS, 20_000), 5_000),
-    maxStoredEvents: Math.max(parsePositiveInteger(source.VITE_TELEMETRY_MAX_STORED_EVENTS, 3_600), 200),
-    maxAgeMs: Math.max(parsePositiveInteger(source.VITE_TELEMETRY_MAX_AGE_MS, 3_600_000), 60_000),
+    maxStoredEvents: Math.max(parsePositiveInteger(source.VITE_TELEMETRY_MAX_STORED_EVENTS, 50_000), 200),
+    maxAgeMs: Math.max(parsePositiveInteger(source.VITE_TELEMETRY_MAX_AGE_MS, 259_200_000), 60_000),
   };
 }
 

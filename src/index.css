@@ -22,6 +22,7 @@ body {
   background-color: var(--bg-color);
   color: var(--text-color);
   padding: 20px;
+  padding-bottom: 88px;
 }
 
 .app-header {
@@ -59,6 +60,11 @@ body {
 .btn-secondary {
   background-color: #1f6feb;
   color: #ffffff;
+}
+
+.btn-danger {
+  color: #ffb3ad;
+  border-color: #8e2f2a;
 }
 
 .btn:disabled {
@@ -107,16 +113,32 @@ body {
   border-radius: 6px;
 }
 
-.diagnostic-status {
+.diagnostic-indicator {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 10;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-top: 14px;
+  padding: 10px 12px;
   color: #8c959f;
+  background: rgba(13, 17, 23, 0.96);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
 }
 
-.diagnostic-status.is-active {
+.diagnostic-indicator.is-active {
   color: #3fb950;
+  border-color: #238636;
 }
 
-.diagnostic-status.is-error {
+.diagnostic-indicator.is-error {
   color: #f85149;
+  border-color: #8e2f2a;
 }
 
 @media (max-width: 720px) {
@@ -128,6 +150,14 @@ body {
     align-items: flex-start;
     flex-direction: column;
     gap: 12px;
+  }
+
+  .diagnostic-indicator {
+    right: 8px;
+    bottom: 8px;
+    left: 8px;
+    align-items: flex-start;
+    flex-direction: column;
   }
 
   .preview-section {

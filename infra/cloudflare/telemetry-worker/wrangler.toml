@@ -6,6 +6,30 @@ compatibility_date = "2026-08-01"
 binding = "TELEMETRY_BUCKET"
 bucket_name = "railglance-telemetry-bucket"
 
+[[durable_objects.bindings]]
+name = "CAMPAIGN_QUALIFICATIONS"
+class_name = "CampaignQualification"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["CampaignQualification"]
+
+[[ratelimits]]
+name = "TELEMETRY_ENROLL_RATE_LIMITER"
+namespace_id = "24001"
+
+  [ratelimits.simple]
+  limit = 30
+  period = 60
+
+[[ratelimits]]
+name = "TELEMETRY_PARTICIPANT_RATE_LIMITER"
+namespace_id = "24002"
+
+  [ratelimits.simple]
+  limit = 240
+  period = 60
+
 [[queues.producers]]
 binding = "TELEMETRY_QUEUE"
 queue = "railglance-telemetry"
@@ -20,8 +44,12 @@ dead_letter_queue = "railglance-telemetry-dlq"
 [vars]
 # Override with an exact comma-separated allowlist per environment.
 TELEMETRY_ALLOWED_ORIGINS = "http://localhost:5173"
-TELEMETRY_TOKEN_TTL_SECONDS = "21600"
+TELEMETRY_CAMPAIGN_ID = "railglance-beta-2026"
+TELEMETRY_QUALIFICATION_DAYS = "14"
+TELEMETRY_ALLOWED_RELEASES = "railglance@0.1.0"
+TELEMETRY_TOKEN_TTL_SECONDS = "900"
 
 # Set with `wrangler secret put`; never place either value in this file or the .ehpk.
 # TELEMETRY_DIAGNOSTIC_ACCESS_CODE
 # TELEMETRY_TOKEN_SIGNING_SECRET
+# TELEMETRY_ADMIN_TOKEN

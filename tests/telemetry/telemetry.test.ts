@@ -6,6 +6,10 @@ import { JourneyState } from '../../src/domain/models/railway';
 import { EstimationLogEntry, EstimationLogger } from '../../src/infrastructure/logging/logger';
 import { BufferedCloudTelemetrySink, PendingTelemetryStore, TelemetrySink } from '../../src/infrastructure/telemetry/sinks';
 import { RuntimeTelemetryManager } from '../../src/infrastructure/telemetry/runtime-telemetry';
+import type {
+  CampaignQualificationStore,
+  StoredCampaignQualification,
+} from '../../src/infrastructure/telemetry/qualification-store';
 import { TelemetryEvent } from '../../src/infrastructure/telemetry/types';
 import { __testing as sentryTesting } from '../../src/infrastructure/observability/sentry';
 
@@ -27,6 +31,22 @@ class MemoryStore implements PendingTelemetryStore {
     this.events = this.events.filter((event) => event.timestampMs >= cutoffTimestampMs).slice(-maxEvents);
   }
   public close(): void {}
+}
+
+class MemoryQualificationStore implements CampaignQualificationStore {
+  public value: StoredCampaignQualification | null = null;
+  public async get(): Promise<StoredCampaignQualification | null> { return this.value; }
+  public async set(value: StoredCampaignQualification): Promise<void> { this.value = structuredClone(value); }
+  public async clear(): Promise<void> { this.value = null; }
+  public close(): void {}
+}
+
+function transitionEvent(eventId = 'event-1'): TelemetryEvent {
+  return {
+    schemaVersion: 1, type: 'state-transition', eventId, sessionId: 'session-1',
+    timestampMs: Date.now(), release: 'test', environment: 'test', datasetVersion: null,
+    evenSdkVersion: 'test', category: 'lifecycle', message: 'started', data: {},
+  };
 }
 
 function entry(timestampMs: number, mode: FullSpeedState['navState']['mode'], routeId: string | null): EstimationLogEntry {
@@ -99,12 +119,8 @@ function entry(timestampMs: number, mode: FullSpeedState['navState']['mode'], ro
 }
 
 describe('telemetry configuration', () => {
-  it('does not accept a build-time diagnostic mode or bundled token', () => {
-    const config = readTelemetryConfig({
-      VITE_TELEMETRY_MODE: 'diagnostic',
-      VITE_TELEMETRY_UPLOAD_TOKEN: 'must-be-ignored',
-      VITE_TELEMETRY_BATCH_SIZE: '999',
-    });
+  it('has no build-time mode or bundled credential fields', () => {
+    const config = readTelemetryConfig({ VITE_TELEMETRY_BATCH_SIZE: '999' });
     expect(config).not.toHaveProperty('mode');
     expect(config).not.toHaveProperty('uploadToken');
     expect(config.batchSize).toBe(200);
@@ -112,22 +128,32 @@ describe('telemetry configuration', () => {
 });
 
 describe('RuntimeTelemetryManager', () => {
-  it('starts diagnostic collection only after runtime consent exchange and keeps the token in memory', async () => {
+  it('uses the campaign code once, persists qualification, and refreshes short upload tokens after restart', async () => {
     const sentrySink = new MemorySink();
+    const qualificationStore = new MemoryQualificationStore();
     const requests: Array<{ url: string; init?: RequestInit }> = [];
-    const expiresAt = new Date(Date.now() + 60_000).toISOString();
+    const qualificationExpiresAt = new Date(Date.now() + 14 * 86_400_000).toISOString();
+    const uploadTokenExpiresAt = new Date(Date.now() + 15 * 60_000).toISOString();
     const fetchFn = vi.fn<typeof fetch>().mockImplementation(async (input, init) => {
       const url = String(input);
       requests.push({ url, init });
-      return url.endsWith('/session')
-        ? new Response(JSON.stringify({ token: 'runtime-token', expiresAt }), { status: 201 })
-        : new Response('{}', { status: 202 });
+      if (url.endsWith('/campaign/enroll')) return new Response(JSON.stringify({
+        participantId: 'p_test', campaignId: 'campaign-test', campaignCredential: 'p_test.credential',
+        qualificationExpiresAt, allowedReleases: ['test'], uploadToken: 'initial-token',
+        uploadTokenExpiresAt,
+      }), { status: 201 });
+      if (url.endsWith('/session')) return new Response(JSON.stringify({
+        token: 'refreshed-token', expiresAt: uploadTokenExpiresAt,
+        qualificationExpiresAt, allowedReleases: ['test'],
+      }), { status: 201 });
+      return new Response('{}', { status: 202 });
     });
     const manager = new RuntimeTelemetryManager(
       sentrySink,
       readTelemetryConfig({ VITE_TELEMETRY_ENDPOINT: 'https://telemetry.example' }),
       { sessionId: 'session-1', release: 'test', environment: 'test' },
-      fetchFn
+      fetchFn,
+      qualificationStore
     );
     await manager.initialize();
     expect(manager.isDiagnosticEnabled()).toBe(false);
@@ -136,17 +162,99 @@ describe('RuntimeTelemetryManager', () => {
     expect(manager.isDiagnosticEnabled()).toBe(true);
     const consentBody = JSON.parse(String(requests[0].init?.body));
     expect(consentBody).toMatchObject({ consent: true, accessCode: 'tester-code', sessionId: 'session-1' });
+    expect(qualificationStore.value?.credential).toBe('p_test.credential');
 
-    manager.write({
-      schemaVersion: 1, type: 'state-transition', eventId: 'event-1', sessionId: 'session-1',
-      timestampMs: Date.now(), release: 'test', environment: 'test', datasetVersion: null,
-      evenSdkVersion: 'test', category: 'lifecycle', message: 'started', data: {},
-    });
+    manager.write(transitionEvent());
     await manager.flush();
-    expect(requests[1].init?.headers).toMatchObject({ authorization: 'Bearer runtime-token' });
+    expect(requests[1].init?.headers).toMatchObject({ authorization: 'Bearer initial-token' });
     expect(sentrySink.events).toHaveLength(1);
-    await manager.stopDiagnostic();
+
+    await manager.shutdown();
+    const restarted = new RuntimeTelemetryManager(
+      new MemorySink(),
+      readTelemetryConfig({ VITE_TELEMETRY_ENDPOINT: 'https://telemetry.example' }),
+      { sessionId: 'session-2', release: 'test', environment: 'test' },
+      fetchFn,
+      qualificationStore
+    );
+    await restarted.initialize();
+    expect(restarted.isDiagnosticEnabled()).toBe(true);
+    const refreshRequest = requests.find((request) => request.url.endsWith('/session'));
+    expect(JSON.parse(String(refreshRequest?.init?.body))).toMatchObject({
+      campaignCredential: 'p_test.credential', release: 'test',
+    });
+    expect(JSON.stringify(refreshRequest?.init?.body)).not.toContain('tester-code');
+
+    await restarted.stopDiagnostic();
+    expect(restarted.isDiagnosticEnabled()).toBe(false);
+    expect(qualificationStore.value).toMatchObject({ credential: 'p_test.credential', collectionEnabled: false });
+    await restarted.resumeDiagnostic();
+    expect(restarted.isDiagnosticEnabled()).toBe(true);
+    await restarted.shutdown();
+  });
+
+  it('keeps unsent IndexedDB logs across forced-restart initialization and deletes them only on explicit request', async () => {
+    const qualificationStore = new MemoryQualificationStore();
+    qualificationStore.value = {
+      key: 'active', schemaVersion: 1, participantId: 'p_test', campaignId: 'campaign-test',
+      credential: 'p_test.credential', qualificationExpiresAt: new Date(Date.now() + 86_400_000).toISOString(),
+      allowedReleases: ['test'], consentedAt: new Date().toISOString(), collectionEnabled: true,
+      lastValidatedRelease: 'test',
+    };
+    const tokenResponse = {
+      token: 'token', expiresAt: new Date(Date.now() + 15 * 60_000).toISOString(),
+      qualificationExpiresAt: qualificationStore.value.qualificationExpiresAt, allowedReleases: ['test'],
+    };
+    const failingFetch = vi.fn<typeof fetch>().mockImplementation(async (input) => String(input).endsWith('/session')
+      ? new Response(JSON.stringify(tokenResponse), { status: 201 })
+      : new Response('{}', { status: 500 }));
+    const first = new RuntimeTelemetryManager(
+      new MemorySink(), readTelemetryConfig({ VITE_TELEMETRY_ENDPOINT: 'https://telemetry.example' }),
+      { sessionId: 'session-1', release: 'test', environment: 'test' }, failingFetch, qualificationStore
+    );
+    await first.initialize();
+    first.write(transitionEvent('pending-event'));
+    await first.flush();
+    await first.shutdown();
+
+    const successfulFetch = vi.fn<typeof fetch>().mockImplementation(async (input) => String(input).endsWith('/session')
+      ? new Response(JSON.stringify(tokenResponse), { status: 201 })
+      : new Response('{}', { status: 202 }));
+    const restarted = new RuntimeTelemetryManager(
+      new MemorySink(), readTelemetryConfig({ VITE_TELEMETRY_ENDPOINT: 'https://telemetry.example' }),
+      { sessionId: 'session-2', release: 'test', environment: 'test' }, successfulFetch, qualificationStore
+    );
+    await restarted.initialize();
+    await restarted.flush();
+    expect(successfulFetch.mock.calls.some(([, init]) => String(init?.body).includes('pending-event'))).toBe(true);
+
+    await restarted.deleteLocalData();
+    await restarted.flush();
+    const uploadsAfterDelete = successfulFetch.mock.calls.filter(([, init]) => String(init?.body).includes('pending-event'));
+    expect(uploadsAfterDelete).toHaveLength(1);
+    await restarted.shutdown();
+  });
+
+  it('stops collection immediately when a persisted qualification is revoked', async () => {
+    const qualificationStore = new MemoryQualificationStore();
+    qualificationStore.value = {
+      key: 'active', schemaVersion: 1, participantId: 'p_revoked', campaignId: 'campaign-test',
+      credential: 'p_revoked.credential', qualificationExpiresAt: new Date(Date.now() + 86_400_000).toISOString(),
+      allowedReleases: ['test'], consentedAt: new Date().toISOString(), collectionEnabled: true,
+      lastValidatedRelease: 'test',
+    };
+    const manager = new RuntimeTelemetryManager(
+      new MemorySink(), readTelemetryConfig({ VITE_TELEMETRY_ENDPOINT: 'https://telemetry.example' }),
+      { sessionId: 'session-1', release: 'test', environment: 'test' },
+      vi.fn<typeof fetch>().mockResolvedValue(new Response('{}', { status: 401 })),
+      qualificationStore
+    );
+
+    await manager.initialize();
+    expect(manager.getStatus().state).toBe('revoked');
     expect(manager.isDiagnosticEnabled()).toBe(false);
+    expect(qualificationStore.value).toMatchObject({ collectionEnabled: false, credential: 'p_revoked.credential' });
+    await manager.shutdown();
   });
 });
 
@@ -259,4 +367,5 @@ describe('Sentry privacy scrubber', () => {
 
 afterEach(async () => {
   await Dexie.delete('RailGlanceTelemetry');
+  await Dexie.delete('RailGlanceTelemetryControl');
 });
