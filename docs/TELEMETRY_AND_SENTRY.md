@@ -56,15 +56,55 @@ Cloudflare Rate Limiting bindingのカウンタはCloudflare拠点単位であ�
 ```bash
 pnpm dlx wrangler queues create railglance-telemetry
 pnpm dlx wrangler queues create railglance-telemetry-dlq
+```
+
+### Worker Secret
+
+本番のSecret値はリポジトリの `.env` や `wrangler.toml` には記載しない。次のコマンドを実行すると値の入力を
+求められ、入力した値はCloudflare上で暗号化されたWorker Secretとして保存される。コマンドは
+`infra/cloudflare/telemetry-worker/wrangler.toml` の `name = "railglance-telemetry"` を読み込むため、現在の構成では
+デフォルト環境の `railglance-telemetry` Workerが設定先となる。
+
+| Secret | 設定する値 | 共有範囲 |
+| --- | --- | --- |
+| `TELEMETRY_DIAGNOSTIC_ACCESS_CODE` | キャンペーンごとに運用者が発行する、初回参加用の十分に推測困難なコード | 対象テスターへ安全な別経路で共有する |
+| `TELEMETRY_TOKEN_SIGNING_SECRET` | パスワード管理ツールなどで生成した32 byte以上のランダム値 | Workerと運用者だけで管理し、テスターへ共有しない |
+| `TELEMETRY_ADMIN_TOKEN` | signing secretとは別に生成した32 byte以上のランダム値 | 資格失効を実行する管理者だけで管理する |
+
+3つの値はパスワード管理ツールなどで先に生成・保管し、各コマンドの対話プロンプトへ貼り付ける。同じ値を
+使い回さない。`secret put` は既存Secretがある場合はその値を更新するため、意図しない再実行にも注意する。
+
+```bash
 cd infra/cloudflare/telemetry-worker
 pnpm dlx wrangler secret put TELEMETRY_DIAGNOSTIC_ACCESS_CODE
 pnpm dlx wrangler secret put TELEMETRY_TOKEN_SIGNING_SECRET
 pnpm dlx wrangler secret put TELEMETRY_ADMIN_TOKEN
+pnpm dlx wrangler secret list
 pnpm dlx wrangler deploy
 ```
 
+`secret list` では登録済みの名前だけを確認でき、値を読み戻すことはできない。特に
+`TELEMETRY_ADMIN_TOKEN` は後述の失効操作でも必要になるため、Cloudflareへの登録と同時に管理者用の
+パスワード管理ツールへ保管する。
+
+ローカルでWorkerを実行する場合だけ、`infra/cloudflare/telemetry-worker/.dev.vars` に本番とは異なる開発専用値を
+置く。このファイルはGit管理対象外であり、実値をコミットしない。
+
+```dotenv
+TELEMETRY_DIAGNOSTIC_ACCESS_CODE="development-only-code"
+TELEMETRY_TOKEN_SIGNING_SECRET="development-only-signing-secret"
+TELEMETRY_ADMIN_TOKEN="development-only-admin-token"
+```
+
+現在の `wrangler.toml` にはnamed environmentを定義していない。将来 `[env.staging]` などを追加した場合、
+Secretは環境間で共有されないため、各コマンドに `--env staging` を付けて環境ごとに登録する。
+
 `wrangler.toml` でcampaign ID、資格日数、対象release、token TTL、exact Originを設定する。release更新前に
 新旧releaseをallowlistへ追加し、移行後に旧releaseを外す。資格失効は管理tokenを外部へ露出しない管理環境から行う。
+
+Cloudflareに登録したSecret値は読み戻せないため、失効操作を行う管理端末では、パスワード管理ツールに保管した
+`TELEMETRY_ADMIN_TOKEN` と同じ値をシェル環境へ一時的に設定してから次を実行する。コマンド履歴やログへ値を
+直接記録しない。
 
 ```bash
 curl -X POST https://telemetry.example/v1/telemetry/campaign/revoke \
