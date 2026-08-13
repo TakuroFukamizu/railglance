@@ -1,4 +1,7 @@
-export type HudStatusMode = 'GPS' | 'GPS_DEGRADED' | 'DR' | 'REACQUIRING' | 'UNCERTAIN' | 'LOST';
+// SPEED_UNKNOWN: no speed to report, but the track position estimate is still alive,
+// so the route layout stays up (HUD_UI_UX_REQUIREMENTS 14.5). LOST is 14.6 位置喪失,
+// where the line and station names come down as well.
+export type HudStatusMode = 'GPS' | 'GPS_DEGRADED' | 'DR' | 'REACQUIRING' | 'UNCERTAIN' | 'SPEED_UNKNOWN' | 'LOST';
 
 export type HudHeaderState = {
   lineName: string;         // e.g. "小田急小田原線" or "路線特定中"

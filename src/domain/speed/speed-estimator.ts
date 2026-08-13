@@ -199,26 +199,7 @@ export class SpeedEstimator {
    */
   private resolveStateAt(currentTimeMs: number, predictedNavState: TrackNavigationState): FullSpeedState {
     if (!this.lastFullState) {
-      const unknownEstimate: SpeedEstimate = {
-        speedKmh: null,
-        confidence: 0.0,
-        source: 'unknown',
-        timestamp: currentTimeMs,
-      };
-      return {
-        selectedEstimate: unknownEstimate,
-        smoothedSpeedKmh: null,
-        isStopped: false,
-        isValid: false,
-        candidates: {
-          osSpeed: null,
-          positionDeltaSpeed: null,
-          trackDistanceSpeed: null,
-          deadReckoningSpeed: null,
-          sensorFusionSpeed: null,
-        },
-        navState: predictedNavState,
-      };
+      return this.unknownState(currentTimeMs, predictedNavState);
     }
 
     const timeSinceLastGps = currentTimeMs - (this.lastFullState.navState.lastObservationTimestampMs ?? currentTimeMs);
@@ -227,19 +208,11 @@ export class SpeedEstimator {
     //    This is checked BEFORE dead-reckoning so that an expired fix can never be
     //    reported as a coasted speed (issue #20).
     if (timeSinceLastGps > this.config.coastingMaxMs || predictedNavState.mode === 'lost') {
-      const unknownEstimate: SpeedEstimate = {
-        speedKmh: null,
-        confidence: 0.0,
-        source: 'unknown',
-        timestamp: currentTimeMs,
-      };
-      return {
-        ...this.lastFullState,
-        selectedEstimate: unknownEstimate,
-        smoothedSpeedKmh: null,
-        isValid: false,
-        navState: predictedNavState,
-      };
+      // Drop the smoothing state as well. The EMA still holds the speed the train had
+      // when GPS died, and nothing feeds it while the speed is unknown, so leaving it
+      // in place would blend a minutes-old speed into the first fix after reacquisition.
+      this.speedFilter.reset();
+      return this.unknownState(currentTimeMs, predictedNavState);
     }
 
     // 3. Dead Reckoning Mode during GPS Pause/Tunnel (fix is stale but still within
@@ -273,6 +246,34 @@ export class SpeedEstimator {
     return {
       ...this.lastFullState,
       navState: predictedNavState,
+    };
+  }
+
+  /**
+   * Speed is unknown. Nothing measured before the gap survives here: the per-source
+   * candidates and the stop flag describe the last fix, not now, and reporting them
+   * would let the HUD claim the train is standing at a station it may have left.
+   */
+  private unknownState(currentTimeMs: number, navState: TrackNavigationState): FullSpeedState {
+    const unknownEstimate: SpeedEstimate = {
+      speedKmh: null,
+      confidence: 0.0,
+      source: 'unknown',
+      timestamp: currentTimeMs,
+    };
+    return {
+      selectedEstimate: unknownEstimate,
+      smoothedSpeedKmh: null,
+      isStopped: false,
+      isValid: false,
+      candidates: {
+        osSpeed: null,
+        positionDeltaSpeed: null,
+        trackDistanceSpeed: null,
+        deadReckoningSpeed: null,
+        sensorFusionSpeed: null,
+      },
+      navState,
     };
   }
 

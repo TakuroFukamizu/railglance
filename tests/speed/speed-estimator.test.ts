@@ -2,8 +2,6 @@ import { describe, it, expect } from 'vitest';
 import { DEFAULT_TRACKING_CONFIG } from '../../src/config/tracking-config';
 import { SpeedEstimator } from '../../src/domain/speed/speed-estimator';
 import { LocationSample } from '../../src/domain/models/location';
-import { JourneyState } from '../../src/domain/models/railway';
-import { HudRenderer } from '../../src/infrastructure/even-g2/hud-renderer';
 
 describe('SpeedEstimator (Multi-Source & Selection)', () => {
   it('adopts OS speed when valid coords.speed is present', () => {
@@ -257,34 +255,86 @@ describe('SpeedEstimator GPS loss transitions (issue #20)', () => {
     expect(expiredState.isValid).toBe(false);
   });
 
-  it('renders the HUD speed as "--" after the coasting budget expires', async () => {
-    const journeyState: JourneyState = {
-      line: null,
-      direction: 'UNKNOWN',
-      directionName: null,
-      previousStation: null,
-      nextStation: null,
-      distanceToNextStationMeters: null,
-      progressRatio: null,
-      confidence: 0.9,
-      status: 'TRACKING',
-    };
-    const renderer = new HudRenderer();
+  it('keeps dead-reckoning coasting alive for the whole budget after GPS is lost', async () => {
+    const estimator = seedEstimator();
 
-    const coastingEstimator = seedEstimator();
-    const coastingTimeMs = LAST_GPS_MS + DEFAULT_TRACKING_CONFIG.coastingMaxMs;
-    const coastingState = await coastingEstimator.getEstimateAtAsync(coastingTimeMs);
-    const coastingModel = renderer.createViewModel(coastingState, journeyState, coastingTimeMs);
-    expect(coastingModel.speed.displaySpeedKmhText).not.toBe('--');
+    // Coasting is driven by NavigationStateEstimator.predict() holding the last valid
+    // velocity; if that path ever dies the HUD goes blank the moment GPS drops.
+    for (const ageMs of [3000, 10000, 30000, 44000]) {
+      const state = await estimator.getEstimateAtAsync(LAST_GPS_MS + ageMs);
 
-    const expiredEstimator = seedEstimator();
-    const expiredTimeMs = LAST_GPS_MS + DEFAULT_TRACKING_CONFIG.coastingMaxMs + 1000;
-    const expiredState = await expiredEstimator.getEstimateAtAsync(expiredTimeMs);
-    const expiredModel = renderer.createViewModel(expiredState, journeyState, expiredTimeMs);
-
-    // Speed is blanked because the estimate is unknown, not merely because the HUD
-    // fell into its LOST status branch.
-    expect(expiredModel.statusMode).toBe('DR');
-    expect(expiredModel.speed.displaySpeedKmhText).toBe('--');
+      expect(state.selectedEstimate.source).toBe('dead-reckoning');
+      expect(state.selectedEstimate.estimated).toBe(true);
+      expect(state.selectedEstimate.speedKmh).toBeGreaterThan(0);
+      expect(state.smoothedSpeedKmh).toBeGreaterThan(0);
+      expect(state.navState.velocityMps).toBeGreaterThan(0);
+      expect(state.isValid).toBe(true);
+    }
   });
+
+  it('does not blend the frozen pre-outage EMA into the first fix after a long GPS outage', async () => {
+    const estimator = seedEstimator();
+
+    // Render loop keeps ticking once a second through a 300s outage (long tunnel).
+    const reacquiredAtMs = LAST_GPS_MS + 300000;
+    for (let t = LAST_GPS_MS + 1000; t <= reacquiredAtMs; t += 1000) {
+      await estimator.getEstimateAtAsync(t);
+    }
+
+    // The train has come to a halt by the time GPS returns.
+    const state = estimator.update(
+      {
+        latitude: 35.4526,
+        longitude: 139.3900,
+        accuracyMeters: 10,
+        speedMps: 0,
+        headingDegrees: 45,
+        timestampMs: reacquiredAtMs,
+      },
+      null
+    );
+
+    expect(state.selectedEstimate.speedKmh).toBe(0);
+    // Without clearing the filter the frozen ~84 km/h EMA reappears as ~59 km/h.
+    expect(state.smoothedSpeedKmh).toBeLessThan(DEFAULT_TRACKING_CONFIG.stopSpeedThresholdKmh);
+  });
+
+  it('stops claiming the train is stopped once the coasting budget expires', async () => {
+    const estimator = new SpeedEstimator(DEFAULT_TRACKING_CONFIG);
+
+    // Creep to a halt at a platform so the filter latches isStopped.
+    let lastFixMs = LAST_GPS_MS;
+    for (let i = 0; i < 20; i++) {
+      lastFixMs = LAST_GPS_MS + i * 1000;
+      estimator.update(
+        {
+          latitude: 35.4526,
+          longitude: 139.3900,
+          accuracyMeters: 10,
+          speedMps: 0.2,
+          headingDegrees: 45,
+          timestampMs: lastFixMs,
+        },
+        null
+      );
+    }
+    const stopped = await estimator.getEstimateAtAsync(lastFixMs);
+    expect(stopped.isStopped).toBe(true);
+
+    // GPS then drops (underground platform) and the coasting budget runs out.
+    const expired = await estimator.getEstimateAtAsync(
+      lastFixMs + DEFAULT_TRACKING_CONFIG.coastingMaxMs + 1000
+    );
+
+    expect(expired.selectedEstimate.source).toBe('unknown');
+    // 46s after the last fix the train may well have departed, so neither the stop
+    // flag nor the pre-outage per-source candidates may be reported as current.
+    expect(expired.isStopped).toBe(false);
+    expect(expired.candidates.osSpeed).toBeNull();
+    expect(expired.candidates.deadReckoningSpeed).toBeNull();
+  });
+
+  // How the unknown state reaches the glasses ('--' / 測位中, no estimated marker) is
+  // asserted in tests/even-g2/hud-renderer.test.ts so that HUD wording changes do not
+  // break the speed estimation suite.
 });

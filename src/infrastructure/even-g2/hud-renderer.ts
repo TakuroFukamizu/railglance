@@ -19,8 +19,17 @@ export class HudRenderer {
     let statusMode: HudStatusMode = 'GPS';
     let statusRightText = 'GPS';
 
+    // A blanked speed drives the status, not navState.mode: the estimator gives up on
+    // the speed at coastingMaxMs while the mode still reads dead-reckoning until 60s,
+    // and pairing '--' with a counting-up 'DR 46s' claims an estimate we do not have.
+    // The route display survives that window - only 位置喪失 (mode 'lost') tears it down.
+    const isSpeedUnknown = selectedEstimate.source === 'unknown';
+
     if (navState.mode === 'lost' || status === 'INITIALIZING') {
       statusMode = 'LOST';
+      statusRightText = '測位中';
+    } else if (isSpeedUnknown) {
+      statusMode = 'SPEED_UNKNOWN';
       statusRightText = '測位中';
     } else if (navState.mode === 'reacquiring') {
       statusMode = 'REACQUIRING';
@@ -45,7 +54,14 @@ export class HudRenderer {
       displaySpeedKmhText = `${Math.round(smoothedSpeedKmh)}`;
     }
 
-    if (selectedEstimate.estimated || navState.mode === 'dead-reckoning' || navState.mode === 'dead-reckoning-low-confidence' || navState.mode === 'reacquiring') {
+    if (
+      statusMode !== 'LOST' &&
+      statusMode !== 'SPEED_UNKNOWN' &&
+      (selectedEstimate.estimated ||
+        navState.mode === 'dead-reckoning' ||
+        navState.mode === 'dead-reckoning-low-confidence' ||
+        navState.mode === 'reacquiring')
+    ) {
       isEstimated = true;
     }
 
