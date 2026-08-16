@@ -1,0 +1,149 @@
+name: Build Even Hub Beta Package
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: evenhub-beta-package
+  cancel-in-progress: false
+
+jobs:
+  package:
+    name: Package .ehpk
+    runs-on: ubuntu-latest
+    environment:
+      name: evenhub-beta
+    env:
+      VITE_RAILWAY_DATA_BASE_URL: ${{ vars.VITE_RAILWAY_DATA_BASE_URL }}
+      VITE_SENTRY_DSN: ${{ vars.VITE_SENTRY_DSN }}
+      VITE_SENTRY_TRACES_SAMPLE_RATE: ${{ vars.VITE_SENTRY_TRACES_SAMPLE_RATE }}
+      VITE_APP_RELEASE: ${{ vars.VITE_APP_RELEASE }}
+      VITE_APP_ENVIRONMENT: ${{ vars.VITE_APP_ENVIRONMENT }}
+      VITE_TELEMETRY_ENDPOINT: ${{ vars.VITE_TELEMETRY_ENDPOINT }}
+      VITE_EVEN_SDK_VERSION: ${{ vars.VITE_EVEN_SDK_VERSION }}
+      SENTRY_ORG: ${{ vars.SENTRY_ORG }}
+      SENTRY_PROJECT: ${{ vars.SENTRY_PROJECT }}
+    steps:
+      - name: Require main branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_REF" != "refs/heads/main" ]]; then
+            echo "Even Hub beta packages must be built from main, received: $GITHUB_REF" >&2
+            exit 1
+          fi
+
+      - uses: actions/checkout@v6
+
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 10.29.3
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 26
+          cache: pnpm
+
+      - name: Validate beta configuration
+        shell: bash
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+        run: |
+          set -euo pipefail
+          required=(
+            VITE_RAILWAY_DATA_BASE_URL
+            VITE_SENTRY_DSN
+            VITE_SENTRY_TRACES_SAMPLE_RATE
+            VITE_APP_RELEASE
+            VITE_APP_ENVIRONMENT
+            VITE_TELEMETRY_ENDPOINT
+            VITE_EVEN_SDK_VERSION
+            SENTRY_ORG
+            SENTRY_PROJECT
+            SENTRY_AUTH_TOKEN
+          )
+          missing=()
+          for name in "${required[@]}"; do
+            if [[ -z "${!name:-}" ]]; then
+              missing+=("$name")
+            fi
+          done
+          if (( ${#missing[@]} > 0 )); then
+            printf 'Missing evenhub-beta configuration: %s\n' "${missing[*]}" >&2
+            exit 1
+          fi
+
+          package_version=$(node -p "require('./package.json').version")
+          manifest_version=$(node -p "require('./app.json').version")
+          expected_release="railglance@${package_version}"
+          if [[ "$manifest_version" != "$package_version" ]]; then
+            echo "app.json version must match package.json version" >&2
+            exit 1
+          fi
+          if [[ "$VITE_APP_RELEASE" != "$expected_release" ]]; then
+            echo "VITE_APP_RELEASE must be $expected_release" >&2
+            exit 1
+          fi
+          if [[ "$VITE_APP_ENVIRONMENT" != "beta" ]]; then
+            echo "VITE_APP_ENVIRONMENT must be beta for this workflow" >&2
+            exit 1
+          fi
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Build package and upload source maps
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+        run: pnpm ehpack
+
+      - name: Verify packaged network permissions and source maps
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import { readFileSync } from 'node:fs';
+
+          const manifest = JSON.parse(readFileSync('dist/app.json', 'utf8'));
+          const networkPermission = manifest.permissions?.find((permission) => permission.name === 'network');
+          const actual = new Set(networkPermission?.whitelist ?? []);
+          const expected = [
+            process.env.VITE_RAILWAY_DATA_BASE_URL,
+            process.env.VITE_SENTRY_DSN,
+            process.env.VITE_TELEMETRY_ENDPOINT,
+          ].map((value) => new URL(value.trim()).origin);
+          const missing = expected.filter((origin) => !actual.has(origin));
+          if (missing.length > 0) {
+            throw new Error(`dist/app.json is missing network origins: ${missing.join(', ')}`);
+          }
+          NODE
+
+          if find dist -type f -name '*.map' -print -quit | grep -q .; then
+            echo "Source maps remain in dist after Sentry upload" >&2
+            exit 1
+          fi
+          test -s out.ehpk
+
+      - name: Upload out.ehpk
+        id: artifact
+        uses: actions/upload-artifact@v7
+        with:
+          path: out.ehpk
+          archive: false
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Write package summary
+        env:
+          ARTIFACT_URL: ${{ steps.artifact.outputs.artifact-url }}
+        run: |
+          {
+            echo '## Even Hub Beta package'
+            echo
+            echo "- Release: \`$VITE_APP_RELEASE\`"
+            echo "- Commit: \`$GITHUB_SHA\`"
+            echo "- Artifact: [out.ehpk]($ARTIFACT_URL)"
+            echo '- Retention: 14 days'
+          } >> "$GITHUB_STEP_SUMMARY"

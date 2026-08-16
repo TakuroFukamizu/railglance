@@ -159,6 +159,56 @@ Sentry Breadcrumbにはroute、segment、navigation mode、次駅、Even G2接�
 
 source map upload用の `SENTRY_AUTH_TOKEN` はCI/build環境だけに保存し、`.ehpk`へ含めない。
 
+### Even Hub Beta 配布設定
+
+`.github/workflows/build-evenhub-package.yml` は、GitHub Actionsの `evenhub-beta` Environmentを使って
+Beta Testing用の単一成果物 `out.ehpk` を生成する。`evenhub-beta` はEven Hubが提供する画面や予約語ではなく、
+このリポジトリで作成するGitHub Actions Environmentの名前である。
+
+GitHubの `Settings` → `Environments` → `New environment` で `evenhub-beta` を作成する。そのEnvironmentの
+`Environment variables` に次を設定する。
+
+| 名前 | 設定値 | 取得元・用途 |
+| --- | --- | --- |
+| `VITE_RAILWAY_DATA_BASE_URL` | Datasetの公開base URL | R2の公開URL。`/datasets/...`を付けないorigin/base URL |
+| `VITE_SENTRY_DSN` | Sentry projectのDSN | SentryのProject Settings → Client Keys (DSN) |
+| `VITE_SENTRY_TRACES_SAMPLE_RATE` | `0.1` | performance traceの送信率 |
+| `SENTRY_ORG` | Sentry organization slug | Sentry Project Settings URLのorganization部分 |
+| `SENTRY_PROJECT` | Sentry project slug | Sentry Project Settings URLのproject部分 |
+| `VITE_APP_RELEASE` | `railglance@0.1.0`など | `railglance@` + `package.json`のversion。Workerの許可releaseとも完全一致させる |
+| `VITE_APP_ENVIRONMENT` | `beta` | SentryとTelemetry上の環境名 |
+| `VITE_TELEMETRY_ENDPOINT` | Telemetry WorkerのHTTPS URL | 独自ドメイン導入前はデプロイ結果の`workers.dev` URL |
+| `VITE_EVEN_SDK_VERSION` | `0.0.12`など | 使用中のEven Hub SDK version |
+
+同じEnvironmentの `Environment secrets` に次を設定する。
+
+| 名前 | 設定値 | 取得元・用途 |
+| --- | --- | --- |
+| `SENTRY_AUTH_TOKEN` | `org:ci`権限のSentry Organization Auth Token | source mapとrelease情報のupload専用。アプリへは組み込まれない |
+
+`SENTRY_AUTH_TOKEN` は次の手順で発行・登録する。
+
+1. Sentryの `Settings` を開き、左メニューを下までスクロールして
+   `Developer Settings` → `Organization Tokens` を開く。micosys Organizationでは
+   `https://micosys.sentry.io/settings/auth-tokens/` へ直接アクセスしてもよい。
+   `Organization` → `Auth` はGoogle/GitHubなどのSSO設定画面であり、token発行には使用しない。
+2. `Create New Token` を押し、識別名（例: `railglance-github-actions`）を入力して作成する。
+   Organization Tokenのscopeは画面上で `org:ci`（Source Map Upload、Release Creation、
+   Code Mappings）と表示される。発行直後に一度だけ表示されるtokenをコピーする。
+3. GitHubリポジトリの `Settings` → `Environments` → `evenhub-beta` →
+   `Environment secrets` → `Add environment secret` を開き、名前を `SENTRY_AUTH_TOKEN`、
+   値を手順2でコピーしたtokenとして保存する。
+
+`VITE_SENTRY_DSN`、`SENTRY_ORG`、`SENTRY_PROJECT` は秘密情報ではないためVariableへ置く。
+`SENTRY_AUTH_TOKEN`だけをSecretへ置き、Repository Variable、`.env`、ログ、`.ehpk`には保存しない。
+
+workflowは手動実行専用で、`main`以外からの配布、必須設定の不足、`app.json`と`package.json`のversion不一致、
+`VITE_APP_RELEASE`の不一致、Sentry upload後にsource mapが`dist`へ残っている状態を拒否する。Node.js 26で
+`pnpm ehpack`を実行し、成功時はWorkflow SummaryとArtifactsに未圧縮の`out.ehpk`を14日間保存する。
+
+実行はGitHubの `Actions` → `Build Even Hub Beta Package` → `Run workflow` からbranchに`main`を選ぶ。
+取得した`out.ehpk`をEven HubのPrivate Testingへ先に登録し、下記の実機ゲートを通過後にBeta Testingへ進める。
+
 ## Even G2 実機ゲート
 
 ブラウザ上のIndexedDB再生成テストだけでは、Even Appコンテナのlock・強制終了・package更新時の永続性を
