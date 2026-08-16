@@ -27,12 +27,129 @@ function loadEnvFile(): void {
   }
 }
 
-export type R2DeployOptions = { dryRun?: boolean; datasetBaseDir?: string; skipEnvLoad?: boolean };
+const EXPLICIT_SEMVER = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;
+
+/** Source id recorded by the MLIT adapter. Kept local so the deploy script has no ETL dependency. */
+const MLIT_SOURCE_ID = 'mlit-n02-23';
+
+/**
+ * Minimum publishable dataset size.
+ *
+ * Derived from the committed baseline dataset (src/data/sample: 7 lines / 56 stations / 49 segments),
+ * which `buildKantoDataset` reproduces exactly as 7 lines / 56 stations / 49 segments / 254 H3 tiles.
+ * A production (MLIT-sourced) build merges that baseline with the official N02-23 data, so it can never
+ * be smaller. A build that lands under these counts is truncated or broken and must not be published.
+ */
+export const DATASET_QUALITY_GATE = {
+  minLines: 7,
+  minStations: 56,
+  minSegments: 49,
+  minTiles: 254,
+} as const;
+
+type DatasetManifest = {
+  version?: unknown;
+  mlitSourced?: unknown;
+  sources?: unknown;
+  totalLines?: unknown;
+  totalStations?: unknown;
+  totalSegments?: unknown;
+  totalTiles?: unknown;
+};
+
+function readCount(manifest: DatasetManifest, field: keyof DatasetManifest): number {
+  const value = manifest[field];
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    throw new Error(`Dataset manifest is missing a numeric "${String(field)}" value; refusing to deploy.`);
+  }
+  return value;
+}
+
+/**
+ * Fails closed before any network call: the release must be an explicitly requested SemVer, built from
+ * the official MLIT source, and large enough to be a real Kanto dataset rather than the bundled sample.
+ */
+function assertPublishableDataset(datasetBaseDir: string, requestedVersion: string | undefined): string {
+  if (!fs.existsSync(datasetBaseDir)) {
+    throw new Error(`Dataset output directory not found at ${datasetBaseDir}. Run "pnpm build:data" first.`);
+  }
+  if (!requestedVersion) {
+    throw new Error(
+      'DATASET_VERSION is required to deploy; set it to the explicit SemVer that was built. R2 deploys never infer a version.'
+    );
+  }
+  if (!EXPLICIT_SEMVER.test(requestedVersion)) {
+    throw new Error(`DATASET_VERSION must be an explicit semantic version, received: ${requestedVersion}`);
+  }
+
+  const latestFilePath = path.join(datasetBaseDir, 'latest.json');
+  if (!fs.existsSync(latestFilePath)) throw new Error('latest.json was not generated');
+  const latestPointer = JSON.parse(fs.readFileSync(latestFilePath, 'utf8')) as { version?: unknown };
+  const builtVersion = latestPointer.version;
+  if (typeof builtVersion !== 'string' || !EXPLICIT_SEMVER.test(builtVersion)) {
+    throw new Error('latest.json does not contain an explicit semantic version');
+  }
+  if (builtVersion !== requestedVersion) {
+    throw new Error(
+      `Built dataset version ${builtVersion} does not match requested DATASET_VERSION ${requestedVersion}; refusing to deploy a stale build.`
+    );
+  }
+
+  const versionDirectory = path.join(datasetBaseDir, `v${builtVersion}`);
+  if (!fs.existsSync(versionDirectory)) {
+    throw new Error(`Version directory v${builtVersion} was not generated`);
+  }
+
+  const manifestPath = path.join(versionDirectory, 'manifest.json');
+  if (!fs.existsSync(manifestPath)) throw new Error(`manifest.json was not generated for v${builtVersion}`);
+  const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8')) as DatasetManifest;
+  if (manifest.version !== builtVersion) {
+    throw new Error(`manifest.json version ${String(manifest.version)} does not match latest.json version ${builtVersion}`);
+  }
+
+  const sources = Array.isArray(manifest.sources) ? manifest.sources : [];
+  if (manifest.mlitSourced !== true || !sources.includes(MLIT_SOURCE_ID)) {
+    throw new Error(
+      `Dataset v${builtVersion} was not built from the official MLIT source (${MLIT_SOURCE_ID}). ` +
+        'Set MLIT_N02_DIR and rebuild with "pnpm build:data"; sample-only builds must never be deployed.'
+    );
+  }
+
+  const failures: string[] = [];
+  const lines = readCount(manifest, 'totalLines');
+  const stations = readCount(manifest, 'totalStations');
+  const segments = readCount(manifest, 'totalSegments');
+  const tiles = readCount(manifest, 'totalTiles');
+  if (lines < DATASET_QUALITY_GATE.minLines) failures.push(`lines ${lines} < ${DATASET_QUALITY_GATE.minLines}`);
+  if (stations < DATASET_QUALITY_GATE.minStations) failures.push(`stations ${stations} < ${DATASET_QUALITY_GATE.minStations}`);
+  if (segments < DATASET_QUALITY_GATE.minSegments) failures.push(`segments ${segments} < ${DATASET_QUALITY_GATE.minSegments}`);
+  if (tiles < DATASET_QUALITY_GATE.minTiles) failures.push(`h3 tiles ${tiles} < ${DATASET_QUALITY_GATE.minTiles}`);
+  if (failures.length > 0) {
+    throw new Error(`Dataset v${builtVersion} failed the deploy quality gate: ${failures.join(', ')}`);
+  }
+
+  console.log(
+    `[R2 Deploy] Quality gate passed for v${builtVersion}: ${lines} lines, ${stations} stations, ${segments} segments, ${tiles} tiles (MLIT sourced).`
+  );
+  return builtVersion;
+}
+
+export type R2DeployOptions = {
+  dryRun?: boolean;
+  datasetBaseDir?: string;
+  skipEnvLoad?: boolean;
+  datasetVersion?: string;
+};
 
 export async function deployToR2(options: R2DeployOptions = {}): Promise<void> {
   if (!options.skipEnvLoad && process.env.NODE_ENV !== 'test') {
     loadEnvFile();
   }
+
+  const datasetBaseDir = options.datasetBaseDir ?? path.resolve(process.cwd(), 'dist/railway-dataset');
+  const requestedVersion = options.datasetVersion ?? process.env.DATASET_VERSION?.trim();
+  // Validated before the S3 client exists so a rejected dataset can never issue a single upload.
+  const datasetVersion = assertPublishableDataset(datasetBaseDir, requestedVersion);
 
   const accountId = process.env.R2_ACCOUNT_ID || process.env.CLOUDFLARE_ACCOUNT_ID;
   const accessKeyId = process.env.R2_ACCESS_KEY_ID;
@@ -69,12 +186,6 @@ export async function deployToR2(options: R2DeployOptions = {}): Promise<void> {
     },
   });
 
-  const datasetBaseDir = options.datasetBaseDir ?? path.resolve(process.cwd(), 'dist/railway-dataset');
-
-  if (!fs.existsSync(datasetBaseDir)) {
-    throw new Error(`Dataset output directory not found at ${datasetBaseDir}. Run "pnpm build:data" first.`);
-  }
-
   console.log(`[R2 Deploy] Connecting to Cloudflare R2 Endpoint: ${endpoint}`);
   console.log(`[R2 Deploy] Target Bucket: ${bucketName}`);
 
@@ -93,20 +204,13 @@ export async function deployToR2(options: R2DeployOptions = {}): Promise<void> {
   };
 
   const latestFilePath = path.join(datasetBaseDir, 'latest.json');
-  if (!fs.existsSync(latestFilePath)) throw new Error('latest.json was not generated');
-  const latestPointer = JSON.parse(fs.readFileSync(latestFilePath, 'utf8')) as { version?: string };
-  if (!latestPointer.version) throw new Error('latest.json does not contain a version');
-
-  const versionDirectory = path.join(datasetBaseDir, `v${latestPointer.version}`);
-  if (!fs.existsSync(versionDirectory)) {
-    throw new Error(`Version directory v${latestPointer.version} was not generated`);
-  }
+  const versionDirectory = path.join(datasetBaseDir, `v${datasetVersion}`);
   const versionedFilePaths = getAllFiles(versionDirectory);
 
-  const manifestKey = `datasets/v${latestPointer.version}/manifest.json`;
+  const manifestKey = `datasets/v${datasetVersion}/manifest.json`;
   try {
     await s3Client.send(new HeadObjectCommand({ Bucket: bucketName, Key: manifestKey }));
-    throw new Error(`Dataset version ${latestPointer.version} already exists in R2 and is immutable`);
+    throw new Error(`Dataset version ${datasetVersion} already exists in R2 and is immutable`);
   } catch (error: any) {
     const statusCode = error?.$metadata?.httpStatusCode;
     if (statusCode !== 404 && error?.name !== 'NotFound' && !String(error?.message).includes('immutable')) {

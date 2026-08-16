@@ -46,9 +46,12 @@ export R2_ACCESS_KEY_ID="your_r2_access_key_id"
 export R2_SECRET_ACCESS_KEY="your_r2_secret_access_key"
 export R2_BUCKET_NAME="railglance-dataset-bucket" # 省略時はデフォルト
 export R2_CORS_ALLOWED_ORIGINS="https://app.example,https://preview.example"
-export DATASET_VERSION="1.4.0" # 公開済みでないSemVerを毎回明示
-export MLIT_N02_DIR="/path/to/N02-23/UTF-8"
+export DATASET_VERSION="1.4.0" # 必須。公開済みでないSemVerを毎回明示
+export MLIT_N02_DIR="/path/to/N02-23/UTF-8" # 必須
 ```
+
+`DATASET_VERSION` と `MLIT_N02_DIR` は **必須** です。既定値へのフォールバックは存在せず、どちらかが
+欠けている場合はビルドもデプロイも失敗します（fail closed）。
 
 `MLIT_N02_DIR` には国土交通省「国土数値情報 鉄道データ N02-23」の
 `N02-23_RailroadSection.geojson` と `N02-23_Station.geojson` を置きます。2020年度以降の同データは
@@ -62,12 +65,48 @@ pnpm deploy:r2
 
 このコマンドにより以下が自動実行されます：
 1. 品質ゲートを通過した関東圏データセットの ETL ビルド (`pnpm build:data`)
-2. `dist/railway-dataset/v${DATASET_VERSION}/*` の H3 タイル・マニフェストを R2 へ長期キャッシュ付き送信 (`Cache-Control: public, max-age=31536000, immutable`)
-3. 最後に `/datasets/latest.json` をアトミック切り替え送信 (`Cache-Control: public, max-age=300, must-revalidate`)
+2. デプロイ前の配備ゲート検証（下記 2.3）
+3. `dist/railway-dataset/v${DATASET_VERSION}/*` の H3 タイル・マニフェストを R2 へ長期キャッシュ付き送信 (`Cache-Control: public, max-age=31536000, immutable`)
+4. 最後に `/datasets/latest.json` をアトミック切り替え送信 (`Cache-Control: public, max-age=300, must-revalidate`)
 
 デプロイ処理は先に R2 の manifest キーを確認し、同じ version が存在すれば失敗します。公開済み version の
-上書きはできません。認証情報がない場合も失敗し、ネットワーク変更を行わない確認だけが必要な場合に限り
-`pnpm tsx src/scripts/deploy-r2.ts --dry-run` を使います。
+上書きはできません。認証情報がない場合も失敗します。
+
+### 2.3 配備ゲート（fail closed）
+
+`deploy-r2.ts` は **S3 クライアントを生成する前** に以下をすべて検証します。1つでも満たさない場合は
+オブジェクトが1件もアップロードされないまま失敗します。
+
+| 検証項目 | 失敗条件 |
+|---|---|
+| 明示 SemVer | `DATASET_VERSION` 未設定、または `x.y.z[-prerelease]` 形式でない |
+| ビルド一致 | `latest.json` の version が `DATASET_VERSION` と不一致（古い `dist/` の誤配備防止） |
+| MLIT 出典 | manifest の `mlitSourced` が `true` でない、または `sources` に `mlit-n02-23` を含まない |
+| 最低品質 | 路線数 < 7、駅数 < 56、駅間セグメント数 < 49、H3タイル数 < 254 |
+
+品質ゲートのしきい値は、リポジトリに同梱されたベースラインデータセット (`src/data/sample`: 7路線 /
+56駅 / 49セグメント) をそのままビルドしたときの実測値 (7 / 56 / 49 / 254タイル) です。MLIT を併合した
+本番ビルドは必ずこれ以上の規模になるため、これを下回るビルドは欠損・破損とみなして配備しません。
+
+ネットワーク変更を行わずに配備ゲートだけ確認したい場合は、ビルド済みの `dist/` と `DATASET_VERSION` を
+用意したうえで次を実行します（認証情報は不要）：
+
+```bash
+pnpm deploy:r2:dry-run
+```
+
+### 2.4 サンプルのみのローカルビルド
+
+MLIT データを持たないローカル開発では、明示フラグ付きのサンプル専用ビルドを使います：
+
+```bash
+pnpm build:data:sample
+```
+
+このビルドは `MLIT_N02_DIR` を必要とせず、出力 version を `0.0.0-sample` に固定し、manifest に
+`mlitSourced: false` を記録します。カバレッジレポートも `docs/` ではなく
+`dist/railway-dataset/kanto-coverage-report.sample.md` へ書き出します。このデータセットは上記 2.3 の
+MLIT 出典ゲートで必ず拒否されるため、R2 へ配備することはできません。
 
 デプロイ時には `R2_CORS_ALLOWED_ORIGINS` を使って bucket CORS も更新します。ブラウザの Origin と完全一致する
 値を列挙し、`*` は本番では使用しません。反映後はブラウザから `latest.json` と任意の H3 tile を取得し、
