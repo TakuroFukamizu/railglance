@@ -1,5 +1,4 @@
 import {
-  waitForEvenAppBridge,
   ImageContainerProperty,
   ImageRawDataUpdate,
   TextContainerProperty,
@@ -11,64 +10,24 @@ import {
   OsEventTypeList,
 } from '@evenrealities/even_hub_sdk';
 import { HudViewModel } from '../../domain/models/hud';
+import {
+  DEFAULT_BRIDGE_READY_TIMEOUT_MS,
+  resolveBridgeReadyTimeoutMs,
+  waitForEvenAppBridgeWithin,
+} from '../even-app/bridge-ready';
 import { createSpeedPng } from './speed-png-generator';
 
-/**
- * Upper bound for the SDK bridge handshake.
- *
- * The WebView pushes the bridge once page loading completes, so this only needs
- * to be generous enough to cover a slow start-up. Paired with AppController's
- * backoff (max 10s) it retries roughly every 20s while the bridge is absent.
- */
-export const DEFAULT_BRIDGE_READY_TIMEOUT_MS = 10_000;
+export { DEFAULT_BRIDGE_READY_TIMEOUT_MS };
 
-/**
- * Largest delay `setTimeout` can actually hold (2^31 - 1 ms, ~24.9 days).
- *
- * Anything above it overflows the 32-bit timer and fires after ~1ms instead,
- * so a caller asking for a very long wait would silently get an instant one.
- */
-const MAX_TIMER_DELAY_MS = 2_147_483_647;
-
-/**
- * Resolves the configured handshake bound to a delay `setTimeout` can honour.
- *
- * `setTimeout` never rejects a bad delay, it quietly substitutes 1ms:
- * `Infinity`, `NaN` and negatives all fire on the next tick. Passing one
- * through would not restore the unbounded wait this bound exists to prevent —
- * it causes the opposite failure, a handshake that expires before the bridge
- * can ever answer, leaving the adapter permanently unable to connect. Values
- * over {@link MAX_TIMER_DELAY_MS} overflow into the same instant-fire
- * behaviour, so they are clamped rather than rejected.
- */
-function resolveBridgeReadyTimeoutMs(value: number | undefined): number {
-  if (value === undefined) return DEFAULT_BRIDGE_READY_TIMEOUT_MS;
-
-  if (!Number.isFinite(value) || value <= 0) {
-    console.warn(
-      `[EvenG2Adapter] Ignoring invalid bridgeReadyTimeoutMs (${value}); ` +
-        `falling back to ${DEFAULT_BRIDGE_READY_TIMEOUT_MS}ms.`
-    );
-    return DEFAULT_BRIDGE_READY_TIMEOUT_MS;
-  }
-
-  if (value > MAX_TIMER_DELAY_MS) {
-    console.warn(
-      `[EvenG2Adapter] Clamping bridgeReadyTimeoutMs (${value}) to ` +
-        `${MAX_TIMER_DELAY_MS}ms, the longest delay setTimeout can hold.`
-    );
-    return MAX_TIMER_DELAY_MS;
-  }
-
-  return value;
-}
+const BRIDGE_TIMEOUT_LOG_PREFIX = '[EvenG2Adapter]';
 
 export interface HybridEvenG2AdapterOptions {
   /**
    * Overrides {@link DEFAULT_BRIDGE_READY_TIMEOUT_MS}.
    *
    * Must be a finite, positive number of milliseconds. Anything else falls
-   * back to the default; values beyond {@link MAX_TIMER_DELAY_MS} are clamped.
+   * back to the default; values beyond the largest delay `setTimeout` can hold
+   * are clamped.
    */
   bridgeReadyTimeoutMs?: number;
 }
@@ -138,7 +97,10 @@ export class HybridEvenG2Adapter implements EvenG2Adapter {
     options: HybridEvenG2AdapterOptions = {}
   ) {
     this.onRenderCallback = onRender;
-    this.bridgeReadyTimeoutMs = resolveBridgeReadyTimeoutMs(options.bridgeReadyTimeoutMs);
+    this.bridgeReadyTimeoutMs = resolveBridgeReadyTimeoutMs(
+      options.bridgeReadyTimeoutMs,
+      BRIDGE_TIMEOUT_LOG_PREFIX
+    );
   }
 
   public getLastImageResult(): string {
@@ -188,43 +150,12 @@ export class HybridEvenG2Adapter implements EvenG2Adapter {
     }
   }
 
-  /**
-   * Bounded wrapper around the SDK handshake.
-   *
-   * `waitForEvenAppBridge()` resolves on an `evenAppBridgeReady` event and the SDK
-   * exposes no timeout, so a bridge that never initializes parks connect() forever:
-   * AppController's reconnect loop awaits it and never iterates again, leaving no
-   * log and no error. Bounding it turns that silent stall into a normal connect
-   * failure that backoff retries — and that error reporting can observe.
-   */
-  private async waitForBridgeReady(): Promise<Awaited<ReturnType<typeof waitForEvenAppBridge>>> {
-    const pending = waitForEvenAppBridge();
-    // Promise.race already handles a late settle, but keep this explicit so the
-    // abandoned SDK promise can never surface as an unhandled rejection.
-    void pending.catch(() => {});
-
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const expiry = new Promise<never>((_resolve, reject) => {
-      timer = setTimeout(
-        () =>
-          reject(
-            new Error(`waitForEvenAppBridge() timed out after ${this.bridgeReadyTimeoutMs}ms`)
-          ),
-        this.bridgeReadyTimeoutMs
-      );
-    });
-
-    try {
-      return await Promise.race([pending, expiry]);
-    } finally {
-      clearTimeout(timer);
-    }
-  }
-
   public async connect(): Promise<boolean> {
     try {
       if (!this.bridge) {
-        this.bridge = await this.waitForBridgeReady();
+        // Bounded: an unbounded handshake parks this reconnect loop forever,
+        // with no log and no error. See ../even-app/bridge-ready.
+        this.bridge = await waitForEvenAppBridgeWithin(this.bridgeReadyTimeoutMs);
         console.log('[EvenG2Adapter] waitForEvenAppBridge() resolved!');
       }
 
