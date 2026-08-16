@@ -468,6 +468,66 @@ describe('JourneyStateEstimator - unusable segment length', () => {
   });
 });
 
+// セグメント長は正常だが、セグメントが指す駅IDが路線の駅一覧に存在しないケース。
+// このとき報告される前駅・次駅は駅スキャンのフォールバックが決めるため、
+// セグメント由来の progressRatio は「別の駅ペアについての進捗」であり、
+// フォールバックが上書きした距離とは根拠が食い違う。
+describe('JourneyStateEstimator - unresolvable segment stations', () => {
+  const orphanSegment: TrackSegment = {
+    ...SEG_1,
+    fromStationId: 'st-not-in-line',
+    toStationId: 'st-also-not-in-line',
+  };
+
+  it('recomputes progress from the stations it actually reports (UP)', async () => {
+    const estimator = new JourneyStateEstimator(new MockStationDatabase(), DEFAULT_TRACKING_CONFIG);
+
+    const state = await estimateAt(estimator, 'UP', 1500, orphanSegment);
+
+    expect(state.previousStation?.name).toBe('海老名');
+    expect(state.nextStation?.name).toBe('座間');
+    // 駅フォールバックが埋めた残距離 (次駅オフセット 2000m - 現在位置 1500m)。
+    expect(state.distanceToNextStationMeters).toBe(500);
+
+    // 進捗率は報告した駅ペアの直線距離から再計算されなければならない。
+    // セグメント長由来の 1500/3200 = 0.469 が残っていると距離と矛盾する。
+    const straightLineMeters = haversineDistance(35.4526, 139.3900, 35.4806, 139.4005);
+    const expectedRatio = (straightLineMeters - 500) / straightLineMeters;
+    expect(state.progressRatio).toBeCloseTo(expectedRatio, 10);
+  });
+
+  it('recomputes progress from the stations it actually reports (DOWN)', async () => {
+    const estimator = new JourneyStateEstimator(new MockStationDatabase(), DEFAULT_TRACKING_CONFIG);
+
+    const state = await estimateAt(estimator, 'DOWN', 1500, orphanSegment);
+
+    expect(state.previousStation?.name).toBe('座間');
+    expect(state.nextStation?.name).toBe('海老名');
+    // 下りの駅フォールバックは現在位置から前方(オフセット減少側)の駅までを測る。
+    expect(state.distanceToNextStationMeters).toBe(1500);
+
+    const straightLineMeters = haversineDistance(35.4806, 139.4005, 35.4526, 139.3900);
+    const expectedRatio = (straightLineMeters - 1500) / straightLineMeters;
+    expect(state.progressRatio).toBeCloseTo(expectedRatio, 10);
+  });
+
+  it('keeps distance and progress derived from the same station pair', async () => {
+    const estimator = new JourneyStateEstimator(new MockStationDatabase(), DEFAULT_TRACKING_CONFIG);
+
+    const state = await estimateAt(estimator, 'UP', 1500, orphanSegment);
+
+    // 距離と進捗が同じ根拠なら、進捗から距離を復元できる。
+    const straightLineMeters = haversineDistance(
+      state.previousStation!.latitude,
+      state.previousStation!.longitude,
+      state.nextStation!.latitude,
+      state.nextStation!.longitude
+    );
+    const impliedRemaining = straightLineMeters * (1 - state.progressRatio!);
+    expect(impliedRemaining).toBeCloseTo(state.distanceToNextStationMeters!, 6);
+  });
+});
+
 describe('computeSegmentProgress', () => {
   it('returns direction specific remaining distance within the segment', () => {
     expect(computeSegmentProgress(1500, 0, 3200, false)).toEqual({

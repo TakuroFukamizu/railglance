@@ -246,6 +246,14 @@ export class JourneyStateEstimator {
     }
 
     if (!previousStation || !nextStation) {
+      // ここに来るのはセグメントから駅ペアを特定できなかった場合だけ。
+      // セグメント由来の距離・進捗は「特定できなかった駅ペア」についての値なので、
+      // これから駅スキャンが決める駅ペアとは根拠が食い違う。両方まとめて破棄し、
+      // 距離は駅スキャンが、進捗率は後段のhaversineフォールバックが
+      // 同じ駅ペアから算出し直すようにする。
+      distanceToNextStationMeters = null;
+      progressRatio = null;
+
       let refLat: number | null = null;
       let refLon: number | null = null;
       let refTrackOffset: number | null = null;
