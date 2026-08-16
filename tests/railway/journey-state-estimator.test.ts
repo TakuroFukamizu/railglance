@@ -517,6 +517,14 @@ describe('JourneyStateEstimator - unresolvable segment stations', () => {
     const state = await estimateAt(estimator, 'UP', 1500, orphanSegment);
 
     // 距離と進捗が同じ根拠なら、進捗から距離を復元できる。
+    // 不変条件を測る前に、測る対象が揃っていることを明示的に確認する。
+    // 欠けている場合はここで落として原因を示す(後段の非nullアサーションで
+    // 分かりにくい実行時エラーにしない)。
+    expect(state.previousStation).not.toBeNull();
+    expect(state.nextStation).not.toBeNull();
+    expect(state.progressRatio).not.toBeNull();
+    expect(state.distanceToNextStationMeters).not.toBeNull();
+
     const straightLineMeters = haversineDistance(
       state.previousStation!.latitude,
       state.previousStation!.longitude,
