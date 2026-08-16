@@ -1,9 +1,16 @@
 import { TrackingConfig } from '../../config/tracking-config';
-import { LocationSample, SpeedEstimate, FullSpeedState, MultiSpeedCandidates } from '../models/location';
+import {
+  LocationSample,
+  SpeedEstimate,
+  FullSpeedState,
+  MultiSpeedCandidates,
+  TrackNavigationState,
+} from '../models/location';
 import { haversineDistance } from '../geo/distance';
 import { SpeedFilter } from './speed-filter';
 import { DefaultSpeedSelector, SpeedSelector } from './speed-selector';
 import { DeviceMotionSensorFusionProvider } from '../../infrastructure/sensors/device-motion-sensor-fusion-provider';
+import { SensorFusionProvider } from '../interfaces/sensor-fusion';
 import { NavigationStateEstimator } from './navigation-state-estimator';
 import { RouteMatch, TrackSegment } from '../models/railway';
 
@@ -14,17 +21,18 @@ export class SpeedEstimator {
 
   private speedFilter: SpeedFilter;
   private speedSelector: SpeedSelector;
-  private sensorFusionProvider: DeviceMotionSensorFusionProvider;
+  private sensorFusionProvider: SensorFusionProvider;
   private navEstimator: NavigationStateEstimator;
   private lastFullState: FullSpeedState | null = null;
 
   constructor(
     private config: TrackingConfig,
-    customSelector?: SpeedSelector
+    customSelector?: SpeedSelector,
+    motionSource?: SensorFusionProvider
   ) {
     this.speedFilter = new SpeedFilter(config);
     this.speedSelector = customSelector ?? new DefaultSpeedSelector();
-    this.sensorFusionProvider = new DeviceMotionSensorFusionProvider();
+    this.sensorFusionProvider = motionSource ?? new DeviceMotionSensorFusionProvider();
     this.navEstimator = new NavigationStateEstimator(config);
   }
 
@@ -173,37 +181,70 @@ export class SpeedEstimator {
   }
 
   public async getEstimateAtAsync(currentTimeMs: number, availableSegments?: TrackSegment[]): Promise<FullSpeedState> {
-    // 1. Run time-driven prediction step on NavigationStateEstimator with available segments
+    // 1. Feed the latest accelerometer observation, then run the time-driven
+    //    prediction step on NavigationStateEstimator with available segments
+    this.ingestLatestMotion();
     const predictedNavState = this.navEstimator.predict(currentTimeMs, availableSegments);
+    return this.resolveStateAt(currentTimeMs, predictedNavState);
+  }
 
+  public getEstimateAt(currentTimeMs: number): FullSpeedState {
+    this.ingestLatestMotion();
+    const predictedNavState = this.navEstimator.predict(currentTimeMs);
+    return this.resolveStateAt(currentTimeMs, predictedNavState);
+  }
+
+  /**
+   * Pulls the latest devicemotion-derived observation into the navigation
+   * estimator. The provider is event-driven; this pull runs on every estimate
+   * tick so dead reckoning sees motion data without a push subscription.
+   */
+  private ingestLatestMotion(): void {
+    const observation = this.sensorFusionProvider.getLatestObservation();
+    if (observation?.isValid) {
+      this.navEstimator.updateWithMotion(observation);
+    }
+  }
+
+  /**
+   * Resolves the reported speed state for a given time, given an already predicted
+   * navigation state. Branch priority is:
+   *   1. no previous state          -> unknown
+   *   2. coasting expired or lost   -> unknown
+   *   3. fix stale (or DR mode)     -> dead-reckoning
+   *   4. fix still fresh            -> last GPS-derived state
+   */
+  private resolveStateAt(currentTimeMs: number, predictedNavState: TrackNavigationState): FullSpeedState {
     if (!this.lastFullState) {
-      const unknownEstimate: SpeedEstimate = {
-        speedKmh: null,
-        confidence: 0.0,
-        source: 'unknown',
-        timestamp: currentTimeMs,
-      };
-      return {
-        selectedEstimate: unknownEstimate,
-        smoothedSpeedKmh: null,
-        isStopped: false,
-        isValid: false,
-        candidates: {
-          osSpeed: null,
-          positionDeltaSpeed: null,
-          trackDistanceSpeed: null,
-          deadReckoningSpeed: null,
-          sensorFusionSpeed: null,
-        },
-        navState: predictedNavState,
-      };
+      return this.unknownState(currentTimeMs, predictedNavState);
     }
 
-    const timeSinceLastGps = currentTimeMs - (this.lastFullState.navState.lastObservationTimestampMs ?? currentTimeMs);
+    // Clamp against clock skew: a fix stamped ahead of currentTimeMs counts as age 0,
+    // matching how predict() treats gpsAgeMs.
+    const timeSinceLastGps = Math.max(
+      0,
+      currentTimeMs - (this.lastFullState.navState.lastObservationTimestampMs ?? currentTimeMs)
+    );
 
-    // 2. Dead Reckoning Mode during GPS Pause/Tunnel
+    // 2. GPS considered unavailable: coasting budget exhausted, or navigation state lost.
+    //    This is checked BEFORE dead-reckoning so that an expired fix can never be
+    //    reported as a coasted speed (issue #20). Fresh accelerometer data extends
+    //    the budget (still/moving corroboration); a stale sensor falls straight back.
+    const coastingBudgetMs = this.navEstimator.hasFreshMotion(currentTimeMs)
+      ? Math.max(this.config.coastingMaxMs, this.config.motionCoastingMaxMs)
+      : this.config.coastingMaxMs;
+    if (timeSinceLastGps > coastingBudgetMs || predictedNavState.mode === 'lost') {
+      // Drop the smoothing state as well. The EMA still holds the speed the train had
+      // when GPS died, and nothing feeds it while the speed is unknown, so leaving it
+      // in place would blend a minutes-old speed into the first fix after reacquisition.
+      this.speedFilter.reset();
+      return this.unknownState(currentTimeMs, predictedNavState);
+    }
+
+    // 3. Dead Reckoning Mode during GPS Pause/Tunnel (fix is stale but still within
+    //    the coasting budget).
     if (
-      timeSinceLastGps > 2000 ||
+      timeSinceLastGps > this.config.staleLocationMs ||
       predictedNavState.mode === 'dead-reckoning' ||
       predictedNavState.mode === 'dead-reckoning-low-confidence'
     ) {
@@ -222,62 +263,43 @@ export class SpeedEstimator {
         selectedEstimate: drEstimate,
         smoothedSpeedKmh: smoothedKmh,
         isStopped,
-        isValid: (predictedNavState.mode as string) !== 'lost',
+        isValid: true,
         navState: predictedNavState,
       };
     }
 
-    // 3. Declare GPS Unavailable only after coastingMaxMs (45 seconds) or when lost
-    if (timeSinceLastGps > this.config.staleLocationMs || (predictedNavState.mode as string) === 'lost') {
-      const unknownEstimate: SpeedEstimate = {
-        speedKmh: null,
-        confidence: 0.0,
-        source: 'unknown',
-        timestamp: currentTimeMs,
-      };
-      return {
-        ...this.lastFullState,
-        selectedEstimate: unknownEstimate,
-        smoothedSpeedKmh: null,
-        isValid: false,
-        navState: predictedNavState,
-      };
-    }
-
+    // 4. Fix is still fresh: keep reporting the last GPS-derived state.
     return {
       ...this.lastFullState,
       navState: predictedNavState,
     };
   }
 
-  public getEstimateAt(currentTimeMs: number): FullSpeedState {
-    const predictedNavState = this.navEstimator.predict(currentTimeMs);
-    if (!this.lastFullState) {
-      const unknownEstimate: SpeedEstimate = {
-        speedKmh: null,
-        confidence: 0.0,
-        source: 'unknown',
-        timestamp: currentTimeMs,
-      };
-      return {
-        selectedEstimate: unknownEstimate,
-        smoothedSpeedKmh: null,
-        isStopped: false,
-        isValid: false,
-        candidates: {
-          osSpeed: null,
-          positionDeltaSpeed: null,
-          trackDistanceSpeed: null,
-          deadReckoningSpeed: null,
-          sensorFusionSpeed: null,
-        },
-        navState: predictedNavState,
-      };
-    }
-
+  /**
+   * Speed is unknown. Nothing measured before the gap survives here: the per-source
+   * candidates and the stop flag describe the last fix, not now, and reporting them
+   * would let the HUD claim the train is standing at a station it may have left.
+   */
+  private unknownState(currentTimeMs: number, navState: TrackNavigationState): FullSpeedState {
+    const unknownEstimate: SpeedEstimate = {
+      speedKmh: null,
+      confidence: 0.0,
+      source: 'unknown',
+      timestamp: currentTimeMs,
+    };
     return {
-      ...this.lastFullState,
-      navState: predictedNavState,
+      selectedEstimate: unknownEstimate,
+      smoothedSpeedKmh: null,
+      isStopped: false,
+      isValid: false,
+      candidates: {
+        osSpeed: null,
+        positionDeltaSpeed: null,
+        trackDistanceSpeed: null,
+        deadReckoningSpeed: null,
+        sensorFusionSpeed: null,
+      },
+      navState,
     };
   }
 

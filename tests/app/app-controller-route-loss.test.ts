@@ -66,8 +66,7 @@ describe('AppController route loss', () => {
     await Promise.resolve();
     expect(warn).toHaveBeenCalledWith('[AppController] Location error:', 'initial provider failed');
 
-    controller.switchLocationProvider({ start: replacementStart, stop: vi.fn() });
-    await Promise.resolve();
+    await controller.switchLocationProvider({ start: replacementStart, stop: vi.fn() });
     expect(warn).toHaveBeenCalledWith('[AppController] Location error:', 'replacement provider failed');
 
     await controller.stop();

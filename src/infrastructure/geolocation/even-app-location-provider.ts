@@ -2,10 +2,26 @@ import {
   AppLocation,
   AppLocationAccuracy,
   EvenAppBridge,
-  waitForEvenAppBridge,
 } from '@evenrealities/even_hub_sdk';
 import { LocationSample } from '../../domain/models/location';
+import {
+  resolveBridgeReadyTimeoutMs,
+  waitForEvenAppBridgeWithin,
+} from '../even-app/bridge-ready';
 import { BrowserLocationProvider, LocationProvider, LocationProviderError } from './browser-location-provider';
+
+const BRIDGE_TIMEOUT_LOG_PREFIX = '[EvenAppLocationProvider]';
+
+export interface EvenAppLocationProviderOptions {
+  /**
+   * Overrides `DEFAULT_BRIDGE_READY_TIMEOUT_MS` from `../even-app/bridge-ready`.
+   *
+   * Must be a finite, positive number of milliseconds. Anything else falls
+   * back to the default; values beyond the largest delay `setTimeout` can hold
+   * are clamped.
+   */
+  bridgeReadyTimeoutMs?: number;
+}
 
 export class EvenAppUnavailableError extends Error {
   constructor(message: string, options?: ErrorOptions) {
@@ -18,6 +34,14 @@ export class EvenAppLocationProvider implements LocationProvider {
   private bridge: EvenAppBridge | null = null;
   private unsubscribe: (() => void) | null = null;
   private started = false;
+  private readonly bridgeReadyTimeoutMs: number;
+
+  constructor(options: EvenAppLocationProviderOptions = {}) {
+    this.bridgeReadyTimeoutMs = resolveBridgeReadyTimeoutMs(
+      options.bridgeReadyTimeoutMs,
+      BRIDGE_TIMEOUT_LOG_PREFIX
+    );
+  }
 
   public async start(
     onLocation: (sample: LocationSample) => void,
@@ -26,7 +50,10 @@ export class EvenAppLocationProvider implements LocationProvider {
     if (this.started) return;
 
     try {
-      this.bridge = await waitForEvenAppBridge();
+      // Bounded: an unbounded handshake leaves start() pending forever, so GPS
+      // never begins, onError never fires, and AdaptiveLocationProvider never
+      // sees the EvenAppUnavailableError it needs to reach browser geolocation.
+      this.bridge = await waitForEvenAppBridgeWithin(this.bridgeReadyTimeoutMs);
       this.unsubscribe = this.bridge.onAppLocationChanged((location) => {
         onLocation(this.toSample(location));
       });

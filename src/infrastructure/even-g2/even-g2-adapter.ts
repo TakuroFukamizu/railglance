@@ -1,5 +1,4 @@
 import {
-  waitForEvenAppBridge,
   ImageContainerProperty,
   ImageRawDataUpdate,
   TextContainerProperty,
@@ -11,8 +10,28 @@ import {
   OsEventTypeList,
 } from '@evenrealities/even_hub_sdk';
 import { HudViewModel } from '../../domain/models/hud';
+import {
+  DEFAULT_BRIDGE_READY_TIMEOUT_MS,
+  resolveBridgeReadyTimeoutMs,
+  waitForEvenAppBridgeWithin,
+} from '../even-app/bridge-ready';
 import { createSpeedPng } from './speed-png-generator';
 import { addRuntimeBreadcrumb, captureRuntimeError } from '../observability/sentry';
+
+export { DEFAULT_BRIDGE_READY_TIMEOUT_MS };
+
+const BRIDGE_TIMEOUT_LOG_PREFIX = '[EvenG2Adapter]';
+
+export interface HybridEvenG2AdapterOptions {
+  /**
+   * Overrides {@link DEFAULT_BRIDGE_READY_TIMEOUT_MS}.
+   *
+   * Must be a finite, positive number of milliseconds. Anything else falls
+   * back to the default; values beyond the largest delay `setTimeout` can hold
+   * are clamped.
+   */
+  bridgeReadyTimeoutMs?: number;
+}
 
 export interface EvenG2Adapter {
   connect(): Promise<boolean>;
@@ -72,8 +91,27 @@ export class HybridEvenG2Adapter implements EvenG2Adapter {
 
   private disconnectWaiters: Array<() => void> = [];
 
-  constructor(onRender?: (formattedText: string, model: HudViewModel) => void) {
+  /**
+   * Incremented every time a new native page session is established.
+   *
+   * `isConnected` is a plain boolean, so it cannot distinguish "still the
+   * session I was queued for" from "a different session that happens to be
+   * connected now" (ABA). Bridge operations that sit in bridgeQueue capture
+   * this at enqueue time and re-check it before touching the page.
+   */
+  private sessionEpoch = 0;
+
+  private readonly bridgeReadyTimeoutMs: number;
+
+  constructor(
+    onRender?: (formattedText: string, model: HudViewModel) => void,
+    options: HybridEvenG2AdapterOptions = {}
+  ) {
     this.onRenderCallback = onRender;
+    this.bridgeReadyTimeoutMs = resolveBridgeReadyTimeoutMs(
+      options.bridgeReadyTimeoutMs,
+      BRIDGE_TIMEOUT_LOG_PREFIX
+    );
   }
 
   public getLastImageResult(): string {
@@ -127,7 +165,9 @@ export class HybridEvenG2Adapter implements EvenG2Adapter {
   public async connect(): Promise<boolean> {
     try {
       if (!this.bridge) {
-        this.bridge = await waitForEvenAppBridge();
+        // Bounded: an unbounded handshake parks this reconnect loop forever,
+        // with no log and no error. See ../even-app/bridge-ready.
+        this.bridge = await waitForEvenAppBridgeWithin(this.bridgeReadyTimeoutMs);
         console.log('[EvenG2Adapter] waitForEvenAppBridge() resolved!');
       }
 
@@ -149,8 +189,7 @@ export class HybridEvenG2Adapter implements EvenG2Adapter {
         const isSuccess = result === StartUpPageCreateResult.success;
 
         if (!isSuccess) {
-          this.isConnected = false;
-          this.pageReady = false;
+          this.markDisconnected('createStartUpPageContainer failed');
           throw new Error(`createStartUpPageContainer failed with code: ${String(result)}`);
         }
 
@@ -163,6 +202,7 @@ export class HybridEvenG2Adapter implements EvenG2Adapter {
         this.flushedGeneration = 0;
         this.pageReady = true;
         this.isConnected = true;
+        this.sessionEpoch += 1;
         addRuntimeBreadcrumb('railglance.bridge', 'Even G2 page initialized');
         this.subscribeToLifecycleEvents();
 
@@ -179,8 +219,9 @@ export class HybridEvenG2Adapter implements EvenG2Adapter {
     } catch (err) {
       console.log('[EvenG2Adapter] Bridge connection notice:', err);
       captureRuntimeError(err, 'even-g2-connect');
-      this.isConnected = false;
-      this.pageReady = false;
+      // Always route failures through markDisconnected so any waiter registered
+      // by a previous session is released instead of stranding the caller.
+      this.markDisconnected('connect() failed');
     }
     return this.isConnected;
   }
@@ -485,14 +526,28 @@ export class HybridEvenG2Adapter implements EvenG2Adapter {
   }
 
   private async recoverPage(): Promise<void> {
-    if (!this.bridge) return;
+    // Once disconnected, the reconnect loop owns recovery: never resurrect the
+    // session from a stale foreground event.
+    if (!this.bridge || !this.isConnected) return;
+    // Bind this recovery to the session that is live right now. A slow BLE op can
+    // hold bridgeQueue long enough for this session to die and the reconnect loop
+    // to build a replacement, and createStartUpPageContainer does not go through
+    // the queue — so by the time we run, `isConnected` may be true for a session
+    // that was never ours.
+    const epoch = this.sessionEpoch;
     console.log('[EvenG2Adapter] FOREGROUND_ENTER — rebuilding page containers');
+
+    let rebuiltThisSession = false;
     try {
       await this.enqueueBridgeOperation(async () => {
+        // A disconnect — or a whole disconnect/reconnect cycle — may have landed
+        // while this rebuild waited in the queue.
+        if (!this.isConnected || this.sessionEpoch !== epoch) return;
         const rebuilt = await this.bridge.rebuildPageContainer(
           new RebuildPageContainer({ containerTotalNum: 4, ...this.createPageDefinition() })
         );
         if (!rebuilt) throw new Error('rebuildPageContainer failed');
+        if (!this.isConnected || this.sessionEpoch !== epoch) return;
         this.lastHeaderContent = '';
         this.lastSegmentContent = '';
         this.lastFooterContent = '';
@@ -501,23 +556,46 @@ export class HybridEvenG2Adapter implements EvenG2Adapter {
         this.flushedGeneration = 0;
         this.pageReady = true;
         this.isConnected = true;
+        rebuiltThisSession = true;
       });
-
-      if (this.lastModel) {
-        // Force a fresh flush of the latest HUD after rebuild.
-        this.renderGeneration += 1;
-        this.queueHudFlush();
-      } else {
-        await this.queueSpeedImageUpdate(
-          this.latestRequestedSpeedKmh,
-          this.latestRequestedIsEstimated,
-          true
-        );
-      }
     } catch (error) {
-      this.pageReady = false;
       console.warn('[EvenG2Adapter] Page recovery failed:', error);
       captureRuntimeError(error, 'even-g2-page-recovery');
+      // Only our own session's failure means "no usable page". If a newer session
+      // already owns the bridge, tearing it down here would resolve its disconnect
+      // waiter and cost a spurious reconnect cycle for a page we never built.
+      if (this.sessionEpoch === epoch) {
+        // A failed rebuild leaves no usable page: transition to the disconnected
+        // state so waitUntilDisconnected() resolves and AppController reconnects.
+        this.markDisconnected('page recovery failed');
+      }
+      return;
+    }
+
+    if (!rebuiltThisSession) {
+      // Either the session was torn down outright, or it was torn down and a new
+      // one took its place; both leave this recovery with no page of its own.
+      console.log('[EvenG2Adapter] Skipped page recovery (its session is no longer current)');
+      return;
+    }
+
+    if (this.lastModel) {
+      // Force a fresh flush of the latest HUD after rebuild.
+      this.renderGeneration += 1;
+      this.queueHudFlush();
+      return;
+    }
+
+    // Mirrors connect(): the image push is a soft failure and must never drop a
+    // page that was rebuilt successfully.
+    try {
+      await this.queueSpeedImageUpdate(
+        this.latestRequestedSpeedKmh,
+        this.latestRequestedIsEstimated,
+        true
+      );
+    } catch (imgErr) {
+      console.warn('[EvenG2Adapter] Recovery speed PNG update notice:', imgErr);
     }
   }
 }
