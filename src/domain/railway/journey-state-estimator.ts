@@ -5,6 +5,67 @@ import { calculateBearing, calculateHeadingDifference } from '../geo/heading';
 import { haversineDistance } from '../geo/distance';
 import { RailwayDataRepository } from './repository';
 
+const DEFAULT_SEGMENT_LENGTH_METERS = 2000;
+
+type SegmentProgress = {
+  distanceToNextStationMeters: number;
+  progressRatio: number;
+};
+
+/**
+ * DOWN側の別名(DIRECTION_B)も含めて「下り方向かどうか」を判定する。
+ * 駅の割り当て・距離計算・方向名がすべて同じ判定を使うようにするためのヘルパー。
+ */
+export function isDownDirection(direction: TravelDirection): boolean {
+  return direction === 'DOWN' || direction === 'DIRECTION_B';
+}
+
+/**
+ * UP側の別名(DIRECTION_A)も含めて「上り方向かどうか」を判定する。
+ */
+export function isUpDirection(direction: TravelDirection): boolean {
+  return direction === 'UP' || direction === 'DIRECTION_A';
+}
+
+/**
+ * 現在セグメント内の走行位置から、次駅までの距離と進捗率を方向別に算出する。
+ *
+ * - UP  : セグメント終点(toStation)へ向かうため 残距離 = segmentEnd - trackPosition
+ * - DOWN: セグメント始点(fromStation)へ向かうため 残距離 = trackPosition - segmentStart
+ *
+ * trackPosition がセグメント外(手前 / 行き過ぎ)にある場合でも、
+ * 距離は [0, segmentLength]、進捗率は [0, 1] にclampする。
+ * 距離と進捗率は同じセグメント長を基準に導出するため、常に整合する。
+ *
+ * セグメント長が有限の正数でない場合は「算出不能」を意味する null を返す。
+ * ここで 0m / 進捗1.0 を返してしまうと、入力が壊れているだけなのにHUD上は
+ * 「次駅に到着済み」と表示され、さらに progressRatio が非nullになることで
+ * 呼び出し側のhaversineフォールバックまで塞いでしまうため。
+ * フォールバックの選択は呼び出し側に委ねる。
+ */
+export function computeSegmentProgress(
+  trackPositionMeters: number,
+  startOffsetMeters: number,
+  segmentLengthMeters: number,
+  isDown: boolean
+): SegmentProgress | null {
+  if (!Number.isFinite(segmentLengthMeters) || segmentLengthMeters <= 0) {
+    return null;
+  }
+
+  const offsetWithinSegment = Math.min(
+    segmentLengthMeters,
+    Math.max(0, trackPositionMeters - startOffsetMeters)
+  );
+  const remainingMeters = isDown ? offsetWithinSegment : segmentLengthMeters - offsetWithinSegment;
+  const traveledMeters = segmentLengthMeters - remainingMeters;
+
+  return {
+    distanceToNextStationMeters: Math.round(remainingMeters),
+    progressRatio: Math.min(1, Math.max(0, traveledMeters / segmentLengthMeters)),
+  };
+}
+
 export class JourneyStateEstimator {
   private lastSample: LocationSample | null = null;
   private lastConfirmedDirection: TravelDirection = 'UNKNOWN';
@@ -152,12 +213,13 @@ export class JourneyStateEstimator {
     let progressRatio: number | null = null;
 
     const currentSeg = currentSegmentInput || match?.selectedSegment;
+    const isDown = isDownDirection(direction);
 
     if (currentSeg && (currentSeg.fromStationId || currentSeg.toStationId)) {
       const fromSt = lineStations.find((st) => st.id === currentSeg.fromStationId) ?? null;
       const toSt = lineStations.find((st) => st.id === currentSeg.toStationId) ?? null;
 
-      if (direction === 'DOWN') {
+      if (isDown) {
         previousStation = toSt || fromSt;
         nextStation = fromSt || toSt;
       } else {
@@ -166,12 +228,20 @@ export class JourneyStateEstimator {
       }
 
       if (navState && navState.trackPositionMeters !== null && currentSeg.startOffsetMeters !== undefined) {
-        const segLength = currentSeg.lengthMeters ?? 2000;
-        const endOffset = currentSeg.startOffsetMeters + segLength;
-        const remainingMeters = direction === 'DOWN'
-          ? navState.trackPositionMeters - currentSeg.startOffsetMeters
-          : endOffset - navState.trackPositionMeters;
-        distanceToNextStationMeters = Math.max(0, Math.min(segLength, Math.round(remainingMeters)));
+        const segLength = currentSeg.lengthMeters ?? DEFAULT_SEGMENT_LENGTH_METERS;
+        const progress = computeSegmentProgress(
+          navState.trackPositionMeters,
+          currentSeg.startOffsetMeters,
+          segLength,
+          isDown
+        );
+        // セグメント長が使えない場合は両方ともnullのまま残し、「不明」として
+        // 駅フォールバック / haversineフォールバック / UI側の判断に委ねる。
+        // 片方だけ埋めると距離と進捗が矛盾するため、必ず両方まとめて代入する。
+        if (progress) {
+          distanceToNextStationMeters = progress.distanceToNextStationMeters;
+          progressRatio = progress.progressRatio;
+        }
       }
     }
 
@@ -187,7 +257,7 @@ export class JourneyStateEstimator {
         refLon = sample.longitude;
       }
 
-      if (direction === 'UP') {
+      if (!isDown) {
         for (let i = 0; i < orderedStations.length; i++) {
           const st = orderedStations[i];
           let stDistFromRef: number | null = null;
@@ -197,7 +267,7 @@ export class JourneyStateEstimator {
           }
 
           if (refTrackOffset !== null) {
-            const stOffset = (st.sequence - 1) * 2000;
+            const stOffset = (st.sequence - 1) * DEFAULT_SEGMENT_LENGTH_METERS;
             if (stOffset <= refTrackOffset) {
               previousStation = st;
             } else if (!nextStation) {
@@ -214,12 +284,12 @@ export class JourneyStateEstimator {
             }
           }
         }
-      } else if (direction === 'DOWN') {
+      } else {
         const reversed = [...orderedStations].reverse();
         for (let i = 0; i < reversed.length; i++) {
           const st = reversed[i];
           if (refTrackOffset !== null) {
-            const stOffset = (st.sequence - 1) * 2000;
+            const stOffset = (st.sequence - 1) * DEFAULT_SEGMENT_LENGTH_METERS;
             if (stOffset >= refTrackOffset) {
               previousStation = st;
             } else if (!nextStation) {
@@ -239,7 +309,8 @@ export class JourneyStateEstimator {
       }
     }
 
-    if (previousStation && nextStation && distanceToNextStationMeters !== null) {
+    // セグメント長ベースで進捗率を確定できなかった場合のみ、駅間の直線距離で近似する。
+    if (progressRatio === null && previousStation && nextStation && distanceToNextStationMeters !== null) {
       const totalSegDist = haversineDistance(
         previousStation.latitude,
         previousStation.longitude,
@@ -252,10 +323,12 @@ export class JourneyStateEstimator {
       }
     }
 
-    const directionName = direction === 'UP' || direction === 'DIRECTION_A'
-      ? selectedLine.directionAName ?? '上り'
-      : direction === 'DOWN' || direction === 'DIRECTION_B'
-        ? selectedLine.directionBName ?? '下り'
+    // 方向が確定していない場合は方向名を出さない(現状の制御フローでは到達しないが、
+    // 誤った方向名をHUDに出さないためのガードとして残す)。
+    const directionName = isDown
+      ? selectedLine.directionBName ?? '下り'
+      : isUpDirection(direction)
+        ? selectedLine.directionAName ?? '上り'
         : null;
     const confidence = match ? match.confidence : (navState?.confidence ?? 0.5);
 
