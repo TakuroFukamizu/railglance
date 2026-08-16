@@ -103,10 +103,15 @@ jobs:
             exit 1
           fi
 
-          if [[ ! "$R2_ACCOUNT_ID" =~ ^[0-9a-f]{32}$ ]]; then
+          normalized_account_id="${R2_ACCOUNT_ID,,}"
+          if [[ ! "$normalized_account_id" =~ ^[0-9a-f]{32}$ ]]; then
             echo 'R2_ACCOUNT_ID must be the 32-character Cloudflare Account ID from Account home; do not use a Zone ID or R2 token ID.' >&2
             exit 1
           fi
+
+          # GitHub masks the original secret case-sensitively, so mask the
+          # normalized representation before exporting it to later steps.
+          echo "::add-mask::$normalized_account_id"
 
           if [[ ! "$TF_STATE_BUCKET_NAME" =~ ^[a-z0-9]([a-z0-9-]{1,61}[a-z0-9])?$ ]]; then
             echo 'TF_STATE_BUCKET_NAME must be a valid 3-63 character R2 bucket name.' >&2
@@ -124,6 +129,9 @@ jobs:
           fi
 
           {
+            echo "R2_ACCOUNT_ID=$normalized_account_id"
+            echo "AWS_ENDPOINT_URL_S3=https://${normalized_account_id}.r2.cloudflarestorage.com"
+            echo "TF_VAR_account_id=$normalized_account_id"
             echo "TF_VAR_dataset_bucket_name=$R2_BUCKET_NAME"
             echo "TF_VAR_cors_allowed_origins=$origins_json"
           } >> "$GITHUB_ENV"
