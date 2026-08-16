@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { DEFAULT_TRACKING_CONFIG } from '../../src/config/tracking-config';
 import { SpeedEstimator } from '../../src/domain/speed/speed-estimator';
+import { MotionObservation } from '../../src/domain/speed/navigation-state-estimator';
 import { LocationSample } from '../../src/domain/models/location';
 
 describe('SpeedEstimator (Multi-Source & Selection)', () => {
@@ -381,4 +382,176 @@ describe('SpeedEstimator GPS loss transitions (issue #20)', () => {
   // How the unknown state reaches the glasses ('--' / 測位中, no estimated marker) is
   // asserted in tests/even-g2/hud-renderer.test.ts so that HUD wording changes do not
   // break the speed estimation suite.
+});
+
+describe('SpeedEstimator motion-assisted dead reckoning', () => {
+  const LAST_GPS_MS = 10000;
+
+  const seedEstimator = (): SpeedEstimator => {
+    const estimator = new SpeedEstimator(DEFAULT_TRACKING_CONFIG);
+    estimator.update(
+      {
+        latitude: 35.4526,
+        longitude: 139.3900,
+        accuracyMeters: 10,
+        speedMps: 25.0, // 90 km/h
+        headingDegrees: 45,
+        timestampMs: LAST_GPS_MS,
+      },
+      null
+    );
+    return estimator;
+  };
+
+  const feedMotion = (estimator: SpeedEstimator, timestampMs: number, isStill = false): void => {
+    estimator.getNavStateEstimator().updateWithMotion({
+      trackAccelerationMps2: null, // no orientation fusion: sign of the accel is unknown
+      timestampMs,
+      isValid: true,
+      isStillInferred: isStill,
+    });
+  };
+
+  it('keeps coasting past coastingMaxMs while the accelerometer reports movement', async () => {
+    const estimator = seedEstimator();
+
+    // devicemotion keeps arriving through the whole outage (render tick pulls it in).
+    let state = await estimator.getEstimateAtAsync(LAST_GPS_MS + 1000);
+    for (let sec = 2; sec <= 90; sec++) {
+      const nowMs = LAST_GPS_MS + sec * 1000;
+      feedMotion(estimator, nowMs);
+      state = await estimator.getEstimateAtAsync(nowMs);
+
+      if (sec === 46 || sec === 61 || sec === 90) {
+        // Beyond the GPS-only budget (45s) and even beyond the lost declaration (60s)
+        // the sensor corroborates that the train is still moving.
+        expect(state.selectedEstimate.source).toBe('dead-reckoning');
+        expect(state.selectedEstimate.speedKmh).toBeGreaterThan(0);
+        expect(state.navState.mode).toBe('dead-reckoning-low-confidence');
+        expect(state.isValid).toBe(true);
+      }
+    }
+  });
+
+  it('reports unknown once the motion-assisted budget itself expires', async () => {
+    const estimator = seedEstimator();
+    const expiredMs = LAST_GPS_MS + DEFAULT_TRACKING_CONFIG.motionCoastingMaxMs + 1000;
+
+    feedMotion(estimator, expiredMs);
+    const state = await estimator.getEstimateAtAsync(expiredMs);
+
+    expect(state.selectedEstimate.source).toBe('unknown');
+    expect(state.smoothedSpeedKmh).toBeNull();
+    expect(state.isValid).toBe(false);
+  });
+
+  it('falls back to the 45s budget as soon as motion data goes stale', async () => {
+    const estimator = seedEstimator();
+
+    // Sensor died 20s ago; its last observation must not keep the extension alive.
+    feedMotion(estimator, LAST_GPS_MS + 30000);
+    const state = await estimator.getEstimateAtAsync(LAST_GPS_MS + 50000);
+
+    expect(state.selectedEstimate.source).toBe('unknown');
+    expect(state.isValid).toBe(false);
+  });
+
+  it('drives the coasted speed to zero when the accelerometer reports stillness', async () => {
+    const estimator = seedEstimator();
+
+    let state = await estimator.getEstimateAtAsync(LAST_GPS_MS + 1000);
+    for (let sec = 2; sec <= 60; sec++) {
+      const nowMs = LAST_GPS_MS + sec * 1000;
+      feedMotion(estimator, nowMs, true);
+      state = await estimator.getEstimateAtAsync(nowMs);
+    }
+
+    // Stopped at an underground platform: report 0, not '--' and not the held 90.
+    expect(state.selectedEstimate.source).toBe('dead-reckoning');
+    expect(state.selectedEstimate.speedKmh).toBe(0);
+    expect(state.navState.velocityMps).toBe(0);
+    expect(state.navState.mode).toBe('dead-reckoning-low-confidence');
+  });
+
+  it('does not resurrect the pre-stillness speed when vibration resumes', async () => {
+    const estimator = seedEstimator();
+
+    for (let sec = 2; sec <= 20; sec++) {
+      const nowMs = LAST_GPS_MS + sec * 1000;
+      feedMotion(estimator, nowMs, true);
+      await estimator.getEstimateAtAsync(nowMs);
+    }
+    // The train departs again: the hold schedule is still anchored to the 90 km/h
+    // pre-outage fix, but the displayed speed must ramp from 0, not jump back.
+    let state = await estimator.getEstimateAtAsync(LAST_GPS_MS + 20000);
+    for (let sec = 21; sec <= 30; sec++) {
+      const nowMs = LAST_GPS_MS + sec * 1000;
+      feedMotion(estimator, nowMs, false);
+      state = await estimator.getEstimateAtAsync(nowMs);
+    }
+
+    expect(state.selectedEstimate.speedKmh).toBeLessThan(35);
+  });
+
+  it('pulls the latest observation from the sensor provider on every estimate', async () => {
+    // The provider is event-driven infrastructure; the estimator must ingest its
+    // latest observation on each tick or the extension never activates in the app.
+    const fakeProvider = {
+      latest: null as MotionObservation | null,
+      estimateSpeed: async () => ({ speedKmh: null, confidence: 0, source: 'sensor-fusion' as const, timestamp: 0 }),
+      setLastKnownSpeed: () => {},
+      getLatestObservation() {
+        return this.latest;
+      },
+    };
+    const estimator = new SpeedEstimator(DEFAULT_TRACKING_CONFIG, undefined, fakeProvider);
+    estimator.update(
+      {
+        latitude: 35.4526,
+        longitude: 139.3900,
+        accuracyMeters: 10,
+        speedMps: 25.0,
+        headingDegrees: 45,
+        timestampMs: LAST_GPS_MS,
+      },
+      null
+    );
+
+    const probeMs = LAST_GPS_MS + 50000;
+    fakeProvider.latest = {
+      trackAccelerationMps2: null,
+      timestampMs: probeMs,
+      isValid: true,
+      isStillInferred: false,
+    };
+    const state = await estimator.getEstimateAtAsync(probeMs);
+
+    // Without ingestion this would be 'unknown' (past the 45s GPS-only budget).
+    expect(state.selectedEstimate.source).toBe('dead-reckoning');
+  });
+
+  it('does not resurrect the pre-stop speed when GPS dies right after a stop', async () => {
+    const estimator = seedEstimator(); // moving at 90 km/h
+    let ts = LAST_GPS_MS;
+    for (let i = 1; i <= 10; i++) {
+      ts = LAST_GPS_MS + i * 1000;
+      estimator.update(
+        {
+          latitude: 35.4526,
+          longitude: 139.3900,
+          accuracyMeters: 5,
+          speedMps: 0,
+          headingDegrees: null,
+          timestampMs: ts,
+        },
+        null
+      );
+    }
+
+    // GPS dies while standing at the platform; DR must hold the stop, not the
+    // 90 km/h the train had before braking.
+    const state = await estimator.getEstimateAtAsync(ts + 10000);
+    expect(state.selectedEstimate.source).toBe('dead-reckoning');
+    expect(state.selectedEstimate.speedKmh).toBe(0);
+  });
 });

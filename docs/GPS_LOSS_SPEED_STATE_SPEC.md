@@ -21,7 +21,9 @@ HUD に何を表示するかを定める。issue #20 および PR #23 のレビ�
 | 表示状態 | `HudStatusMode` | `HudRenderer.createViewModel()` | グラス上でどう見せるか |
 
 3層がずれる区間が存在するのが本仕様の要点である。とくに **GPS 経過 45〜60 秒**は
-「測位状態はまだ `dead-reckoning-low-confidence` だが、速度状態は `unknown`」という状態になる。
+「測位状態はまだ `dead-reckoning-low-confidence` だが、速度状態は `unknown`」という状態になる
+（モーションセンサー無しの場合。センサーが新鮮な間は §8 の延伸が働き、この区間も
+`dead-reckoning` のまま速度を表示し続ける）。
 
 ---
 
@@ -33,12 +35,18 @@ HUD に何を表示するかを定める。issue #20 および PR #23 のレビ�
 | --- | --- | --- | --- |
 | `staleLocationMs` | 2000 ms | `tracking-config.ts` | GPS fix の鮮度上限。超えたら DR に引き継ぐ |
 | `coastingMaxMs` | 45000 ms | `tracking-config.ts` | 最終 fix からの DR コースティング上限。超えたら `unknown` |
+| `motionCoastingMaxMs` | 180000 ms | `tracking-config.ts` | 加速度センサーが新鮮な間の延伸コースティング上限（§8） |
+| `motionFreshnessMs` | 2000 ms | `tracking-config.ts` | モーション観測を「新鮮」とみなす上限。超えたら 45s 予算へ即時フォールバック |
 | gps-locked 上限 | 2000 ms | `navigation-state-estimator.ts` **ハードコード** | mode 遷移 |
 | gps-degraded 上限 | 5000 ms | 同上 **ハードコード** | mode 遷移 |
 | dead-reckoning 上限 | 20000 ms | 同上 **ハードコード** | mode 遷移 |
 | lost 宣言 | 60000 ms 超 | 同上 **ハードコード** | mode 遷移 |
 | DR 速度保持 | 3 / 15 / 45 s | 同上 **ハードコード** | 速度減衰スケジュール（§5） |
 | reacquiring ホールド破棄 | 2000 ms | 同上 **ハードコード** | 再消失時に mode 遷移を再開（§3） |
+| 静止時ブレーキ | 1.5 m/s² | 同上 **ハードコード** | 静止検出時に速度を 0 へ（§8.3） |
+| コースティング上昇制限 | 0.8 m/s² | 同上 **ハードコード** | GPS 無しでの速度復活防止（§8.3） |
+| 延伸中ドラッグ | 0.1 m/s² | 同上 **ハードコード** | 45s 超のモーション延伸中の減衰（§8.3） |
+| 静止判定 | 振動 < 0.05 m/s² を 3 s 持続 | `device-motion-sensor-fusion-provider.ts` **ハードコード** | `isStillInferred` の判定（§8.2） |
 | `emaAlpha` | 0.3 | `tracking-config.ts` | GPS 由来速度の平滑化係数 |
 | DR 時の EMA 係数 | 0.1 | `speed-filter.ts` **ハードコード** | DR 中の平滑化係数 |
 | HUD 路線信頼度閾値 | 0.55 | `hud-renderer.ts` **ハードコード**（2箇所） | UNCERTAIN 判定・路線名の表示可否（§6） |
@@ -68,7 +76,7 @@ stateDiagram-v2
     LOCKED --> DEGRADED: GPS経過 2s 超 または 低精度fix
     DEGRADED --> DR: GPS経過 5s 超
     DR --> DRLOW: GPS経過 20s 超
-    DRLOW --> LOST: GPS経過 60s 超
+    DRLOW --> LOST: GPS経過 60s 超（モーション新鮮なら motionCoastingMaxMs まで猶予）
 
     DR --> REACQ: GPS fix 受信（高精度）
     DRLOW --> REACQ: GPS fix 受信（高精度）
@@ -99,7 +107,7 @@ stateDiagram-v2
 flowchart TD
     START(["getEstimateAt / getEstimateAtAsync"]) --> P0{"直近の確定状態がある?"}
     P0 -- No --> UNKNOWN["unknown を返す"]
-    P0 -- Yes --> P1{"GPS経過 > coastingMaxMs<br/>または mode = lost"}
+    P0 -- Yes --> P1{"GPS経過 > コースティング予算<br/>（モーション新鮮なら motionCoastingMaxMs、<br/>それ以外は coastingMaxMs）<br/>または mode = lost"}
     P1 -- Yes --> RESET["speedFilter.reset()"]
     RESET --> UNKNOWN
     P1 -- No --> P2{"GPS経過 > staleLocationMs<br/>または mode = dead-reckoning系"}
@@ -114,24 +122,28 @@ flowchart TD
 
 ---
 
-## 5. DR 速度の減衰スケジュール
+## 5. DR 速度の減衰スケジュール（GPS-only）
 
-`NavigationStateEstimator.predict()` が保持する速度。加速度センサー入力ではなく
-**最終 GPS 速度の保持と減衰**である（§8 参照）。
+`NavigationStateEstimator.predict()` が保持する速度。本節は**加速度センサーが
+利用できない（または途絶した）場合**の基本スケジュールであり、センサーが新鮮な間の
+挙動は §8.3 が上書きする。ベースは**最終 GPS 速度の保持と減衰**である。
 
 | GPS経過 | 速度の扱い |
 | --- | --- |
 | 〜3s | 最終有効速度 + `accelerationMps2 × dt`（dt は predict の tick 間隔） |
 | 3〜15s | 最終有効速度を保持 |
 | 15〜45s | `最終有効速度 − 0.1 × (経過秒 − 15)` m/s で線形減衰 |
-| **45s 超** | **0 に落とす（ハードコード）** |
+| **45s 超** | **0 に落とす**（モーション新鮮時は §8.3 の延伸が適用される） |
+
+保持のアンカー（最終有効速度）は直近の有効 fix の速度であり、0 km/h の有効 fix でも
+更新される（停車直後の GPS 消失でブレーキ前の速度が復活しないため。§8.3）。
 
 > ⚠️ 〜3s 区間の `dt` は predict の tick 間隔（100〜250ms）であり、GPS 経過時間ではない。
 > 毎 tick 最終有効速度から再計算されるため加速度項は**累積しない**。寄与は
 > `a × 1tick分` に留まり実質無視できる（§8 の「加速度センサー未配線」と整合）。
 > 3 秒間の外挿積分と読んではならない。
 
-90 km/h で GPS を失った場合の実測値:
+90 km/h で GPS を失った場合の実測値（モーションセンサー無し）:
 
 | GPS経過 | navState 速度 | 報告する速度 | HUD 表示 | mode |
 | --- | --- | --- | --- | --- |
@@ -142,10 +154,11 @@ flowchart TD
 | **46s** | **0.0 km/h** | **unknown** | `--` | dead-reckoning-low-confidence |
 | 61s | 0.0 km/h | unknown | `--` | lost |
 
-> `coastingMaxMs` を延ばしても 45s 超の速度は復活しない。減衰スケジュール側が 0 にするため、
-> 表示される数値は EMA の残像にすぎない（実測: 46s で raw 0 km/h に対し EMA 74.1 km/h）。
+> センサー無しで `coastingMaxMs` だけを延ばしても 45s 超の速度は復活しない。減衰スケジュール側が
+> 0 にするため、表示される数値は EMA の残像にすぎない（実測: 46s で raw 0 km/h に対し EMA 74.1 km/h）。
 > **最後の速度を無期限に固定表示してはならない**（要件 §14.6）という規定に対し、
-> `coastingMaxMs` はその打ち切り点を定めるものである。
+> `coastingMaxMs` はその打ち切り点を定めるものである。45s 超のコースティングを正当化できるのは
+> センサーの裏付け（§8）だけであり、その場合の打ち切り点が `motionCoastingMaxMs` である。
 
 ---
 
@@ -215,20 +228,77 @@ flowchart TD
 
 ---
 
-## 8. 既知の制約: 加速度センサーは未配線
+## 8. 加速度センサーによるコースティング延伸
 
-**現状の「dead reckoning」は加速度センサーを使っていない。** 実装上の事実:
+加速度センサーは DR に配線済み（要件 §9 のとおり**補助入力**であり、無くても §5 の
+GPS-only スケジュールで動作する）。
 
-- `NavigationStateEstimator.updateWithMotion()` — 呼び出し元なし
-- `DeviceMotionSensorFusionProvider.estimateSpeed()` — 呼び出し元なし（`candidates.sensorFusionSpeed` は常に `null`）
-- `SpeedEstimator` が保持する provider は `setLastKnownSpeed()` のみ呼ぶ
+### 8.1 配線経路（pull 型）
+
+```text
+devicemotion イベント
+  → DeviceMotionSensorFusionProvider.ingestAccelerationSample()
+      （静止/振動の推定を更新）
+  → SpeedEstimator.getEstimateAt / getEstimateAtAsync が毎 tick
+      provider.getLatestObservation() を pull
+  → NavigationStateEstimator.updateWithMotion() に投入
+  → predict() が鮮度を判定してコースティングに反映
+```
+
+push 購読は存在しない。render tick（100〜250ms）ごとの pull で十分な鮮度が得られる。
+
+### 8.2 センサーが主張できること・できないこと
+
+デバイスの姿勢推定（orientation fusion）が無いため、**進行方向の符号付き加速度は取得できない**。
+`MotionObservation.trackAccelerationMps2` は常に `null` であり、センサーが主張するのは
+以下の 2 値のみ:
+
+| 主張 | 検出方法 |
+| --- | --- |
+| 静止（`isStillInferred: true`） | 振動エネルギー（瞬時 magnitude と自身の EMA の偏差の EMA）が 0.05 m/s² 未満、かつ持続 3 秒以上 |
+| 走行中（`isStillInferred: false`） | 上記以外（車体振動が検出されている） |
+
+> ⚠️ magnitude の平均値だけでは静止と定速走行を区別できない（どちらも平均 ≈ 9.8）。
+> 判定には必ず振動（EMA からの偏差）を使うこと。また重力の基準値は実際に使用した
+> 配列（`acceleration` / `accelerationIncludingGravity`）に対応させること。
+> gravity-free の値に 9.8 を引いた過去実装では静止が永遠に検出されなかった。
+
+### 8.3 コースティングへの反映
+
+| センサー状態 | 速度への作用 | 打ち切り予算 |
+| --- | --- | --- |
+| 新鮮（≤ `motionFreshnessMs`）・走行中 | 45s 超も 0.1 m/s² のドラッグ減衰を継続 | `motionCoastingMaxMs`（180s） |
+| 新鮮・静止 | 1.5 m/s² で 0 へブレーキ（HUD は `--` でなく `0 ~` を表示） | `motionCoastingMaxMs`（180s） |
+| 途絶（> `motionFreshnessMs`） | §5 の GPS-only スケジュールに即時フォールバック | `coastingMaxMs`（45s） |
+
+mode の `lost` 宣言（60s）も、センサーが新鮮な間は `motionCoastingMaxMs` まで猶予され、
+`dead-reckoning-low-confidence`（信頼度 0.15）に留まる。
+
+**速度の復活防止（スルーレート制限）:** 保持スケジュールは GPS 消失前の速度に
+アンカーされているため、静止検出で 0 になった後に振動が再開すると、素朴な実装では
+消失前の速度が瞬時に復活する。コースティング中の速度上昇は 0.8 m/s²（現実的な
+列車の加速度）に制限する。同じ理由で、**停車直後に GPS が消えた場合**の保持アンカーは
+ブレーキ前の速度ではなく直近の有効 fix の速度（= 0）でなければならない
+（`lastKnownValidVelocityMps` は 0 km/h の有効 fix でも更新する）。
+
+実測（90 km/h で GPS 消失、センサーが走行中を報告し続けた場合）:
+
+| GPS経過 | 報告する速度 | mode |
+| --- | --- | --- |
+| 45s | dead-reckoning 79.2 | dead-reckoning-low-confidence |
+| 61s | dead-reckoning 73.4 | dead-reckoning-low-confidence（lost 猶予） |
+| 120s | dead-reckoning 52.2 | dead-reckoning-low-confidence |
+| 180s | dead-reckoning 30.6 | dead-reckoning-low-confidence |
+| 181s | **unknown** | **lost** |
+
+### 8.4 残存する制約
+
+- 符号付き進行方向加速度は無いため、走行中の加減速はセンサーから推定できない
+  （減衰はあくまで §5/§8.3 のスケジュール）。orientation fusion は Phase 2/3。
+- `DeviceMotionSensorFusionProvider.estimateSpeed()` は引き続き未使用
+  （`candidates.sensorFusionSpeed` は常に `null`）。
 - `main.ts` の provider は権限リクエストボタン専用の別インスタンス
-
-`predict()` の `accelerationMps2` は `updateWithGps()` が GPS 速度差分から算出した値のみで、
-しかも GPS 経過 3 秒以内の分岐でしか使われない。
-
-この制約が §5 の「45 秒で 0 に落とす」設計の根拠になっている。加速度センサーを実際に配線して
-DR を延伸する場合は、`updateWithMotion()` の接続に加えて減衰スケジュール自体の再設計が必要。
+  （権限はグローバルなので `SpeedEstimator` 内のインスタンスにも効く）。
 
 ---
 
@@ -242,6 +312,11 @@ DR を延伸する場合は、`updateWithMotion()` の接続に加えて減衰�
 - `getEstimateAtAsync()` に `await` がなく、同期版 `getEstimateAt()` は本番の呼び出し元を持たない。
 - `AppController` は `isValid === false` で `GPS_UNAVAILABLE` を立てるが、低精度 fix でも
   `isValid` は `false` になるため、この status を「GPS 消失」の判定に使ってはならない。
+- 静止検出の閾値（振動 0.05 m/s² / 持続 3 s）は実機の車内データで未較正。誤って静止と
+  判定すると走行中に速度が 0 へ落ちるため、実機検証（要件 §9 のチェックリスト）とあわせて
+  調整が必要。
+- DR 中の EMA 係数 0.1 により、静止検出後の表示速度が実推定値に対して十数秒遅れて追従する
+  （実測: ブレーキ開始 10 秒後に raw 18 km/h に対し表示 53 km/h）。
 
 ---
 
@@ -250,6 +325,7 @@ DR を延伸する場合は、`updateWithMotion()` の接続に加えて減衰�
 | 対象 | 実装 | テスト |
 | --- | --- | --- |
 | 分岐順・不変条件 | `src/domain/speed/speed-estimator.ts` | `tests/speed/speed-estimator.test.ts` |
-| mode 遷移・減衰 | `src/domain/speed/navigation-state-estimator.ts` | 同上（間接） |
+| mode 遷移・減衰・モーション延伸 | `src/domain/speed/navigation-state-estimator.ts` | 同上（間接） |
+| 静止/振動の検出 | `src/infrastructure/sensors/device-motion-sensor-fusion-provider.ts` | `tests/sensors/device-motion-sensor-fusion-provider.test.ts` |
 | 表示マッピング | `src/infrastructure/even-g2/hud-renderer.ts` | `tests/even-g2/hud-renderer.test.ts` |
 | 閾値 | `src/config/tracking-config.ts` | — |

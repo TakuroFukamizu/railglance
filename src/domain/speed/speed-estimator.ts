@@ -10,6 +10,7 @@ import { haversineDistance } from '../geo/distance';
 import { SpeedFilter } from './speed-filter';
 import { DefaultSpeedSelector, SpeedSelector } from './speed-selector';
 import { DeviceMotionSensorFusionProvider } from '../../infrastructure/sensors/device-motion-sensor-fusion-provider';
+import { SensorFusionProvider } from '../interfaces/sensor-fusion';
 import { NavigationStateEstimator } from './navigation-state-estimator';
 import { RouteMatch, TrackSegment } from '../models/railway';
 
@@ -20,17 +21,18 @@ export class SpeedEstimator {
 
   private speedFilter: SpeedFilter;
   private speedSelector: SpeedSelector;
-  private sensorFusionProvider: DeviceMotionSensorFusionProvider;
+  private sensorFusionProvider: SensorFusionProvider;
   private navEstimator: NavigationStateEstimator;
   private lastFullState: FullSpeedState | null = null;
 
   constructor(
     private config: TrackingConfig,
-    customSelector?: SpeedSelector
+    customSelector?: SpeedSelector,
+    motionSource?: SensorFusionProvider
   ) {
     this.speedFilter = new SpeedFilter(config);
     this.speedSelector = customSelector ?? new DefaultSpeedSelector();
-    this.sensorFusionProvider = new DeviceMotionSensorFusionProvider();
+    this.sensorFusionProvider = motionSource ?? new DeviceMotionSensorFusionProvider();
     this.navEstimator = new NavigationStateEstimator(config);
   }
 
@@ -179,14 +181,29 @@ export class SpeedEstimator {
   }
 
   public async getEstimateAtAsync(currentTimeMs: number, availableSegments?: TrackSegment[]): Promise<FullSpeedState> {
-    // 1. Run time-driven prediction step on NavigationStateEstimator with available segments
+    // 1. Feed the latest accelerometer observation, then run the time-driven
+    //    prediction step on NavigationStateEstimator with available segments
+    this.ingestLatestMotion();
     const predictedNavState = this.navEstimator.predict(currentTimeMs, availableSegments);
     return this.resolveStateAt(currentTimeMs, predictedNavState);
   }
 
   public getEstimateAt(currentTimeMs: number): FullSpeedState {
+    this.ingestLatestMotion();
     const predictedNavState = this.navEstimator.predict(currentTimeMs);
     return this.resolveStateAt(currentTimeMs, predictedNavState);
+  }
+
+  /**
+   * Pulls the latest devicemotion-derived observation into the navigation
+   * estimator. The provider is event-driven; this pull runs on every estimate
+   * tick so dead reckoning sees motion data without a push subscription.
+   */
+  private ingestLatestMotion(): void {
+    const observation = this.sensorFusionProvider.getLatestObservation();
+    if (observation?.isValid) {
+      this.navEstimator.updateWithMotion(observation);
+    }
   }
 
   /**
@@ -206,8 +223,12 @@ export class SpeedEstimator {
 
     // 2. GPS considered unavailable: coasting budget exhausted, or navigation state lost.
     //    This is checked BEFORE dead-reckoning so that an expired fix can never be
-    //    reported as a coasted speed (issue #20).
-    if (timeSinceLastGps > this.config.coastingMaxMs || predictedNavState.mode === 'lost') {
+    //    reported as a coasted speed (issue #20). Fresh accelerometer data extends
+    //    the budget (still/moving corroboration); a stale sensor falls straight back.
+    const coastingBudgetMs = this.navEstimator.hasFreshMotion(currentTimeMs)
+      ? Math.max(this.config.coastingMaxMs, this.config.motionCoastingMaxMs)
+      : this.config.coastingMaxMs;
+    if (timeSinceLastGps > coastingBudgetMs || predictedNavState.mode === 'lost') {
       // Drop the smoothing state as well. The EMA still holds the speed the train had
       // when GPS died, and nothing feeds it while the speed is unknown, so leaving it
       // in place would blend a minutes-old speed into the first fix after reacquisition.

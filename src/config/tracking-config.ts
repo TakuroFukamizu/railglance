@@ -17,6 +17,17 @@ export type TrackingConfig = {
    * as unknown (HUD shows '--') instead of a coasted estimate.
    */
   coastingMaxMs: number;
+  /**
+   * Extended coasting budget that applies while fresh accelerometer data
+   * corroborates the dead-reckoning estimate (still vs moving). Falls back to
+   * coastingMaxMs the moment motion data goes stale.
+   */
+  motionCoastingMaxMs: number;
+  /**
+   * How recent the last accelerometer observation must be to count as "fresh"
+   * for the motion-assisted coasting extension.
+   */
+  motionFreshnessMs: number;
   routeSearchRadiusMeters: number;
   routeSwitchConsecutiveCount: number;
   routeSwitchMinimumMs: number;
@@ -35,6 +46,8 @@ export const DEFAULT_TRACKING_CONFIG: TrackingConfig = {
   hudRefreshMs: 1000,
   staleLocationMs: 2000,  // A fix older than 2s is stale -> switch to dead-reckoning
   coastingMaxMs: 45000,   // Coast on dead-reckoning for up to 45s, then report unknown
+  motionCoastingMaxMs: 180000, // With fresh accelerometer corroboration, coast up to 3min
+  motionFreshnessMs: 2000,     // Motion observations older than this do not extend coasting
   routeSearchRadiusMeters: 1000.0,
   routeSwitchConsecutiveCount: 3,
   routeSwitchMinimumMs: 5000,

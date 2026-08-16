@@ -9,9 +9,16 @@ export interface GpsObservation {
 }
 
 export interface MotionObservation {
-  trackAccelerationMps2: number;
+  /**
+   * Signed acceleration along the direction of travel, or null when the device
+   * orientation is unknown and no signed longitudinal component can be claimed
+   * (the DeviceMotion provider without orientation fusion always reports null).
+   */
+  trackAccelerationMps2: number | null;
   timestampMs: number;
   isValid: boolean;
+  /** True when the accelerometer reports no carriage vibration (train standing). */
+  isStillInferred: boolean;
 }
 
 export class NavigationStateEstimator {
@@ -21,8 +28,12 @@ export class NavigationStateEstimator {
 
   private accelerationDecaySec = 5.0; // Acceleration decay time constant
   private maxTrainSpeedMps = 111.11;  // ~400 km/h
+  private stillDecelMps2 = 1.5;       // Braking applied when the accelerometer reports stillness
+  private maxSpontaneousAccelMps2 = 0.8; // Fastest a coasted speed may climb without a GPS fix
+  private coastingDragMps2 = 0.1;     // Drag applied while coasting past the hold window
   private reacquiringFramesLeft = 0;
   private lastKnownValidVelocityMps = 0;
+  private lastMotion: MotionObservation | null = null;
 
   constructor(private config: TrackingConfig) {
     const now = Date.now();
@@ -76,21 +87,40 @@ export class NavigationStateEstimator {
       ? Math.max(0, nowMs - this.navState.lastObservationTimestampMs)
       : Infinity;
 
+    const motionFresh = this.hasFreshMotion(nowMs);
+    const motionStill = motionFresh && (this.lastMotion?.isStillInferred ?? false);
+
     // 1. Dead reckoning velocity prediction & coasting hold logic (Requirements Sec 5.4)
     if (gpsAgeMs > 2000 && this.lastKnownValidVelocityMps > 0) {
       const gpsAgeSec = gpsAgeMs / 1000;
       let targetVelocity = this.lastKnownValidVelocityMps;
 
-      if (gpsAgeSec <= 3) {
+      if (motionStill) {
+        // The accelerometer reports no carriage vibration: the train is standing,
+        // regardless of what the hold schedule says. Brake the estimate to 0.
+        targetVelocity = Math.max(0, this.navState.velocityMps - this.stillDecelMps2 * dt);
+      } else if (gpsAgeSec <= 3) {
         targetVelocity += this.navState.accelerationMps2 * dt;
       } else if (gpsAgeSec <= 15) {
         targetVelocity = this.lastKnownValidVelocityMps;
       } else if (gpsAgeSec <= 45) {
         const dragSec = gpsAgeSec - 15;
         targetVelocity = Math.max(0, this.lastKnownValidVelocityMps - 0.1 * dragSec);
+      } else if (motionFresh && gpsAgeMs <= this.config.motionCoastingMaxMs) {
+        // Past the GPS-only schedule, but the sensor corroborates that the train is
+        // still moving: keep the drag going instead of zeroing the estimate.
+        targetVelocity = Math.max(0, this.navState.velocityMps - this.coastingDragMps2 * dt);
       } else {
         targetVelocity = 0;
       }
+
+      // The hold schedule is anchored to the pre-outage fix; never let it climb the
+      // estimate back up faster than a train can physically accelerate (this is what
+      // resurrects 90 km/h after a stillness stop otherwise).
+      targetVelocity = Math.min(
+        targetVelocity,
+        this.navState.velocityMps + this.maxSpontaneousAccelMps2 * dt
+      );
 
       this.navState.velocityMps = Math.max(0, Math.min(this.maxTrainSpeedMps, targetVelocity));
 
@@ -155,9 +185,21 @@ export class NavigationStateEstimator {
     }
 
     // 3. Navigation Mode state machine based on GPS Age
-    this.updateNavigationMode(gpsAgeMs);
+    const motionCoastingActive = motionFresh && gpsAgeMs <= this.config.motionCoastingMaxMs;
+    this.updateNavigationMode(gpsAgeMs, false, motionCoastingActive);
 
     return this.navState;
+  }
+
+  /**
+   * True while the last accelerometer observation is recent enough to corroborate
+   * dead reckoning (and therefore to extend the coasting budget).
+   */
+  public hasFreshMotion(nowMs: number): boolean {
+    return (
+      this.lastMotion !== null &&
+      nowMs - this.lastMotion.timestampMs <= this.config.motionFreshnessMs
+    );
   }
 
   /**
@@ -218,7 +260,9 @@ export class NavigationStateEstimator {
       }
     }
 
-    if (!isLowAccuracy && this.navState.velocityMps > 0) {
+    if (!isLowAccuracy) {
+      // A clean 0-speed fix is valid information: if GPS dies right after the train
+      // stopped, the hold schedule must anchor to 0, not to the pre-braking speed.
       this.lastKnownValidVelocityMps = this.navState.velocityMps;
     }
 
@@ -237,12 +281,16 @@ export class NavigationStateEstimator {
   public updateWithMotion(motion: MotionObservation): TrackNavigationState {
     if (!motion.isValid) return this.navState;
 
-    const correctedAccel = motion.trackAccelerationMps2 - this.navState.accelerationBiasMps2;
-    this.navState.accelerationMps2 = 0.3 * correctedAccel + 0.7 * this.navState.accelerationMps2;
+    this.lastMotion = motion;
+
+    if (motion.trackAccelerationMps2 !== null) {
+      const correctedAccel = motion.trackAccelerationMps2 - this.navState.accelerationBiasMps2;
+      this.navState.accelerationMps2 = 0.3 * correctedAccel + 0.7 * this.navState.accelerationMps2;
+    }
     return this.navState;
   }
 
-  private updateNavigationMode(gpsAgeMs: number, isLowAccuracy = false): void {
+  private updateNavigationMode(gpsAgeMs: number, isLowAccuracy = false, motionCoastingActive = false): void {
     // The reacquiring hold only survives while fixes keep arriving. If GPS dies
     // again before the blend frames are consumed, drop the hold so the mode ages
     // back through gps-degraded -> dead-reckoning -> lost instead of pinning
@@ -274,6 +322,11 @@ export class NavigationStateEstimator {
       this.navState.mode = 'dead-reckoning-low-confidence';
       const drRatio = (gpsAgeMs - 20000) / 40000;
       this.navState.confidence = Math.max(0.15, 0.4 - drRatio * 0.25);
+    } else if (motionCoastingActive) {
+      // Fresh accelerometer data corroborates the dead-reckoning estimate: defer the
+      // lost declaration until the motion-assisted coasting budget expires too.
+      this.navState.mode = 'dead-reckoning-low-confidence';
+      this.navState.confidence = 0.15;
     } else {
       this.navState.mode = 'lost';
       this.navState.confidence = 0.0;
@@ -289,6 +342,7 @@ export class NavigationStateEstimator {
     const now = Date.now();
     this.reacquiringFramesLeft = 0;
     this.lastKnownValidVelocityMps = 0;
+    this.lastMotion = null;
     this.currentSegment = null;
     this.navState = {
       lineId: null,
