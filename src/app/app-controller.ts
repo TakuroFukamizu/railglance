@@ -12,6 +12,75 @@ import { LocationProvider } from '../infrastructure/geolocation/browser-location
 import { EstimationLogEntry, EstimationLogger } from '../infrastructure/logging/logger';
 import { findClosestPointOnPolyline } from '../domain/geo/polyline';
 
+/**
+ * Upper bound for a single location provider `start()` / `stop()` call.
+ *
+ * These calls run inside the lifecycle FIFO queue, so one that never settles would
+ * never release the queue tail and would wedge every later start/stop/switch. The
+ * providers can genuinely park forever: `EvenAppLocationProvider.start()` awaits the
+ * SDK's `waitForEvenAppBridge()`, which resolves on an `evenAppBridgeReady` event and
+ * exposes no timeout of its own. Ten seconds is generous next to the provider's own
+ * 5s `getAppLocation` bound while still failing fast enough that the user can reach
+ * the demo/replay buttons.
+ */
+export const DEFAULT_LOCATION_LIFECYCLE_TIMEOUT_MS = 10_000;
+
+/**
+ * Largest delay `setTimeout` can actually hold (2^31 - 1 ms, ~24.9 days).
+ *
+ * Anything above it overflows the 32-bit timer and fires after ~1ms instead, so a
+ * caller asking for a very long bound would silently get an instant one.
+ */
+const MAX_TIMER_DELAY_MS = 2_147_483_647;
+
+/** Raised when a provider lifecycle call exceeds its bound and is abandoned. */
+export class LocationLifecycleTimeoutError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'LocationLifecycleTimeoutError';
+  }
+}
+
+export interface AppControllerOptions {
+  /**
+   * Overrides {@link DEFAULT_LOCATION_LIFECYCLE_TIMEOUT_MS}.
+   *
+   * Must be a finite, positive number of milliseconds. Anything else falls back to
+   * the default; values beyond {@link MAX_TIMER_DELAY_MS} are clamped.
+   */
+  locationLifecycleTimeoutMs?: number;
+}
+
+/**
+ * Resolves the configured lifecycle bound to a delay `setTimeout` can honour.
+ *
+ * `setTimeout` never rejects a bad delay, it quietly substitutes 1ms: `Infinity`,
+ * `NaN` and negatives all fire on the next tick. Passing one through would not
+ * restore the unbounded wait this bound exists to prevent — it causes the opposite
+ * failure, every provider start being abandoned before it can succeed.
+ */
+function resolveLocationLifecycleTimeoutMs(value: number | undefined): number {
+  if (value === undefined) return DEFAULT_LOCATION_LIFECYCLE_TIMEOUT_MS;
+
+  if (!Number.isFinite(value) || value <= 0) {
+    console.warn(
+      `[AppController] Ignoring invalid locationLifecycleTimeoutMs (${value}); ` +
+        `falling back to ${DEFAULT_LOCATION_LIFECYCLE_TIMEOUT_MS}ms.`
+    );
+    return DEFAULT_LOCATION_LIFECYCLE_TIMEOUT_MS;
+  }
+
+  if (value > MAX_TIMER_DELAY_MS) {
+    console.warn(
+      `[AppController] Clamping locationLifecycleTimeoutMs (${value}) to ` +
+        `${MAX_TIMER_DELAY_MS}ms, the longest delay setTimeout can hold.`
+    );
+    return MAX_TIMER_DELAY_MS;
+  }
+
+  return value;
+}
+
 export class AppController {
   private latestSample: LocationSample | null = null;
   private currentFullSpeedState: FullSpeedState;
@@ -30,12 +99,14 @@ export class AppController {
   // Location provider lifecycle serialization.
   // - `locationLifecycle` is a never-rejecting tail promise used as a FIFO queue so that
   //   start/stop/switch never overlap (a new provider is only started once the previous
-  //   provider has fully stopped).
+  //   provider has fully stopped). Every provider call inside it is time-bounded so a
+  //   provider that never settles cannot hold the tail and wedge all later transitions.
   // - `locationGeneration` is bumped whenever the active provider is invalidated, so
   //   notifications arriving late from an outgoing provider are ignored.
   private locationLifecycle: Promise<void> = Promise.resolve();
   private locationGeneration = 0;
   private activeLocationProvider: LocationProvider | null = null;
+  private readonly locationLifecycleTimeoutMs: number;
 
   constructor(
     private locationProvider: LocationProvider,
@@ -44,8 +115,10 @@ export class AppController {
     private repository: RailwayDataRepository,
     private evenG2Adapter: EvenG2Adapter,
     private logger: EstimationLogger,
-    private config: TrackingConfig
+    private config: TrackingConfig,
+    options: AppControllerOptions = {}
   ) {
+    this.locationLifecycleTimeoutMs = resolveLocationLifecycleTimeoutMs(options.locationLifecycleTimeoutMs);
     this.speedEstimator = new SpeedEstimator(config);
     this.hudRenderer = new HudRenderer();
 
@@ -207,23 +280,69 @@ export class AppController {
     return run;
   }
 
+  /**
+   * Runs one provider lifecycle call under {@link locationLifecycleTimeoutMs}.
+   *
+   * Every start/stop happens inside the FIFO queue, so an unbounded call is not just
+   * slow — it holds the queue tail forever and silently bricks the whole location
+   * subsystem (later switches never run, stop() never reaches evenG2Adapter.clear()).
+   * Bounding each call turns that permanent stall into an ordinary failure the
+   * existing recovery path already handles.
+   *
+   * The abandoned call keeps running: `LocationProvider` has no abort protocol, so a
+   * `start()` that eventually succeeds leaves a provider nobody will stop. Its
+   * callbacks are gated on the generation captured before the call, which the
+   * timeout path invalidates, so it can no longer write state — it just idles.
+   */
+  private async runProviderCall(description: string, call: () => void | Promise<void>): Promise<void> {
+    // Normalizes the interface's `void | Promise<void>` return so synchronous
+    // providers (BrowserLocationProvider) take exactly the same path.
+    const pending = Promise.resolve(call());
+    // Promise.race already tolerates a late settle, but keep the abandoned call
+    // handled so a post-timeout rejection cannot surface as an unhandled rejection.
+    void pending.catch(() => {});
+
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const expiry = new Promise<never>((_resolve, reject) => {
+      timer = setTimeout(
+        () =>
+          reject(
+            new LocationLifecycleTimeoutError(
+              `${description} timed out after ${this.locationLifecycleTimeoutMs}ms`
+            )
+          ),
+        this.locationLifecycleTimeoutMs
+      );
+    });
+
+    try {
+      await Promise.race([pending, expiry]);
+    } finally {
+      // Also covers the synchronous-provider path, which resolves before the timer
+      // ever fires and would otherwise keep a live handle for the full bound.
+      clearTimeout(timer);
+    }
+  }
+
   private async activateLocationProvider(provider: LocationProvider): Promise<void> {
     if (!this.isRunning) return;
 
     const generation = ++this.locationGeneration;
     this.activeLocationProvider = provider;
     try {
-      await provider.start(
-        (sample) => {
-          if (generation !== this.locationGeneration) return;
-          void this.onLocationUpdate(sample).catch((error) => {
-            console.warn('[AppController] Location update failed:', error);
-          });
-        },
-        (err) => {
-          if (generation !== this.locationGeneration) return;
-          this.onLocationError(err);
-        }
+      await this.runProviderCall('Location provider start()', () =>
+        provider.start(
+          (sample) => {
+            if (generation !== this.locationGeneration) return;
+            void this.onLocationUpdate(sample).catch((error) => {
+              console.warn('[AppController] Location update failed:', error);
+            });
+          },
+          (err) => {
+            if (generation !== this.locationGeneration) return;
+            this.onLocationError(err);
+          }
+        )
       );
     } catch (error) {
       // Recover to a consistent state: no provider is considered active, the partially
@@ -247,8 +366,14 @@ export class AppController {
 
   private async stopProviderSafely(provider: LocationProvider): Promise<void> {
     try {
-      await provider.stop();
+      await this.runProviderCall('Location provider stop()', () => provider.stop());
     } catch (error) {
+      if (error instanceof LocationLifecycleTimeoutError) {
+        // Reported separately from a stop() rejection: the call is still running and
+        // the provider may never actually release its subscription.
+        console.warn('[AppController] Location provider stop abandoned:', error.message);
+        return;
+      }
       console.warn(
         '[AppController] Location provider stop notice:',
         error instanceof Error ? error.message : String(error)

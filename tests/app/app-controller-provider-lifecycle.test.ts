@@ -1,5 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
-import { AppController } from '../../src/app/app-controller';
+import {
+  AppController,
+  AppControllerOptions,
+  DEFAULT_LOCATION_LIFECYCLE_TIMEOUT_MS,
+} from '../../src/app/app-controller';
 import { DEFAULT_TRACKING_CONFIG } from '../../src/config/tracking-config';
 import { RailwayDataRepository } from '../../src/domain/railway/repository';
 import { RailwayLine, RouteMatch, Station, TrackSegment } from '../../src/domain/models/railway';
@@ -57,6 +61,27 @@ function deferred(): Deferred {
   return { promise, resolve };
 }
 
+/** A promise that never settles — models a provider call that parks forever. */
+function never(): Promise<void> {
+  return new Promise<void>(() => {});
+}
+
+/**
+ * Resolves to true if `promise` settles within `ms`, false otherwise.
+ *
+ * Used so a wedged lifecycle queue fails as an explicit assertion instead of an
+ * opaque vitest timeout.
+ */
+function settlesWithin(promise: Promise<unknown>, ms: number): Promise<boolean> {
+  return Promise.race([
+    promise.then(
+      () => true,
+      () => true
+    ),
+    new Promise<boolean>((resolve) => setTimeout(() => resolve(false), ms)),
+  ]);
+}
+
 /** Test double that records lifecycle calls and exposes the callbacks it received. */
 class FakeLocationProvider implements LocationProvider {
   public startCalls = 0;
@@ -107,19 +132,27 @@ function createJourneyEstimator() {
 function createController(
   provider: LocationProvider,
   mapMatcher = { match: vi.fn().mockResolvedValue(null), reset: vi.fn() },
-  journeyEstimator = createJourneyEstimator()
+  journeyEstimator = createJourneyEstimator(),
+  options: AppControllerOptions = {}
 ) {
+  // No waitUntilDisconnected: the background connect loop exits after one connect.
+  const evenG2Adapter = {
+    connect: async () => true,
+    render: vi.fn().mockResolvedValue(undefined),
+    clear: vi.fn().mockResolvedValue(undefined),
+    getLastImageResult: () => 'none',
+  };
   const controller = new AppController(
     provider,
     mapMatcher as any,
     journeyEstimator as any,
     repository,
-    // No waitUntilDisconnected: the background connect loop exits after one connect.
-    { connect: async () => true, render: vi.fn().mockResolvedValue(undefined), clear: vi.fn().mockResolvedValue(undefined), getLastImageResult: () => 'none' },
+    evenG2Adapter,
     new EstimationLogger(),
-    DEFAULT_TRACKING_CONFIG
+    DEFAULT_TRACKING_CONFIG,
+    options
   );
-  return { controller, mapMatcher, journeyEstimator };
+  return { controller, mapMatcher, journeyEstimator, evenG2Adapter };
 }
 
 describe('AppController location provider lifecycle', () => {
@@ -312,6 +345,94 @@ describe('AppController location provider lifecycle', () => {
 
     expect(warn).toHaveBeenCalledWith('[AppController] Location provider stop notice:', 'stop failed');
     expect(replacement.startCalls).toBe(1);
+
+    warn.mockRestore();
+    await controller.stop();
+  });
+
+  it('keeps switching and stopping possible when a provider start() never settles', async () => {
+    // `EvenAppLocationProvider.start()` awaits the SDK's `waitForEvenAppBridge()`,
+    // which has no timeout of its own: a bridge that never signals ready parks the
+    // call forever. Without a bound it would hold the lifecycle queue's tail and
+    // every later transition would be queued behind it indefinitely.
+    const hanging = new FakeLocationProvider({ startResult: never });
+    const replacement = new FakeLocationProvider();
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const { controller, evenG2Adapter } = createController(
+      hanging,
+      undefined,
+      undefined,
+      { locationLifecycleTimeoutMs: 20 }
+    );
+
+    expect(await settlesWithin(controller.start(), 500)).toBe(true);
+    expect(hanging.startCalls).toBe(1);
+    expect(warn).toHaveBeenCalledWith(
+      '[AppController] Location error:',
+      'Location provider start() timed out after 20ms'
+    );
+    // The abandoned provider is treated as a start failure, so nothing is left active.
+    expect((controller as any).activeLocationProvider).toBeNull();
+
+    // The user can still reach the demo/replay providers.
+    const switching = controller.switchLocationProvider(replacement);
+    expect(await settlesWithin(switching, 500)).toBe(true);
+    expect(replacement.startCalls).toBe(1);
+
+    // ...and stop() still runs to completion, so the glass gets cleared.
+    const stopping = controller.stop();
+    expect(await settlesWithin(stopping, 500)).toBe(true);
+    expect(replacement.stopCalls).toBe(1);
+    expect(evenG2Adapter.clear).toHaveBeenCalled();
+
+    warn.mockRestore();
+  });
+
+  it('keeps switching and stopping possible when a provider stop() never settles', async () => {
+    // The bound has to cover stop() too: the start-failure recovery path and every
+    // switch await it, so a stop() that parks forever wedges the queue just as badly.
+    const hanging = new FakeLocationProvider({ stopResult: never });
+    const replacement = new FakeLocationProvider();
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const { controller, evenG2Adapter } = createController(
+      hanging,
+      undefined,
+      undefined,
+      { locationLifecycleTimeoutMs: 20 }
+    );
+
+    await controller.start();
+    expect(hanging.startCalls).toBe(1);
+
+    const switching = controller.switchLocationProvider(replacement);
+    expect(await settlesWithin(switching, 500)).toBe(true);
+    expect(hanging.stopCalls).toBe(1);
+    expect(replacement.startCalls).toBe(1);
+    expect(warn).toHaveBeenCalledWith(
+      '[AppController] Location provider stop abandoned:',
+      'Location provider stop() timed out after 20ms'
+    );
+
+    const stopping = controller.stop();
+    expect(await settlesWithin(stopping, 500)).toBe(true);
+    expect(evenG2Adapter.clear).toHaveBeenCalled();
+
+    warn.mockRestore();
+  });
+
+  it('falls back to the default bound when the configured one is unusable', async () => {
+    // setTimeout silently substitutes 1ms for Infinity/NaN/negatives, which would
+    // abandon every start instead of restoring the unbounded wait.
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const { controller } = createController(new FakeLocationProvider(), undefined, undefined, {
+      locationLifecycleTimeoutMs: Number.POSITIVE_INFINITY,
+    });
+
+    expect((controller as any).locationLifecycleTimeoutMs).toBe(DEFAULT_LOCATION_LIFECYCLE_TIMEOUT_MS);
+    expect(warn).toHaveBeenCalledWith(
+      `[AppController] Ignoring invalid locationLifecycleTimeoutMs (Infinity); ` +
+        `falling back to ${DEFAULT_LOCATION_LIFECYCLE_TIMEOUT_MS}ms.`
+    );
 
     warn.mockRestore();
     await controller.stop();
