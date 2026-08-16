@@ -560,7 +560,9 @@ export class HybridEvenG2Adapter implements EvenG2Adapter {
     }
 
     if (!rebuiltThisSession) {
-      console.log('[EvenG2Adapter] Skipped stale page recovery (session already replaced)');
+      // Either the session was torn down outright, or it was torn down and a new
+      // one took its place; both leave this recovery with no page of its own.
+      console.log('[EvenG2Adapter] Skipped page recovery (its session is no longer current)');
       return;
     }
 

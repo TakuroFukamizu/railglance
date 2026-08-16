@@ -166,6 +166,74 @@ describe('HybridEvenG2Adapter stale recovery across a reconnect', () => {
     expect(disconnected).toBe(false);
   });
 
+  /**
+   * Parks the rebuild IN FLIGHT rather than behind another op, so the pre-check
+   * has already passed and the epoch only changes while rebuildPageContainer is
+   * awaiting. This is the path that reaches the catch-side epoch guard.
+   */
+  async function rebuildInFlightAcrossReconnect(): Promise<{
+    adapter: HybridEvenG2Adapter;
+    finishRebuild: (result: boolean) => void;
+    secondConnect: Promise<boolean>;
+  }> {
+    const adapter = new HybridEvenG2Adapter();
+    expect(await adapter.connect()).toBe(true); // session A
+    // Populate lastModel so an adopted rebuild would force a HUD re-flush.
+    await adapter.render(viewModel('80'));
+    await flushBridge();
+
+    let finishRebuild!: (result: boolean) => void;
+    sdk.bridge.rebuildPageContainer.mockImplementationOnce(
+      () => new Promise((resolve) => { finishRebuild = resolve; })
+    );
+
+    // Queue is free, so the rebuild starts immediately and passes its pre-check.
+    hubEvent?.({ sysEvent: { eventType: 5 } }); // FOREGROUND_EXIT
+    hubEvent?.({ sysEvent: { eventType: 4 } }); // FOREGROUND_ENTER
+    await flushBridge();
+    expect(sdk.bridge.rebuildPageContainer).toHaveBeenCalledTimes(1);
+
+    // Session A dies and is replaced while the native rebuild is still awaiting.
+    hubEvent?.({ sysEvent: { eventType: 6 } }); // ABNORMAL_EXIT
+    const secondConnect = adapter.connect(); // session B
+    await flushBridge();
+    expect(adapter.isBridgeConnected()).toBe(true);
+
+    return { adapter, finishRebuild, secondConnect };
+  }
+
+  it('does not tear down the reconnected session when an in-flight rebuild then fails', async () => {
+    const { adapter, finishRebuild, secondConnect } = await rebuildInFlightAcrossReconnect();
+
+    let disconnected = false;
+    void adapter.waitUntilDisconnected!().then(() => { disconnected = true; });
+
+    // The failure belongs to session A, which is already gone.
+    finishRebuild(false);
+    await flushBridge();
+    expect(await secondConnect).toBe(true);
+
+    expect(adapter.isBridgeConnected()).toBe(true);
+    expect(disconnected).toBe(false);
+  });
+
+  it('does not adopt an in-flight rebuild that succeeded for a dead session', async () => {
+    const { adapter, finishRebuild, secondConnect } = await rebuildInFlightAcrossReconnect();
+
+    const textCallsBefore = sdk.bridge.textContainerUpgrade.mock.calls.length;
+
+    // Even a successful rebuild belonged to session A. Adopting it would clear
+    // session B's container caches and push a fresh HUD flush on its behalf;
+    // skipping leaves session B's page untouched.
+    finishRebuild(true);
+    await flushBridge();
+    expect(await secondConnect).toBe(true);
+
+    expect(sdk.bridge.textContainerUpgrade.mock.calls.length).toBe(textCallsBefore);
+    expect(adapter.isBridgeConnected()).toBe(true);
+    expect(sdk.bridge.rebuildPageContainer).toHaveBeenCalledTimes(1);
+  });
+
   it('still recovers normally when no reconnect happened in between', async () => {
     const adapter = new HybridEvenG2Adapter();
     expect(await adapter.connect()).toBe(true);
