@@ -186,6 +186,19 @@ GitHubの `Settings` → `Environments` → `New environment` で `evenhub-beta`
 | --- | --- | --- |
 | `SENTRY_AUTH_TOKEN` | `org:ci`権限のSentry Organization Auth Token | source mapとrelease情報のupload専用。アプリへは組み込まれない |
 
+`SENTRY_AUTH_TOKEN` は次の手順で発行・登録する。
+
+1. Sentryの `Settings` を開き、左メニューを下までスクロールして
+   `Developer Settings` → `Organization Tokens` を開く。micosys Organizationでは
+   `https://micosys.sentry.io/settings/auth-tokens/` へ直接アクセスしてもよい。
+   `Organization` → `Auth` はGoogle/GitHubなどのSSO設定画面であり、token発行には使用しない。
+2. `Create New Token` を押し、識別名（例: `railglance-github-actions`）を入力して作成する。
+   Organization Tokenのscopeは画面上で `org:ci`（Source Map Upload、Release Creation、
+   Code Mappings）と表示される。発行直後に一度だけ表示されるtokenをコピーする。
+3. GitHubリポジトリの `Settings` → `Environments` → `evenhub-beta` →
+   `Environment secrets` → `Add environment secret` を開き、名前を `SENTRY_AUTH_TOKEN`、
+   値を手順2でコピーしたtokenとして保存する。
+
 `VITE_SENTRY_DSN`、`SENTRY_ORG`、`SENTRY_PROJECT` は秘密情報ではないためVariableへ置く。
 `SENTRY_AUTH_TOKEN`だけをSecretへ置き、Repository Variable、`.env`、ログ、`.ehpk`には保存しない。
 
