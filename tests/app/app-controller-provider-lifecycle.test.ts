@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { AppController } from '../../src/app/app-controller';
 import { DEFAULT_TRACKING_CONFIG } from '../../src/config/tracking-config';
 import { RailwayDataRepository } from '../../src/domain/railway/repository';
-import { RailwayLine, Station, TrackSegment } from '../../src/domain/models/railway';
+import { RailwayLine, RouteMatch, Station, TrackSegment } from '../../src/domain/models/railway';
 import { LocationSample } from '../../src/domain/models/location';
 import { LocationProvider, LocationProviderError } from '../../src/infrastructure/geolocation/browser-location-provider';
 import { EstimationLogger } from '../../src/infrastructure/logging/logger';
@@ -15,6 +15,9 @@ const stations: Station[] = [
 const segment: TrackSegment = {
   id: 'ab', lineId: 'line', routeId: 'route-line-main', fromStationId: 'a', toStationId: 'b',
   coordinates: [[35, 139], [35.01, 139]], lengthMeters: 1112, startOffsetMeters: 0,
+};
+const routeMatch: RouteMatch = {
+  selectedLine: line, selectedSegment: segment, confidence: 0.9, candidates: [], timestampMs: 0,
 };
 
 const repository: RailwayDataRepository = {
@@ -84,11 +87,9 @@ class FakeLocationProvider implements LocationProvider {
   }
 }
 
-function createController(provider: LocationProvider, mapMatcher = { match: vi.fn().mockResolvedValue(null), reset: vi.fn() }) {
-  const controller = new AppController(
-    provider,
-    mapMatcher as any,
-    { update: vi.fn().mockResolvedValue({
+function createJourneyEstimator() {
+  return {
+    update: vi.fn().mockResolvedValue({
       line: null,
       direction: 'UNKNOWN',
       directionName: null,
@@ -98,14 +99,27 @@ function createController(provider: LocationProvider, mapMatcher = { match: vi.f
       progressRatio: null,
       confidence: 0,
       status: 'INITIALIZING',
-    }), reset: vi.fn() } as any,
+    }),
+    reset: vi.fn(),
+  };
+}
+
+function createController(
+  provider: LocationProvider,
+  mapMatcher = { match: vi.fn().mockResolvedValue(null), reset: vi.fn() },
+  journeyEstimator = createJourneyEstimator()
+) {
+  const controller = new AppController(
+    provider,
+    mapMatcher as any,
+    journeyEstimator as any,
     repository,
     // No waitUntilDisconnected: the background connect loop exits after one connect.
     { connect: async () => true, render: vi.fn().mockResolvedValue(undefined), clear: vi.fn().mockResolvedValue(undefined), getLastImageResult: () => 'none' },
     new EstimationLogger(),
     DEFAULT_TRACKING_CONFIG
   );
-  return { controller, mapMatcher };
+  return { controller, mapMatcher, journeyEstimator };
 }
 
 describe('AppController location provider lifecycle', () => {
@@ -168,6 +182,46 @@ describe('AppController location provider lifecycle', () => {
     expect((controller as any).latestSample?.timestampMs).toBe(3_000);
 
     warn.mockRestore();
+    await controller.stop();
+  });
+
+  it('does not commit a location update that was still in flight when the provider was switched', async () => {
+    const initial = new FakeLocationProvider();
+    const replacement = new FakeLocationProvider();
+
+    // Map matching for the stale sample stays pending across the switch.
+    let resolveMatch!: (value: RouteMatch | null) => void;
+    const pendingMatch = new Promise<RouteMatch | null>((resolve) => {
+      resolveMatch = resolve;
+    });
+    const mapMatcher = { match: vi.fn().mockReturnValue(pendingMatch), reset: vi.fn() };
+    const { controller, journeyEstimator } = createController(initial, mapMatcher);
+
+    await controller.start();
+
+    // Accepted while `initial` is still the current generation, so the callback gate
+    // lets it through — the staleness only appears while it is awaiting map matching.
+    initial.onLocation?.(sample(1_000));
+    await flush();
+    expect(mapMatcher.match).toHaveBeenCalledTimes(1);
+    expect((controller as any).currentMatch).toBeNull();
+
+    await controller.switchLocationProvider(replacement);
+    expect(mapMatcher.reset).toHaveBeenCalled();
+    expect((controller as any).currentMatch).toBeNull();
+
+    // Map matching for the stale sample completes only now, after the switch.
+    resolveMatch(routeMatch);
+    await flush();
+
+    // It must not resurrect state the switch just cleared, nor feed the (already reset)
+    // estimators with the outgoing provider's sample.
+    expect((controller as any).currentMatch).toBeNull();
+    expect((controller as any).latestSample).toBeNull();
+    expect(
+      journeyEstimator.update.mock.calls.some((call) => call[0]?.timestampMs === 1_000)
+    ).toBe(false);
+
     await controller.stop();
   });
 

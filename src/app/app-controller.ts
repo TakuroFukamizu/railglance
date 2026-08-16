@@ -268,7 +268,23 @@ export class AppController {
     return { message: error instanceof Error ? error.message : String(error) };
   }
 
+  /**
+   * Processes one location sample. Results are computed into locals and only committed
+   * while the sample's provider generation is still the current one: a switch/stop that
+   * lands while map matching or journey estimation is awaited must not be able to write
+   * stale state (or mutate the estimators) once it resolves.
+   *
+   * Called directly (without an active provider) the captured generation is the current
+   * one, so the sample is always treated as live.
+   */
   public async onLocationUpdate(sample: LocationSample): Promise<void> {
+    // Captured synchronously at invocation: the provider callback checks the generation
+    // and calls this in the same synchronous block, so both observe the same value.
+    const generation = this.locationGeneration;
+
+    // Safe to publish immediately: this runs before any await, so a later switch's
+    // resetEstimationState() clears it rather than being overwritten by it. Keeping it
+    // here avoids delaying HUD data by a full map-matching round trip on the normal path.
     this.latestSample = sample;
 
     // 1. NON-BLOCKING: Trigger background coverage fetch (do not await)
@@ -277,15 +293,18 @@ export class AppController {
     });
 
     // 2. Perform map matching with currently available segments
-    this.currentMatch = await this.mapMatcher.match(sample);
+    const match = await this.mapMatcher.match(sample);
+    // The provider was switched/stopped while matching: drop the sample before it can
+    // mutate the (already reset) speed estimator.
+    if (generation !== this.locationGeneration) return;
 
     // 3. Compute track distance progress if match is valid
     let trackProgress: { distanceAlongPolylineMeters: number; timestampMs: number } | undefined;
-    if (this.currentMatch) {
+    if (match) {
       const closest = findClosestPointOnPolyline(
         sample.latitude,
         sample.longitude,
-        this.currentMatch.selectedSegment.coordinates
+        match.selectedSegment.coordinates
       );
       trackProgress = {
         distanceAlongPolylineMeters: closest.distanceAlongPolylineMeters,
@@ -294,15 +313,21 @@ export class AppController {
     }
 
     // 4. Immediate Speed Estimation (Un-blocked by network)
-    this.currentFullSpeedState = this.speedEstimator.update(sample, this.currentMatch, trackProgress);
+    const speedState = this.speedEstimator.update(sample, match, trackProgress);
 
     // 5. Estimate journey state & recover status if valid GPS returned
-    this.currentJourney = await this.journeyEstimator.update(
+    const journey = await this.journeyEstimator.update(
       sample,
-      this.currentMatch,
-      this.currentFullSpeedState,
-      this.currentFullSpeedState.navState
+      match,
+      speedState,
+      speedState.navState
     );
+    // Last checkpoint before publishing: a switch/stop during journey estimation wins.
+    if (generation !== this.locationGeneration) return;
+
+    this.currentMatch = match;
+    this.currentFullSpeedState = speedState;
+    this.currentJourney = journey;
     this.speedEstimator.getNavStateEstimator().setDirection(
       this.toNavigationDirection(this.currentJourney.direction)
     );
