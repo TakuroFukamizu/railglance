@@ -189,6 +189,18 @@ export function resolveDatasetBuildCliArguments(
   env: NodeJS.ProcessEnv = process.env
 ): DatasetBuildCliArguments {
   const versionFlagIndex = argv.indexOf('--version');
+  if (versionFlagIndex >= 0) {
+    // A malformed `--version` is an invocation error in every mode; never let the next flag or an
+    // empty token be swallowed as if it were the version.
+    const versionFlagValue = argv[versionFlagIndex + 1];
+    if (versionFlagValue === undefined || versionFlagValue.startsWith('-') || versionFlagValue.trim() === '') {
+      throw new Error(
+        `--version requires a value (e.g. --version 1.4.0), received: ${
+          versionFlagValue === undefined ? '<missing>' : JSON.stringify(versionFlagValue)
+        }`
+      );
+    }
+  }
   const explicitVersion = (versionFlagIndex >= 0 ? argv[versionFlagIndex + 1] : env.DATASET_VERSION)?.trim();
   const allowSample = argv.includes('--allow-sample') || env.ALLOW_SAMPLE_DATASET === 'true';
 

@@ -25,6 +25,18 @@ describe('build-kanto-dataset CLI contract', () => {
       .toThrow(/DATASET_VERSION .* is required/);
   });
 
+  it('refuses a --version flag that is not followed by a real value', () => {
+    // Missing value: must not fall through to the "DATASET_VERSION is required" message.
+    expect(() => resolveDatasetBuildCliArguments(['node', 'build', '--version'], { MLIT_N02_DIR: '/srv/n02' }))
+      .toThrow(/--version requires a value/);
+    // Next token is another flag: must not be swallowed as the version string.
+    expect(() => resolveDatasetBuildCliArguments(['node', 'build', '--version', '--allow-sample'], {}))
+      .toThrow(/--version requires a value/);
+    // Empty / whitespace-only value.
+    expect(() => resolveDatasetBuildCliArguments(['node', 'build', '--version', '  '], { MLIT_N02_DIR: '/srv/n02' }))
+      .toThrow(/--version requires a value/);
+  });
+
   it('refuses a publishable build whose version is not an explicit SemVer', () => {
     expect(() => resolveDatasetBuildCliArguments(['node', 'build'], { MLIT_N02_DIR: '/srv/n02', DATASET_VERSION: 'latest' }))
       .toThrow(/must be an explicit semantic version/);
