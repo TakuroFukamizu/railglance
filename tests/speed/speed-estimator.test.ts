@@ -530,6 +530,50 @@ describe('SpeedEstimator motion-assisted dead reckoning', () => {
     expect(state.selectedEstimate.source).toBe('dead-reckoning');
   });
 
+  it('computes the same extended-coasting speed for one probe as for 1s ticks', async () => {
+    // The decay past 45s must be a function of GPS age, not of how often predict()
+    // happened to run (a single probe at 61s used to skip 45s worth of drag).
+    const probeMs = LAST_GPS_MS + 61000;
+    const estimator = seedEstimator();
+    feedMotion(estimator, probeMs);
+    const state = await estimator.getEstimateAtAsync(probeMs);
+
+    // 25 m/s - 0.1 * (61 - 15) = 20.4 m/s = 73.4 km/h, same as the 1s-tick trajectory.
+    expect(state.selectedEstimate.speedKmh).toBe(73.4);
+  });
+
+  it('ramps the speed back up from 0 when vibration resumes past 45s', async () => {
+    const estimator = seedEstimator();
+    for (let sec = 2; sec <= 60; sec++) {
+      const nowMs = LAST_GPS_MS + sec * 1000;
+      feedMotion(estimator, nowMs, true);
+      await estimator.getEstimateAtAsync(nowMs);
+    }
+    // Stillness has braked the estimate to 0; the train departs again inside the
+    // extended window. The estimate must climb (slew-limited), not stick at 0.
+    let state = await estimator.getEstimateAtAsync(LAST_GPS_MS + 60000);
+    for (let sec = 61; sec <= 70; sec++) {
+      const nowMs = LAST_GPS_MS + sec * 1000;
+      feedMotion(estimator, nowMs, false);
+      state = await estimator.getEstimateAtAsync(nowMs);
+    }
+
+    expect(state.selectedEstimate.speedKmh).toBeGreaterThan(0);
+    expect(state.selectedEstimate.speedKmh).toBeLessThan(35);
+  });
+
+  it('ignores motion observations stamped in the future', async () => {
+    const estimator = seedEstimator();
+    const probeMs = LAST_GPS_MS + 50000;
+
+    // A clock skew / out-of-order observation from "the future" must not count as
+    // fresh corroboration and extend the coasting budget.
+    feedMotion(estimator, probeMs + 100000);
+    const state = await estimator.getEstimateAtAsync(probeMs);
+
+    expect(state.selectedEstimate.source).toBe('unknown');
+  });
+
   it('does not resurrect the pre-stop speed when GPS dies right after a stop', async () => {
     const estimator = seedEstimator(); // moving at 90 km/h
     let ts = LAST_GPS_MS;
@@ -551,6 +595,61 @@ describe('SpeedEstimator motion-assisted dead reckoning', () => {
     // GPS dies while standing at the platform; DR must hold the stop, not the
     // 90 km/h the train had before braking.
     const state = await estimator.getEstimateAtAsync(ts + 10000);
+    expect(state.selectedEstimate.source).toBe('dead-reckoning');
+    expect(state.selectedEstimate.speedKmh).toBe(0);
+  });
+
+  it('anchors to the observed 0 when the stop fix arrives during reacquisition', async () => {
+    // 90 km/h -> tunnel -> deep in DR a single 0 km/h fix gets through (train has
+    // stopped) -> GPS dies again. The reacquiring blend smooths the *displayed*
+    // velocity, but the hold anchor must take the observed 0, or the second outage
+    // resurrects the blended ~56 km/h.
+    const estimator = seedEstimator();
+    await estimator.getEstimateAtAsync(LAST_GPS_MS + 24000);
+    const reacquired = estimator.update(
+      {
+        latitude: 35.4526,
+        longitude: 139.3900,
+        accuracyMeters: 10,
+        speedMps: 0,
+        headingDegrees: 45,
+        timestampMs: LAST_GPS_MS + 25000,
+      },
+      null
+    );
+    expect(reacquired.navState.mode).toBe('reacquiring');
+
+    const state = await estimator.getEstimateAtAsync(LAST_GPS_MS + 35000);
+    expect(state.selectedEstimate.source).toBe('dead-reckoning');
+    expect(state.selectedEstimate.speedKmh).toBe(0);
+  });
+
+  it('clears residual acceleration on a stop fix so DR cannot re-accelerate a stopped train', async () => {
+    // Accelerating fixes leave a positive blended accelerationMps2 behind; a sudden
+    // stop fix rejects the huge negative delta, so without clearing, the <=3s DR
+    // branch extrapolates the stopped train back up to double-digit km/h.
+    const estimator = new SpeedEstimator(DEFAULT_TRACKING_CONFIG);
+    const speeds: Array<[number, number]> = [
+      [LAST_GPS_MS, 10],
+      [LAST_GPS_MS + 1000, 12],
+      [LAST_GPS_MS + 2000, 14],
+      [LAST_GPS_MS + 3000, 0],
+    ];
+    for (const [ts, mps] of speeds) {
+      estimator.update(
+        {
+          latitude: 35.4526,
+          longitude: 139.3900,
+          accuracyMeters: 10,
+          speedMps: mps,
+          headingDegrees: 45,
+          timestampMs: ts,
+        },
+        null
+      );
+    }
+
+    const state = await estimator.getEstimateAtAsync(LAST_GPS_MS + 6000);
     expect(state.selectedEstimate.source).toBe('dead-reckoning');
     expect(state.selectedEstimate.speedKmh).toBe(0);
   });

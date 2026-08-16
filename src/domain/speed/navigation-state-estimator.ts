@@ -32,7 +32,9 @@ export class NavigationStateEstimator {
   private maxSpontaneousAccelMps2 = 0.8; // Fastest a coasted speed may climb without a GPS fix
   private coastingDragMps2 = 0.1;     // Drag applied while coasting past the hold window
   private reacquiringFramesLeft = 0;
-  private lastKnownValidVelocityMps = 0;
+  // Hold anchor: the velocity observed by the last accurate fix (pre-blend). null
+  // until the first accurate fix; 0 is a valid anchor (train stopped, hold the stop).
+  private lastKnownValidVelocityMps: number | null = null;
   private lastMotion: MotionObservation | null = null;
 
   constructor(private config: TrackingConfig) {
@@ -91,25 +93,25 @@ export class NavigationStateEstimator {
     const motionStill = motionFresh && (this.lastMotion?.isStillInferred ?? false);
 
     // 1. Dead reckoning velocity prediction & coasting hold logic (Requirements Sec 5.4)
-    if (gpsAgeMs > 2000 && this.lastKnownValidVelocityMps > 0) {
+    if (gpsAgeMs > 2000 && this.lastKnownValidVelocityMps !== null) {
       const gpsAgeSec = gpsAgeMs / 1000;
-      let targetVelocity = this.lastKnownValidVelocityMps;
+      const anchor = this.lastKnownValidVelocityMps;
+      let targetVelocity = anchor;
 
       if (motionStill) {
         // The accelerometer reports no carriage vibration: the train is standing,
         // regardless of what the hold schedule says. Brake the estimate to 0.
         targetVelocity = Math.max(0, this.navState.velocityMps - this.stillDecelMps2 * dt);
       } else if (gpsAgeSec <= 3) {
-        targetVelocity += this.navState.accelerationMps2 * dt;
+        targetVelocity = anchor + this.navState.accelerationMps2 * dt;
       } else if (gpsAgeSec <= 15) {
-        targetVelocity = this.lastKnownValidVelocityMps;
-      } else if (gpsAgeSec <= 45) {
+        targetVelocity = anchor;
+      } else if (gpsAgeSec <= 45 || (motionFresh && gpsAgeMs <= this.config.motionCoastingMaxMs)) {
+        // Linear drag anchored at the 15s mark. The same absolute-time formula
+        // covers the motion-assisted extension past 45s, so the result depends on
+        // GPS age only, never on how often predict() happened to run.
         const dragSec = gpsAgeSec - 15;
-        targetVelocity = Math.max(0, this.lastKnownValidVelocityMps - 0.1 * dragSec);
-      } else if (motionFresh && gpsAgeMs <= this.config.motionCoastingMaxMs) {
-        // Past the GPS-only schedule, but the sensor corroborates that the train is
-        // still moving: keep the drag going instead of zeroing the estimate.
-        targetVelocity = Math.max(0, this.navState.velocityMps - this.coastingDragMps2 * dt);
+        targetVelocity = Math.max(0, anchor - this.coastingDragMps2 * dragSec);
       } else {
         targetVelocity = 0;
       }
@@ -196,10 +198,11 @@ export class NavigationStateEstimator {
    * dead reckoning (and therefore to extend the coasting budget).
    */
   public hasFreshMotion(nowMs: number): boolean {
-    return (
-      this.lastMotion !== null &&
-      nowMs - this.lastMotion.timestampMs <= this.config.motionFreshnessMs
-    );
+    if (this.lastMotion === null) return false;
+    const ageMs = nowMs - this.lastMotion.timestampMs;
+    // Reject future-stamped / out-of-order observations: after a clock skew the
+    // extension must not stay latched until the clock catches up.
+    return ageMs >= 0 && ageMs <= this.config.motionFreshnessMs;
   }
 
   /**
@@ -263,7 +266,16 @@ export class NavigationStateEstimator {
     if (!isLowAccuracy) {
       // A clean 0-speed fix is valid information: if GPS dies right after the train
       // stopped, the hold schedule must anchor to 0, not to the pre-braking speed.
-      this.lastKnownValidVelocityMps = this.navState.velocityMps;
+      // The anchor takes the OBSERVED velocity, not the reacquiring-blended one -
+      // the blend smooths the display, but a 0 km/h fix interrupted by a second
+      // outage must not resurrect the blended ~56 km/h.
+      this.lastKnownValidVelocityMps = obsVelocityMps;
+      if (obsVelocityMps < 0.5) {
+        // A stopped train has no acceleration. The stop fix itself cannot clear the
+        // blended accelerationMps2 (its huge negative delta is outlier-rejected), so
+        // without this the <=3s DR branch re-accelerates the stopped train.
+        this.navState.accelerationMps2 = 0;
+      }
     }
 
     this.navState.lastObservationTimestampMs = nowMs;
@@ -341,7 +353,7 @@ export class NavigationStateEstimator {
     console.log(`[NavigationStateEstimator] Resetting state (reason: ${reason})`);
     const now = Date.now();
     this.reacquiringFramesLeft = 0;
-    this.lastKnownValidVelocityMps = 0;
+    this.lastKnownValidVelocityMps = null;
     this.lastMotion = null;
     this.currentSegment = null;
     this.navState = {

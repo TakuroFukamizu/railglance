@@ -219,7 +219,12 @@ export class SpeedEstimator {
       return this.unknownState(currentTimeMs, predictedNavState);
     }
 
-    const timeSinceLastGps = currentTimeMs - (this.lastFullState.navState.lastObservationTimestampMs ?? currentTimeMs);
+    // Clamp against clock skew: a fix stamped ahead of currentTimeMs counts as age 0,
+    // matching how predict() treats gpsAgeMs.
+    const timeSinceLastGps = Math.max(
+      0,
+      currentTimeMs - (this.lastFullState.navState.lastObservationTimestampMs ?? currentTimeMs)
+    );
 
     // 2. GPS considered unavailable: coasting budget exhausted, or navigation state lost.
     //    This is checked BEFORE dead-reckoning so that an expired fix can never be
