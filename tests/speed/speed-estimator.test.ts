@@ -334,6 +334,50 @@ describe('SpeedEstimator GPS loss transitions (issue #20)', () => {
     expect(expired.candidates.deadReckoningSpeed).toBeNull();
   });
 
+  // A single fix sneaking through a tunnel gap puts the estimator into the
+  // 2-frame reacquiring blend. If GPS dies again before those frames arrive,
+  // the reacquiring hold must not pin the mode (confidence 0.85) forever.
+  const seedInterruptedReacquisition = async (): Promise<{ estimator: SpeedEstimator; gapFixMs: number }> => {
+    const estimator = seedEstimator();
+    const gapFixMs = LAST_GPS_MS + 25000;
+
+    // Coast deep into dead reckoning, then one fix gets through.
+    await estimator.getEstimateAtAsync(gapFixMs - 1000);
+    const reacquired = estimator.update(
+      {
+        latitude: 35.4526,
+        longitude: 139.3900,
+        accuracyMeters: 10,
+        speedMps: 25.0,
+        headingDegrees: 45,
+        timestampMs: gapFixMs,
+      },
+      null
+    );
+    expect(reacquired.navState.mode).toBe('reacquiring');
+    return { estimator, gapFixMs };
+  };
+
+  it('resumes age-based mode transitions when GPS dies again mid-reacquisition', async () => {
+    const { estimator, gapFixMs } = await seedInterruptedReacquisition();
+
+    const state = await estimator.getEstimateAtAsync(gapFixMs + 10000);
+
+    expect(state.navState.mode).toBe('dead-reckoning');
+    expect(state.selectedEstimate.source).toBe('dead-reckoning');
+  });
+
+  it('declares lost 60s after a reacquisition was interrupted by a second outage', async () => {
+    const { estimator, gapFixMs } = await seedInterruptedReacquisition();
+
+    const state = await estimator.getEstimateAtAsync(gapFixMs + 61000);
+
+    // Without this the HUD keeps the route layout (SPEED_UNKNOWN) forever and
+    // never falls back to the LOST screen required by HUD requirements 14.6.
+    expect(state.navState.mode).toBe('lost');
+    expect(state.selectedEstimate.source).toBe('unknown');
+  });
+
   // How the unknown state reaches the glasses ('--' / 測位中, no estimated marker) is
   // asserted in tests/even-g2/hud-renderer.test.ts so that HUD wording changes do not
   // break the speed estimation suite.

@@ -243,6 +243,14 @@ export class NavigationStateEstimator {
   }
 
   private updateNavigationMode(gpsAgeMs: number, isLowAccuracy = false): void {
+    // The reacquiring hold only survives while fixes keep arriving. If GPS dies
+    // again before the blend frames are consumed, drop the hold so the mode ages
+    // back through gps-degraded -> dead-reckoning -> lost instead of pinning
+    // 'reacquiring' (confidence 0.85) - and the HUD route layout with it - forever.
+    if (this.reacquiringFramesLeft > 0 && gpsAgeMs > 2000) {
+      this.reacquiringFramesLeft = 0;
+    }
+
     if (this.reacquiringFramesLeft > 0) {
       this.navState.mode = 'reacquiring';
       this.navState.confidence = 0.85;

@@ -38,8 +38,10 @@ HUD に何を表示するかを定める。issue #20 および PR #23 のレビ�
 | dead-reckoning 上限 | 20000 ms | 同上 **ハードコード** | mode 遷移 |
 | lost 宣言 | 60000 ms 超 | 同上 **ハードコード** | mode 遷移 |
 | DR 速度保持 | 3 / 15 / 45 s | 同上 **ハードコード** | 速度減衰スケジュール（§5） |
+| reacquiring ホールド破棄 | 2000 ms | 同上 **ハードコード** | 再消失時に mode 遷移を再開（§3） |
 | `emaAlpha` | 0.3 | `tracking-config.ts` | GPS 由来速度の平滑化係数 |
 | DR 時の EMA 係数 | 0.1 | `speed-filter.ts` **ハードコード** | DR 中の平滑化係数 |
+| HUD 路線信頼度閾値 | 0.55 | `hud-renderer.ts` **ハードコード**（2箇所） | UNCERTAIN 判定・路線名の表示可否（§6） |
 
 > ⚠️ `staleLocationMs` を 2000 未満にしてはならない。`NavigationStateEstimator.predict()` は
 > `gpsAgeMs > 2000` でしかコースティングを開始しないため、GPS 正常受信中に
@@ -71,12 +73,20 @@ stateDiagram-v2
     DR --> REACQ: GPS fix 受信（高精度）
     DRLOW --> REACQ: GPS fix 受信（高精度）
     REACQ --> LOCKED: GPS fix 2フレーム経過
+    REACQ --> DEGRADED: GPS経過 2s 超（再消失でホールド破棄）
     LOST --> DEGRADED: GPS fix 受信（低精度）
     DEGRADED --> LOCKED: GPS fix 受信（高精度）
 ```
 
 `reacquiring` は DR からの復帰時のみ経由し、位置・速度を重み 0.35 でブレンドして
 表示のジャンプを防ぐ（要件 §14.4）。
+
+`reacquiring` のホールドは GPS fix が到着し続ける間だけ維持される。ブレンド用の
+2 フレームを消費する前に再び GPS が途絶えた場合（GPS経過 2 秒超）はホールドを破棄し、
+通常の経過時間ベースの遷移（`gps-degraded` → `dead-reckoning` → … → `lost`）に戻る。
+この破棄がないと、トンネル内で fix が1発だけ入って再消失したとき mode が信頼度 0.85 の
+`reacquiring` に永久に張り付き、速度が `unknown` になっても HUD が `LOST` に落ちず
+路線・駅表示が無期限に残る（要件 §14.6 違反）。
 
 ---
 
@@ -111,10 +121,15 @@ flowchart TD
 
 | GPS経過 | 速度の扱い |
 | --- | --- |
-| 〜3s | 最終有効速度 + `accelerationMps2 × dt` |
+| 〜3s | 最終有効速度 + `accelerationMps2 × dt`（dt は predict の tick 間隔） |
 | 3〜15s | 最終有効速度を保持 |
 | 15〜45s | `最終有効速度 − 0.1 × (経過秒 − 15)` m/s で線形減衰 |
 | **45s 超** | **0 に落とす（ハードコード）** |
+
+> ⚠️ 〜3s 区間の `dt` は predict の tick 間隔（100〜250ms）であり、GPS 経過時間ではない。
+> 毎 tick 最終有効速度から再計算されるため加速度項は**累積しない**。寄与は
+> `a × 1tick分` に留まり実質無視できる（§8 の「加速度センサー未配線」と整合）。
+> 3 秒間の外挿積分と読んではならない。
 
 90 km/h で GPS を失った場合の実測値:
 
@@ -158,7 +173,7 @@ flowchart TD
 | | `SPEED_UNKNOWN` | `LOST` |
 | --- | --- | --- |
 | 契機 | 速度 source が `unknown`（GPS経過 45〜60s） | `mode = lost`（GPS経過 60s 超）/ 初期化中 |
-| 要件対応 | §14.5 低信頼 | §14.6 位置喪失 |
+| 要件対応 | §14.5 低信頼（速度不明） | §14.6 位置喪失 |
 | 速度 | `--` | `--` |
 | 推定マーク `~` | 非表示 | 非表示 |
 | 路線名・駅名・進捗バー | **維持** | 破棄（`路線再特定中` / `---`） |
@@ -221,6 +236,9 @@ DR を延伸する場合は、`updateWithMotion()` の接続に加えて減衰�
 
 - `NavigationStateEstimator` の閾値（2000 / 5000 / 20000 / 60000 ms）が `TrackingConfig` と
   二重管理になっている。`staleLocationMs` を変更しても追従しない。
+- 減衰スケジュールのゼロ点（45s、`navigation-state-estimator.ts` ハードコード）と
+  `coastingMaxMs`（45000 ms、設定値）も独立した値の二重管理である。揃っていないと
+  §5 の注記の症状（EMA の残像だけが表示される）が出るため、片方をもう片方から導出すべき。
 - `getEstimateAtAsync()` に `await` がなく、同期版 `getEstimateAt()` は本番の呼び出し元を持たない。
 - `AppController` は `isValid === false` で `GPS_UNAVAILABLE` を立てるが、低精度 fix でも
   `isValid` は `false` になるため、この status を「GPS 消失」の判定に使ってはならない。
