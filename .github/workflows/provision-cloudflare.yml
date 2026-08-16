@@ -103,6 +103,11 @@ jobs:
             exit 1
           fi
 
+          if [[ ! "$R2_ACCOUNT_ID" =~ ^[0-9a-f]{32}$ ]]; then
+            echo 'R2_ACCOUNT_ID must be the 32-character Cloudflare Account ID from Account home; do not use a Zone ID or R2 token ID.' >&2
+            exit 1
+          fi
+
           if [[ ! "$TF_STATE_BUCKET_NAME" =~ ^[a-z0-9]([a-z0-9-]{1,61}[a-z0-9])?$ ]]; then
             echo 'TF_STATE_BUCKET_NAME must be a valid 3-63 character R2 bucket name.' >&2
             exit 1

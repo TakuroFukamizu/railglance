@@ -59,7 +59,7 @@ GitHubの`Settings` → `Secrets and variables` → `Actions`で次を設定す�
 | 種別 | 名前 | 用途 |
 | --- | --- | --- |
 | Repository Secret | `CLOUDFLARE_API_TOKEN` | R2 bucketと、独自ドメイン導入後のZone Cache Rulesを管理するCloudflare API token |
-| Repository Secret | `R2_ACCOUNT_ID` | Cloudflare Account ID |
+| Repository Secret | `R2_ACCOUNT_ID` | Account homeからコピーした32文字のCloudflare Account ID。Zone IDやR2 token IDではない |
 | Repository Secret | `R2_ACCESS_KEY_ID` | Terraform stateとR2 CORSを操作するS3互換Access Key ID |
 | Repository Secret | `R2_SECRET_ACCESS_KEY` | 上記Access KeyのSecret |
 | Repository Variable | `R2_BUCKET_NAME` | Dataset bucket名。既定値は`railglance-dataset-bucket` |
