@@ -1,5 +1,4 @@
 import {
-  waitForEvenAppBridge,
   ImageContainerProperty,
   ImageRawDataUpdate,
   TextContainerProperty,
@@ -11,7 +10,27 @@ import {
   OsEventTypeList,
 } from '@evenrealities/even_hub_sdk';
 import { HudViewModel } from '../../domain/models/hud';
+import {
+  DEFAULT_BRIDGE_READY_TIMEOUT_MS,
+  resolveBridgeReadyTimeoutMs,
+  waitForEvenAppBridgeWithin,
+} from '../even-app/bridge-ready';
 import { createSpeedPng } from './speed-png-generator';
+
+export { DEFAULT_BRIDGE_READY_TIMEOUT_MS };
+
+const BRIDGE_TIMEOUT_LOG_PREFIX = '[EvenG2Adapter]';
+
+export interface HybridEvenG2AdapterOptions {
+  /**
+   * Overrides {@link DEFAULT_BRIDGE_READY_TIMEOUT_MS}.
+   *
+   * Must be a finite, positive number of milliseconds. Anything else falls
+   * back to the default; values beyond the largest delay `setTimeout` can hold
+   * are clamped.
+   */
+  bridgeReadyTimeoutMs?: number;
+}
 
 export interface EvenG2Adapter {
   connect(): Promise<boolean>;
@@ -71,8 +90,17 @@ export class HybridEvenG2Adapter implements EvenG2Adapter {
 
   private disconnectWaiters: Array<() => void> = [];
 
-  constructor(onRender?: (formattedText: string, model: HudViewModel) => void) {
+  private readonly bridgeReadyTimeoutMs: number;
+
+  constructor(
+    onRender?: (formattedText: string, model: HudViewModel) => void,
+    options: HybridEvenG2AdapterOptions = {}
+  ) {
     this.onRenderCallback = onRender;
+    this.bridgeReadyTimeoutMs = resolveBridgeReadyTimeoutMs(
+      options.bridgeReadyTimeoutMs,
+      BRIDGE_TIMEOUT_LOG_PREFIX
+    );
   }
 
   public getLastImageResult(): string {
@@ -125,7 +153,9 @@ export class HybridEvenG2Adapter implements EvenG2Adapter {
   public async connect(): Promise<boolean> {
     try {
       if (!this.bridge) {
-        this.bridge = await waitForEvenAppBridge();
+        // Bounded: an unbounded handshake parks this reconnect loop forever,
+        // with no log and no error. See ../even-app/bridge-ready.
+        this.bridge = await waitForEvenAppBridgeWithin(this.bridgeReadyTimeoutMs);
         console.log('[EvenG2Adapter] waitForEvenAppBridge() resolved!');
       }
 
