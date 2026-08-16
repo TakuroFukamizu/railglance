@@ -32,10 +32,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v3
+        uses: hashicorp/setup-terraform@v4
         with:
           terraform_version: ${{ env.TERRAFORM_VERSION }}
 
@@ -71,10 +71,10 @@ jobs:
       TF_STATE_BUCKET_NAME: ${{ vars.TF_STATE_BUCKET_NAME || 'railglance-terraform-state' }}
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v3
+        uses: hashicorp/setup-terraform@v4
         with:
           terraform_version: ${{ env.TERRAFORM_VERSION }}
 
@@ -131,7 +131,7 @@ jobs:
           bucket_url="https://api.cloudflare.com/client/v4/accounts/${R2_ACCOUNT_ID}/r2/buckets/${TF_STATE_BUCKET_NAME}"
           response_file="$RUNNER_TEMP/r2-state-bucket-response.json"
           http_status="$(
-            curl --silent --show-error \
+            curl --silent --show-error --no-fail \
               --output "$response_file" \
               --write-out '%{http_code}' \
               --header "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
@@ -180,7 +180,7 @@ jobs:
             local bucket_name="$1"
             local response_file="$2"
 
-            curl --silent --show-error \
+            curl --silent --show-error --no-fail \
               --output "$response_file" \
               --write-out '%{http_code}' \
               --header "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
@@ -222,7 +222,7 @@ jobs:
           if ! state_contains aws_s3_bucket_cors_configuration.railway_dataset; then
             cors_response="$RUNNER_TEMP/${R2_BUCKET_NAME}-cors.json"
             cors_status="$(
-              curl --silent --show-error \
+              curl --silent --show-error --no-fail \
                 --output "$cors_response" \
                 --write-out '%{http_code}' \
                 --header "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
