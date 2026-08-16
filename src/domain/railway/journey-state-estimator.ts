@@ -246,6 +246,16 @@ export class JourneyStateEstimator {
     }
 
     if (!previousStation || !nextStation) {
+      // ここに来るのは前駅・次駅がまだ確定していない場合(セグメントが無い /
+      // セグメントに駅IDが無い / 駅IDが路線の駅一覧に解決できない)。
+      // いずれの場合も、これから報告する駅ペアは駅スキャンが決めるため、
+      // セグメント由来の距離・進捗はその駅ペアについての値ではない。
+      // 両方まとめて破棄し、距離は駅スキャンが、進捗率は後段のhaversine
+      // フォールバックが同じ駅ペアから算出し直すようにする。
+      // (セグメント側が最初から何も入れていない場合、この破棄は無害なno-op)
+      distanceToNextStationMeters = null;
+      progressRatio = null;
+
       let refLat: number | null = null;
       let refLon: number | null = null;
       let refTrackOffset: number | null = null;
