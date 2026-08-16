@@ -26,7 +26,6 @@ jobs:
       VITE_EVEN_SDK_VERSION: ${{ vars.VITE_EVEN_SDK_VERSION }}
       SENTRY_ORG: ${{ vars.SENTRY_ORG }}
       SENTRY_PROJECT: ${{ vars.SENTRY_PROJECT }}
-      SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
     steps:
       - name: Require main branch
         shell: bash
@@ -50,6 +49,8 @@ jobs:
 
       - name: Validate beta configuration
         shell: bash
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
         run: |
           set -euo pipefail
           required=(
@@ -94,6 +95,8 @@ jobs:
       - run: pnpm install --frozen-lockfile
 
       - name: Build package and upload source maps
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
         run: pnpm ehpack
 
       - name: Verify packaged network permissions and source maps
@@ -110,7 +113,7 @@ jobs:
             process.env.VITE_RAILWAY_DATA_BASE_URL,
             process.env.VITE_SENTRY_DSN,
             process.env.VITE_TELEMETRY_ENDPOINT,
-          ].map((value) => new URL(value).origin);
+          ].map((value) => new URL(value.trim()).origin);
           const missing = expected.filter((origin) => !actual.has(origin));
           if (missing.length > 0) {
             throw new Error(`dist/app.json is missing network origins: ${missing.join(', ')}`);
