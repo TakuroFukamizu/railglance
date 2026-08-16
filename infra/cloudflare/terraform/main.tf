@@ -36,13 +36,13 @@ variable "account_id" {
 
 variable "zone_id" {
   type        = string
-  description = "Cloudflare Domain Zone ID"
-}
+  default     = ""
+  description = "Optional Cloudflare Domain Zone ID. Leave empty until a custom domain is added; zone cache rules are skipped."
 
-variable "domain_name" {
-  type        = string
-  default     = "data.railglance.example"
-  description = "Custom domain for R2 data bucket"
+  validation {
+    condition     = var.zone_id == "" || can(regex("^[0-9a-f]{32}$", var.zone_id))
+    error_message = "zone_id must be empty or a 32-character lowercase hexadecimal Cloudflare Zone ID."
+  }
 }
 
 variable "r2_access_key_id" {
@@ -96,6 +96,8 @@ resource "aws_s3_bucket_cors_configuration" "railway_dataset" {
 
 # 2. Cache Rules for Versioned Datasets & Latest Pointer
 resource "cloudflare_ruleset" "cache_rules" {
+  count = var.zone_id == "" ? 0 : 1
+
   zone_id     = var.zone_id
   name        = "RailGlance Tile Cache Rules"
   description = "Long-term caching for versioned tiles and short TTL for latest.json"
