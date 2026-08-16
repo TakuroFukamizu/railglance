@@ -51,7 +51,37 @@ Cloudflare Rate Limiting bindingのカウンタはCloudflare拠点単位であ�
 
 ## Cloudflare 構築・デプロイ
 
-テレメトリ用R2 bucketは公開しない。Terraformでbucketを作成後、Queueとdead-letter Queueを作成する。
+テレメトリ用R2 bucketは公開しない。Terraformはローカルで毎回環境変数を`export`して実行せず、GitHub Actionsの
+`Provision Cloudflare Infrastructure` workflowから実行する。
+
+GitHubの`Settings` → `Secrets and variables` → `Actions`で次を設定する。
+
+| 種別 | 名前 | 用途 |
+| --- | --- | --- |
+| Repository Secret | `CLOUDFLARE_API_TOKEN` | R2 bucketと、独自ドメイン導入後のZone Cache Rulesを管理するCloudflare API token |
+| Repository Secret | `R2_ACCOUNT_ID` | Cloudflare Account ID |
+| Repository Secret | `R2_ACCESS_KEY_ID` | Terraform stateとR2 CORSを操作するS3互換Access Key ID |
+| Repository Secret | `R2_SECRET_ACCESS_KEY` | 上記Access KeyのSecret |
+| Repository Variable | `R2_BUCKET_NAME` | Dataset bucket名。既定値は`railglance-dataset-bucket` |
+| Repository Variable | `R2_CORS_ALLOWED_ORIGINS` | 完全一致Originをカンマ区切りで指定する |
+| Repository Variable（任意） | `TF_STATE_BUCKET_NAME` | Terraform state bucket名。未設定時は`railglance-terraform-state` |
+| Repository Variable（ドメイン導入後） | `CLOUDFLARE_ZONE_ID` | Cloudflare Zone ID。ドメイン未導入中は設定しない |
+
+`CLOUDFLARE_API_TOKEN`には少なくとも対象Accountの`Workers R2 Storage: Edit`を付与する。独自ドメイン導入後に
+Cache Rulesも管理する場合は、対象Zoneに必要な権限を追加する。R2のS3互換Access Keyには、state bucketの
+object read/write/deleteと、管理対象bucketのread/write権限が必要になる。
+
+Actionsの`Provision Cloudflare Infrastructure` → `Run workflow`から、最初に`plan`を実行して差分を確認し、
+続いて`apply`を実行する。workflowはstate専用R2 bucketの存在をCloudflare APIで確認し、存在しない場合だけAPACに
+作成する。Terraform stateは`railglance/cloudflare/terraform.tfstate`へ保存し、lockfileにより同時実行を防ぐ。
+state bucketはTerraformが自分自身のbackendを削除しないよう、Terraform管理対象には含めない。
+初回実行時にDataset bucket、Telemetry bucket、Dataset CORSがすでに存在する場合は、再作成せずremote stateへ
+自動importする。
+
+ドメイン未導入中は`CLOUDFLARE_ZONE_ID`が空のため、Dataset bucket、Telemetry bucket、CORSだけを作成し、
+Zone Cache Rulesはスキップする。独自ドメイン導入後の作業はIssue #31に従う。
+
+Terraformでbucketを作成後、Queueとdead-letter Queueを作成する。
 
 ```bash
 pnpm dlx wrangler queues create railglance-telemetry

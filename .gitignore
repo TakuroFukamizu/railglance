@@ -10,3 +10,9 @@ dist/
 infra/cloudflare/telemetry-worker/.dev.vars*
 .claude/worktrees/
 .terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+*.tfvars
+*.tfvars.json
+!*.example.tfvars

@@ -1,4 +1,20 @@
 terraform {
+  required_version = ">= 1.10.0, < 2.0.0"
+
+  # The state bucket is bootstrapped by provision-cloudflare.yml and is kept
+  # outside this configuration so Terraform never tries to manage its own backend.
+  backend "s3" {
+    key                         = "railglance/cloudflare/terraform.tfstate"
+    region                      = "auto"
+    skip_credentials_validation = true
+    skip_metadata_api_check     = true
+    skip_region_validation      = true
+    skip_requesting_account_id  = true
+    skip_s3_checksum            = true
+    use_lockfile                = true
+    use_path_style              = true
+  }
+
   required_providers {
     cloudflare = {
       source  = "cloudflare/cloudflare"
@@ -57,6 +73,17 @@ variable "r2_secret_access_key" {
   description = "R2 S3-compatible Secret Access Key"
 }
 
+variable "dataset_bucket_name" {
+  type        = string
+  default     = "railglance-dataset-bucket"
+  description = "R2 bucket containing the public railway dataset"
+
+  validation {
+    condition     = can(regex("^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$", var.dataset_bucket_name))
+    error_message = "dataset_bucket_name must be a valid 3-63 character R2 bucket name."
+  }
+}
+
 variable "cors_allowed_origins" {
   type        = list(string)
   description = "Exact web application origins allowed to read public dataset objects"
@@ -70,7 +97,7 @@ variable "cors_allowed_origins" {
 # 1. Cloudflare R2 Bucket for Static Railway Dataset Tiles
 resource "cloudflare_r2_bucket" "railway_dataset" {
   account_id = var.account_id
-  name       = "railglance-dataset-bucket"
+  name       = var.dataset_bucket_name
   location   = "APAC" # Asia Pacific
 }
 
