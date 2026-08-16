@@ -36,15 +36,21 @@ export function isUpDirection(direction: TravelDirection): boolean {
  * trackPosition がセグメント外(手前 / 行き過ぎ)にある場合でも、
  * 距離は [0, segmentLength]、進捗率は [0, 1] にclampする。
  * 距離と進捗率は同じセグメント長を基準に導出するため、常に整合する。
+ *
+ * セグメント長が有限の正数でない場合は「算出不能」を意味する null を返す。
+ * ここで 0m / 進捗1.0 を返してしまうと、入力が壊れているだけなのにHUD上は
+ * 「次駅に到着済み」と表示され、さらに progressRatio が非nullになることで
+ * 呼び出し側のhaversineフォールバックまで塞いでしまうため。
+ * フォールバックの選択は呼び出し側に委ねる。
  */
 export function computeSegmentProgress(
   trackPositionMeters: number,
   startOffsetMeters: number,
   segmentLengthMeters: number,
   isDown: boolean
-): SegmentProgress {
+): SegmentProgress | null {
   if (!Number.isFinite(segmentLengthMeters) || segmentLengthMeters <= 0) {
-    return { distanceToNextStationMeters: 0, progressRatio: 1 };
+    return null;
   }
 
   const offsetWithinSegment = Math.min(
@@ -229,8 +235,13 @@ export class JourneyStateEstimator {
           segLength,
           isDown
         );
-        distanceToNextStationMeters = progress.distanceToNextStationMeters;
-        progressRatio = progress.progressRatio;
+        // セグメント長が使えない場合は両方ともnullのまま残し、「不明」として
+        // 駅フォールバック / haversineフォールバック / UI側の判断に委ねる。
+        // 片方だけ埋めると距離と進捗が矛盾するため、必ず両方まとめて代入する。
+        if (progress) {
+          distanceToNextStationMeters = progress.distanceToNextStationMeters;
+          progressRatio = progress.progressRatio;
+        }
       }
     }
 

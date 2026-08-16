@@ -6,6 +6,7 @@ import {
   isUpDirection,
   JourneyStateEstimator,
 } from '../../src/domain/railway/journey-state-estimator';
+import { haversineDistance } from '../../src/domain/geo/distance';
 import { RailwayCoverageResult, RailwayDataRepository, RailwayDataState } from '../../src/domain/railway/repository';
 import { RailwayLine, RailwayRoute, RouteMatch, Station, TrackSegment } from '../../src/domain/models/railway';
 import {
@@ -412,6 +413,61 @@ describe('JourneyStateEstimator - direction aware distance and progress', () => 
   });
 });
 
+describe('JourneyStateEstimator - unusable segment length', () => {
+  // 前駅・次駅は特定できるがセグメント長が壊れているケース。
+  // 「残り0m / 進捗100%」= 到着済み、と誤って断定してはいけない。
+  it('reports unknown distance and progress instead of a bogus arrived state', async () => {
+    const estimator = new JourneyStateEstimator(new MockStationDatabase(), DEFAULT_TRACKING_CONFIG);
+    const brokenSegment: TrackSegment = { ...SEG_1, lengthMeters: 0 };
+
+    const state = await estimateAt(estimator, 'UP', 1500, brokenSegment);
+
+    expect(state.previousStation?.name).toBe('海老名');
+    expect(state.nextStation?.name).toBe('座間');
+    expect(state.distanceToNextStationMeters).toBeNull();
+    expect(state.progressRatio).toBeNull();
+  });
+
+  it('reports unknown distance and progress for DOWN as well', async () => {
+    const estimator = new JourneyStateEstimator(new MockStationDatabase(), DEFAULT_TRACKING_CONFIG);
+    const brokenSegment: TrackSegment = { ...SEG_1, lengthMeters: Number.NaN };
+
+    const state = await estimateAt(estimator, 'DOWN', 1500, brokenSegment);
+
+    expect(state.previousStation?.name).toBe('座間');
+    expect(state.nextStation?.name).toBe('海老名');
+    expect(state.distanceToNextStationMeters).toBeNull();
+    expect(state.progressRatio).toBeNull();
+  });
+
+  // セグメント長が壊れていて、かつセグメントの駅IDが路線の駅一覧に見つからない場合は
+  // 駅フォールバックが距離を埋める。このとき progressRatio がセグメント側の値で
+  // 埋まっていると haversine フォールバックが動かず、距離500mなのに進捗100%という
+  // 矛盾した状態になる。progressRatio は null のまま残す必要がある。
+  it('keeps the haversine fallback reachable when the segment length is unusable', async () => {
+    const estimator = new JourneyStateEstimator(new MockStationDatabase(), DEFAULT_TRACKING_CONFIG);
+    const brokenSegment: TrackSegment = {
+      ...SEG_1,
+      fromStationId: 'st-not-in-line',
+      toStationId: 'st-also-not-in-line',
+      lengthMeters: 0,
+    };
+
+    const state = await estimateAt(estimator, 'UP', 1500, brokenSegment);
+
+    expect(state.previousStation?.name).toBe('海老名');
+    expect(state.nextStation?.name).toBe('座間');
+    // 駅フォールバックが埋めた残距離 (次駅オフセット 2000m - 現在位置 1500m)。
+    expect(state.distanceToNextStationMeters).toBe(500);
+
+    // 進捗率は駅間の直線距離ベースで再計算される(「到着済み」の1.0ではない)。
+    const straightLineMeters = haversineDistance(35.4526, 139.3900, 35.4806, 139.4005);
+    const expectedRatio = (straightLineMeters - 500) / straightLineMeters;
+    expect(state.progressRatio).toBeCloseTo(expectedRatio, 10);
+    expect(state.progressRatio).toBeLessThan(1);
+  });
+});
+
 describe('computeSegmentProgress', () => {
   it('returns direction specific remaining distance within the segment', () => {
     expect(computeSegmentProgress(1500, 0, 3200, false)).toEqual({
@@ -442,15 +498,14 @@ describe('computeSegmentProgress', () => {
     });
   });
 
-  it('degrades safely when the segment length is not usable', () => {
-    expect(computeSegmentProgress(100, 0, 0, false)).toEqual({
-      distanceToNextStationMeters: 0,
-      progressRatio: 1,
-    });
-    expect(computeSegmentProgress(100, 0, Number.NaN, true)).toEqual({
-      distanceToNextStationMeters: 0,
-      progressRatio: 1,
-    });
+  // セグメント長が壊れているだけなのに 0m / 進捗1.0 を返すと「到着済み」と誤表示され、
+  // さらに progressRatio が非nullになることで呼び出し側のフォールバックも塞いでしまう。
+  it('returns null instead of a bogus arrived state when the segment length is not usable', () => {
+    expect(computeSegmentProgress(100, 0, 0, false)).toBeNull();
+    expect(computeSegmentProgress(100, 0, 0, true)).toBeNull();
+    expect(computeSegmentProgress(100, 0, Number.NaN, true)).toBeNull();
+    expect(computeSegmentProgress(100, 0, -1200, false)).toBeNull();
+    expect(computeSegmentProgress(100, 0, Number.POSITIVE_INFINITY, false)).toBeNull();
   });
 });
 
