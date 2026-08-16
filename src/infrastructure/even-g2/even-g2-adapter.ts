@@ -16,6 +16,7 @@ import {
   waitForEvenAppBridgeWithin,
 } from '../even-app/bridge-ready';
 import { createSpeedPng } from './speed-png-generator';
+import { addRuntimeBreadcrumb, captureRuntimeError } from '../observability/sentry';
 
 export { DEFAULT_BRIDGE_READY_TIMEOUT_MS };
 
@@ -154,6 +155,7 @@ export class HybridEvenG2Adapter implements EvenG2Adapter {
     this.pageReady = false;
     if (wasConnected) {
       console.warn(`[EvenG2Adapter] Disconnected: ${reason}`);
+      addRuntimeBreadcrumb('railglance.bridge', 'Even G2 disconnected', { reason }, 'warning');
       const waiters = this.disconnectWaiters;
       this.disconnectWaiters = [];
       for (const resolve of waiters) resolve();
@@ -201,6 +203,7 @@ export class HybridEvenG2Adapter implements EvenG2Adapter {
         this.pageReady = true;
         this.isConnected = true;
         this.sessionEpoch += 1;
+        addRuntimeBreadcrumb('railglance.bridge', 'Even G2 page initialized');
         this.subscribeToLifecycleEvents();
 
         // Initial image after page is ready (must stay on bridgeQueue). Failures must not block text/GPS.
@@ -215,6 +218,7 @@ export class HybridEvenG2Adapter implements EvenG2Adapter {
       }
     } catch (err) {
       console.log('[EvenG2Adapter] Bridge connection notice:', err);
+      captureRuntimeError(err, 'even-g2-connect');
       // Always route failures through markDisconnected so any waiter registered
       // by a previous session is released instead of stranding the caller.
       this.markDisconnected('connect() failed');
@@ -292,6 +296,7 @@ export class HybridEvenG2Adapter implements EvenG2Adapter {
       }
     }).catch((error) => {
       console.warn('[EvenG2Adapter] HUD flush failed:', error);
+      captureRuntimeError(error, 'even-g2-hud-flush');
     });
   }
 
@@ -326,6 +331,7 @@ export class HybridEvenG2Adapter implements EvenG2Adapter {
         }
       } catch (error) {
         console.warn('[EvenG2Adapter] header textContainerUpgrade error:', error);
+        captureRuntimeError(error, 'even-g2-text-update', { container: 'header' });
       }
     }
 
@@ -341,6 +347,7 @@ export class HybridEvenG2Adapter implements EvenG2Adapter {
         }
       } catch (error) {
         console.warn('[EvenG2Adapter] segment textContainerUpgrade error:', error);
+        captureRuntimeError(error, 'even-g2-text-update', { container: 'segment' });
       }
     }
 
@@ -356,6 +363,7 @@ export class HybridEvenG2Adapter implements EvenG2Adapter {
         }
       } catch (error) {
         console.warn('[EvenG2Adapter] footer textContainerUpgrade error:', error);
+        captureRuntimeError(error, 'even-g2-text-update', { container: 'footer' });
       }
     }
   }
@@ -407,6 +415,8 @@ export class HybridEvenG2Adapter implements EvenG2Adapter {
       const errMessage = err?.message || String(err);
       this.lastImageResult = `error: ${errMessage}`;
       console.warn('[EvenG2Adapter] Error in speed image update operation:', errMessage);
+      captureRuntimeError(err, 'even-g2-image-update');
+      addRuntimeBreadcrumb('railglance.bridge', 'Even G2 image update failed', {}, 'error');
     }
   }
 
@@ -502,7 +512,9 @@ export class HybridEvenG2Adapter implements EvenG2Adapter {
         // Pause outbound updates while backgrounded; keep isConnected so ENTER can recover.
         this.pageReady = false;
         console.log('[EvenG2Adapter] FOREGROUND_EXIT — pausing HUD updates');
+        addRuntimeBreadcrumb('railglance.lifecycle', 'Even Hub foreground exit');
       } else if (eventType === OsEventTypeList.FOREGROUND_ENTER_EVENT) {
+        addRuntimeBreadcrumb('railglance.lifecycle', 'Even Hub foreground enter');
         void this.recoverPage();
       } else if (
         eventType === OsEventTypeList.SYSTEM_EXIT_EVENT ||
@@ -548,6 +560,7 @@ export class HybridEvenG2Adapter implements EvenG2Adapter {
       });
     } catch (error) {
       console.warn('[EvenG2Adapter] Page recovery failed:', error);
+      captureRuntimeError(error, 'even-g2-page-recovery');
       // Only our own session's failure means "no usable page". If a newer session
       // already owns the bridge, tearing it down here would resolve its disconnect
       // waiter and cost a spurious reconnect cycle for a page we never built.

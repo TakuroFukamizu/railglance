@@ -11,7 +11,8 @@
     "build": "tsc && vite build",
     "build:data": "tsx src/scripts/build-kanto-dataset.ts",
     "deploy:r2": "pnpm build:data && tsx src/scripts/deploy-r2.ts",
-    "ehpack": "pnpm build && evenhub pack app.json dist",
+    "manifest:evenhub": "tsx src/scripts/build-evenhub-manifest.ts",
+    "ehpack": "pnpm build && pnpm manifest:evenhub && evenhub pack dist/app.json dist",
     "lint": "eslint . --max-warnings=0",
     "preview": "vite preview",
     "test": "vitest run",
@@ -19,6 +20,7 @@
   },
   "dependencies": {
     "@evenrealities/even_hub_sdk": "^0.0.12",
+    "@sentry/browser": "^10.70.0",
     "dexie": "^4.0.10",
     "h3-js": "^4.5.0"
   },
@@ -27,6 +29,7 @@
     "@eslint/js": "10.0.1",
     "@evenrealities/evenhub-cli": "^0.1.13",
     "@evenrealities/evenhub-simulator": "^0.8.0",
+    "@sentry/vite-plugin": "^5.4.0",
     "@types/node": "^26.1.2",
     "concurrently": "^10.0.3",
     "eslint": "10.8.1",

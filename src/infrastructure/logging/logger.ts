@@ -1,6 +1,14 @@
 import { LocationSample, FullSpeedState } from '../../domain/models/location';
 import { JourneyState, RouteMatch } from '../../domain/models/railway';
 import { HudViewModel } from '../../domain/models/hud';
+import { TelemetrySink, NoopTelemetrySink } from '../telemetry/sinks';
+import {
+  createEstimationTelemetryEvent,
+  createGpsTelemetryEvent,
+  createStateTransitionTelemetryEvent,
+  EstimationTelemetryEvent,
+  TelemetryIdentity,
+} from '../telemetry/types';
 
 export type EstimationLogEntry = {
   timestampMs: number;
@@ -9,10 +17,25 @@ export type EstimationLogEntry = {
   match: RouteMatch | null;
   journey: JourneyState;
   hudViewModel: HudViewModel;
+  bridgeConnected?: boolean;
+  lastImageResult?: string;
 };
 
 export class EstimationLogger {
   private listeners: Array<(entry: EstimationLogEntry) => void> = [];
+  private previousEstimation: EstimationTelemetryEvent | null = null;
+
+  constructor(
+    private readonly identity: TelemetryIdentity = {
+      sessionId: 'local-session',
+      release: 'railglance@development',
+      environment: 'development',
+      datasetVersion: null,
+      evenSdkVersion: 'unknown',
+    },
+    private readonly sink: TelemetrySink = new NoopTelemetrySink(),
+    private readonly diagnosticEnabled: boolean | (() => boolean) = false
+  ) {}
 
   public subscribe(listener: (entry: EstimationLogEntry) => void): void {
     this.listeners.push(listener);
@@ -38,5 +61,112 @@ export class EstimationLogger {
     for (const listener of this.listeners) {
       listener(entry);
     }
+
+    const event = createEstimationTelemetryEvent(this.identity, entry);
+    if (this.isDiagnosticEnabled()) this.sink.write(event);
+    this.emitTransitions(event);
+    this.previousEstimation = event;
+  }
+
+  public logGpsObservation(sample: LocationSample, accepted = true, rejectionReason?: string): void {
+    if (!this.isDiagnosticEnabled()) return;
+    this.sink.write(createGpsTelemetryEvent(this.identity, sample, accepted, rejectionReason));
+  }
+
+  public flush(): Promise<void> {
+    return this.sink.flush();
+  }
+
+  public shutdown(): Promise<void> {
+    return this.sink.shutdown();
+  }
+
+  private isDiagnosticEnabled(): boolean {
+    return typeof this.diagnosticEnabled === 'function'
+      ? this.diagnosticEnabled()
+      : this.diagnosticEnabled;
+  }
+
+  private emitTransitions(current: EstimationTelemetryEvent): void {
+    const previous = this.previousEstimation;
+    if (!previous) {
+      this.writeTransition(current, 'lifecycle', 'Telemetry session started', {
+        navigationMode: current.navigation.mode,
+        routeId: current.match.selectedRouteId,
+        segmentId: current.match.selectedSegmentId,
+      });
+      if (current.match.selectedRouteId) {
+        this.writeTransition(current, 'route', 'Route determined', {
+          to: current.match.selectedRouteId,
+          lineId: current.match.selectedLineId,
+          confidence: current.match.confidence,
+        });
+      }
+      if (current.match.selectedSegmentId) {
+        this.writeTransition(current, 'segment', 'Segment determined', {
+          to: current.match.selectedSegmentId,
+          routeId: current.match.selectedRouteId,
+        });
+      }
+      if (current.journey.nextStationId) {
+        this.writeTransition(current, 'station', 'Next station determined', {
+          to: current.journey.nextStationId,
+          previousStationId: current.journey.previousStationId,
+        });
+      }
+      return;
+    }
+
+    if (previous.navigation.mode !== current.navigation.mode) {
+      this.writeTransition(current, 'navigation', 'Navigation mode changed', {
+        from: previous.navigation.mode,
+        to: current.navigation.mode,
+        gpsAgeMs: current.navigation.gpsAgeMs,
+        routeId: current.match.selectedRouteId,
+        segmentId: current.match.selectedSegmentId,
+      });
+    }
+    if (previous.match.selectedRouteId !== current.match.selectedRouteId) {
+      this.writeTransition(current, 'route', 'Route changed', {
+        from: previous.match.selectedRouteId,
+        to: current.match.selectedRouteId,
+        lineId: current.match.selectedLineId,
+        confidence: current.match.confidence,
+      });
+    }
+    if (previous.match.selectedSegmentId !== current.match.selectedSegmentId) {
+      this.writeTransition(current, 'segment', 'Segment changed', {
+        from: previous.match.selectedSegmentId,
+        to: current.match.selectedSegmentId,
+        routeId: current.match.selectedRouteId,
+      });
+    }
+    if (previous.journey.nextStationId !== current.journey.nextStationId) {
+      this.writeTransition(current, 'station', 'Next station changed', {
+        from: previous.journey.nextStationId,
+        to: current.journey.nextStationId,
+        previousStationId: current.journey.previousStationId,
+      });
+    }
+    if (
+      previous.bridge.connected !== current.bridge.connected ||
+      previous.bridge.lastImageResult !== current.bridge.lastImageResult
+    ) {
+      this.writeTransition(current, 'bridge', 'Even G2 bridge state changed', {
+        connected: current.bridge.connected,
+        lastImageResult: current.bridge.lastImageResult,
+      });
+    }
+  }
+
+  private writeTransition(
+    current: EstimationTelemetryEvent,
+    category: Parameters<typeof createStateTransitionTelemetryEvent>[2],
+    message: string,
+    data: Parameters<typeof createStateTransitionTelemetryEvent>[4]
+  ): void {
+    this.sink.write(
+      createStateTransitionTelemetryEvent(this.identity, current.timestampMs, category, message, data)
+    );
   }
 }

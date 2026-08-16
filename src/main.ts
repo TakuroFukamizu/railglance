@@ -5,6 +5,8 @@ import { LocationSample } from './domain/models/location';
 import { LocationProvider, BrowserLocationProvider } from './infrastructure/geolocation/browser-location-provider';
 import { DeviceMotionSensorFusionProvider } from './infrastructure/sensors/device-motion-sensor-fusion-provider';
 import { HudViewModel } from './domain/models/hud';
+import { captureRuntimeError } from './infrastructure/observability/sentry';
+import type { DiagnosticStatus } from './infrastructure/telemetry/runtime-telemetry';
 
 class DemoGpsReplayerProvider implements LocationProvider {
   private listener: ((sample: LocationSample) => void) | null = null;
@@ -105,7 +107,7 @@ async function init() {
   const debugPanel = new DebugPanel('debug-panel');
   const motionSensorProvider = new DeviceMotionSensorFusionProvider();
 
-  const { controller, db, evenG2Adapter, logger } = await bootstrapApp(undefined, (_formattedText, model) => {
+  const { controller, db, evenG2Adapter, logger, telemetryManager } = await bootstrapApp(undefined, (_formattedText, model) => {
     if (model) {
       updateViewportDOM(model);
     }
@@ -143,8 +145,91 @@ async function init() {
     void controller.switchLocationProvider(new DemoGpsReplayerProvider(SHINKANSEN_DEMO_POINTS));
   });
 
+  const diagnosticConsent = document.getElementById('diagnostic-consent') as HTMLInputElement | null;
+  const diagnosticAccessCode = document.getElementById('diagnostic-access-code') as HTMLInputElement | null;
+  const diagnosticStart = document.getElementById('btn-diagnostic-start') as HTMLButtonElement | null;
+  const diagnosticStop = document.getElementById('btn-diagnostic-stop') as HTMLButtonElement | null;
+  const diagnosticDelete = document.getElementById('btn-diagnostic-delete') as HTMLButtonElement | null;
+  const diagnosticIndicator = document.getElementById('diagnostic-indicator');
+  const diagnosticStatus = document.getElementById('diagnostic-status');
+  const diagnosticDetail = document.getElementById('diagnostic-detail');
+
+  const renderDiagnosticStatus = (status: DiagnosticStatus) => {
+    const collecting = ['active', 'refreshing', 'offline-buffering'].includes(status.state);
+    const canResume = status.state === 'paused';
+    diagnosticIndicator?.classList.toggle('is-active', collecting);
+    diagnosticIndicator?.classList.toggle(
+      'is-error', ['expired', 'revoked', 'release-blocked'].includes(status.state)
+    );
+    if (diagnosticStatus) {
+      diagnosticStatus.textContent = collecting
+        ? status.state === 'offline-buffering' ? '診断収集: 端末保存中' : '診断収集: 有効'
+        : status.state === 'paused' ? '診断収集: 一時停止' : '診断収集: 停止';
+    }
+    if (diagnosticDetail) {
+      const qualification = status.qualificationExpiresAt
+        ? ` 資格期限: ${new Date(status.qualificationExpiresAt).toLocaleString()}`
+        : '';
+      diagnosticDetail.textContent = `${status.message}${qualification}`;
+    }
+    if (diagnosticStart) {
+      diagnosticStart.disabled = collecting || ['joining', 'revoked', 'release-blocked'].includes(status.state);
+      diagnosticStart.textContent = canResume ? '診断収集を再開' : '参加して診断収集を開始';
+    }
+    if (diagnosticStop) diagnosticStop.disabled = !collecting;
+    if (diagnosticAccessCode) diagnosticAccessCode.disabled = telemetryManager.hasQualification();
+    if (diagnosticConsent) diagnosticConsent.disabled = telemetryManager.hasQualification();
+  };
+
+  telemetryManager.subscribe(renderDiagnosticStatus);
+
+  diagnosticStart?.addEventListener('click', async () => {
+    if (!telemetryManager.hasQualification() && !diagnosticConsent?.checked) {
+      if (diagnosticDetail) diagnosticDetail.textContent = '収集内容を確認し、同意欄をチェックしてください。';
+      diagnosticIndicator?.classList.add('is-error');
+      return;
+    }
+    diagnosticStart.disabled = true;
+    try {
+      await telemetryManager.startDiagnostic(diagnosticAccessCode?.value ?? '');
+      if (diagnosticAccessCode) diagnosticAccessCode.value = '';
+    } catch (error) {
+      diagnosticStart.disabled = false;
+      diagnosticIndicator?.classList.add('is-error');
+      if (diagnosticDetail) diagnosticDetail.textContent = error instanceof Error ? error.message : String(error);
+    }
+  });
+
+  diagnosticStop?.addEventListener('click', async () => {
+    diagnosticStop.disabled = true;
+    try {
+      await telemetryManager.stopDiagnostic();
+    } catch (error) {
+      diagnosticIndicator?.classList.add('is-error');
+      if (diagnosticDetail) diagnosticDetail.textContent = '停止処理に失敗しました。未送信ログは端末に保持されています。';
+      captureRuntimeError(error, 'diagnostic-session-stop');
+    }
+  });
+
+  diagnosticDelete?.addEventListener('click', async () => {
+    if (!window.confirm('端末内の未送信診断ログを削除します。キャンペーン参加資格は削除されません。よろしいですか？')) return;
+    diagnosticDelete.disabled = true;
+    try {
+      await telemetryManager.deleteLocalData();
+    } catch (error) {
+      diagnosticIndicator?.classList.add('is-error');
+      if (diagnosticDetail) diagnosticDetail.textContent = '端末内ログを削除できませんでした。';
+      captureRuntimeError(error, 'diagnostic-local-data-delete');
+    } finally {
+      diagnosticDelete.disabled = false;
+    }
+  });
+
   // Auto-start controller and Even G2 Bridge connection
   await controller.start();
 }
 
-init().catch(console.error);
+init().catch((error) => {
+  captureRuntimeError(error, 'app-initialization');
+  console.error(error);
+});

@@ -8,18 +8,38 @@ import { HybridEvenG2Adapter } from '../infrastructure/even-g2/even-g2-adapter';
 import { EstimationLogger } from '../infrastructure/logging/logger';
 import { AppController } from './app-controller';
 import { HudViewModel } from '../domain/models/hud';
+import { createTelemetrySessionId, readTelemetryConfig } from '../config/telemetry-config';
+import { captureRuntimeError, initializeSentry, SentryTelemetrySink } from '../infrastructure/observability/sentry';
+import { RuntimeTelemetryManager } from '../infrastructure/telemetry/runtime-telemetry';
 
 export type AppBootstrapResult = {
   controller: AppController;
   db: DexieRailwayDatabase;
   logger: EstimationLogger;
   evenG2Adapter: HybridEvenG2Adapter;
+  telemetryManager: RuntimeTelemetryManager;
 };
 
 export async function bootstrapApp(
   customLocationProvider?: LocationProvider,
   onHudRender?: (formattedText: string, model: HudViewModel, canvas?: HTMLCanvasElement | null) => void
 ): Promise<AppBootstrapResult> {
+  const telemetryConfig = readTelemetryConfig();
+  const telemetrySessionId = createTelemetrySessionId();
+  await initializeSentry(telemetryConfig, telemetrySessionId);
+
+  const telemetryIdentity = {
+    sessionId: telemetrySessionId,
+    release: telemetryConfig.release,
+    environment: telemetryConfig.environment,
+    datasetVersion: telemetryConfig.datasetVersion,
+    evenSdkVersion: telemetryConfig.evenSdkVersion,
+  };
+  const telemetryManager = new RuntimeTelemetryManager(
+    new SentryTelemetrySink(), telemetryConfig, telemetryIdentity
+  );
+  await telemetryManager.initialize().catch((error) => captureRuntimeError(error, 'telemetry-buffer-clear'));
+
   const db = new DexieRailwayDatabase();
   await db.initialize();
 
@@ -30,7 +50,15 @@ export async function bootstrapApp(
   // AdaptiveLocationProvider tries Even App location first (for Prototype mode & native app), falling back to Browser Geolocation
   const locationProvider = customLocationProvider ?? new AdaptiveLocationProvider();
   const evenG2Adapter = new HybridEvenG2Adapter(onHudRender);
-  const logger = new EstimationLogger();
+  const logger = new EstimationLogger(
+    telemetryIdentity,
+    telemetryManager,
+    () => telemetryManager.isDiagnosticEnabled()
+  );
+
+  if (typeof window !== 'undefined') {
+    window.addEventListener('pagehide', () => void logger.flush(), { once: true });
+  }
 
   const controller = new AppController(
     locationProvider,
@@ -47,5 +75,6 @@ export async function bootstrapApp(
     db,
     logger,
     evenG2Adapter,
+    telemetryManager,
   };
 }

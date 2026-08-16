@@ -1,4 +1,20 @@
 terraform {
+  required_version = ">= 1.10.0, < 2.0.0"
+
+  # The state bucket is bootstrapped by provision-cloudflare.yml and is kept
+  # outside this configuration so Terraform never tries to manage its own backend.
+  backend "s3" {
+    key                         = "railglance/cloudflare/terraform.tfstate"
+    region                      = "auto"
+    skip_credentials_validation = true
+    skip_metadata_api_check     = true
+    skip_region_validation      = true
+    skip_requesting_account_id  = true
+    skip_s3_checksum            = true
+    use_lockfile                = true
+    use_path_style              = true
+  }
+
   required_providers {
     cloudflare = {
       source  = "cloudflare/cloudflare"
@@ -36,13 +52,13 @@ variable "account_id" {
 
 variable "zone_id" {
   type        = string
-  description = "Cloudflare Domain Zone ID"
-}
+  default     = ""
+  description = "Optional Cloudflare Domain Zone ID. Leave empty until a custom domain is added; zone cache rules are skipped."
 
-variable "domain_name" {
-  type        = string
-  default     = "data.railglance.example"
-  description = "Custom domain for R2 data bucket"
+  validation {
+    condition     = var.zone_id == "" || can(regex("^[0-9a-f]{32}$", var.zone_id))
+    error_message = "zone_id must be empty or a 32-character lowercase hexadecimal Cloudflare Zone ID."
+  }
 }
 
 variable "r2_access_key_id" {
@@ -55,6 +71,17 @@ variable "r2_secret_access_key" {
   type        = string
   sensitive   = true
   description = "R2 S3-compatible Secret Access Key"
+}
+
+variable "dataset_bucket_name" {
+  type        = string
+  default     = "railglance-dataset-bucket"
+  description = "R2 bucket containing the public railway dataset"
+
+  validation {
+    condition     = can(regex("^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$", var.dataset_bucket_name))
+    error_message = "dataset_bucket_name must be a valid 3-63 character R2 bucket name."
+  }
 }
 
 variable "cors_allowed_origins" {
@@ -70,8 +97,15 @@ variable "cors_allowed_origins" {
 # 1. Cloudflare R2 Bucket for Static Railway Dataset Tiles
 resource "cloudflare_r2_bucket" "railway_dataset" {
   account_id = var.account_id
-  name       = "railglance-dataset-bucket"
+  name       = var.dataset_bucket_name
   location   = "APAC" # Asia Pacific
+}
+
+# Private diagnostic telemetry storage. Do not attach a public r2.dev URL or custom domain.
+resource "cloudflare_r2_bucket" "diagnostic_telemetry" {
+  account_id = var.account_id
+  name       = "railglance-telemetry-bucket"
+  location   = "APAC"
 }
 
 resource "aws_s3_bucket_cors_configuration" "railway_dataset" {
@@ -89,6 +123,8 @@ resource "aws_s3_bucket_cors_configuration" "railway_dataset" {
 
 # 2. Cache Rules for Versioned Datasets & Latest Pointer
 resource "cloudflare_ruleset" "cache_rules" {
+  count = var.zone_id == "" ? 0 : 1
+
   zone_id     = var.zone_id
   name        = "RailGlance Tile Cache Rules"
   description = "Long-term caching for versioned tiles and short TTL for latest.json"
