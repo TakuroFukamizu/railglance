@@ -90,6 +90,16 @@ export class HybridEvenG2Adapter implements EvenG2Adapter {
 
   private disconnectWaiters: Array<() => void> = [];
 
+  /**
+   * Incremented every time a new native page session is established.
+   *
+   * `isConnected` is a plain boolean, so it cannot distinguish "still the
+   * session I was queued for" from "a different session that happens to be
+   * connected now" (ABA). Bridge operations that sit in bridgeQueue capture
+   * this at enqueue time and re-check it before touching the page.
+   */
+  private sessionEpoch = 0;
+
   private readonly bridgeReadyTimeoutMs: number;
 
   constructor(
@@ -190,6 +200,7 @@ export class HybridEvenG2Adapter implements EvenG2Adapter {
         this.flushedGeneration = 0;
         this.pageReady = true;
         this.isConnected = true;
+        this.sessionEpoch += 1;
         this.subscribeToLifecycleEvents();
 
         // Initial image after page is ready (must stay on bridgeQueue). Failures must not block text/GPS.
@@ -506,16 +517,25 @@ export class HybridEvenG2Adapter implements EvenG2Adapter {
     // Once disconnected, the reconnect loop owns recovery: never resurrect the
     // session from a stale foreground event.
     if (!this.bridge || !this.isConnected) return;
+    // Bind this recovery to the session that is live right now. A slow BLE op can
+    // hold bridgeQueue long enough for this session to die and the reconnect loop
+    // to build a replacement, and createStartUpPageContainer does not go through
+    // the queue — so by the time we run, `isConnected` may be true for a session
+    // that was never ours.
+    const epoch = this.sessionEpoch;
     console.log('[EvenG2Adapter] FOREGROUND_ENTER — rebuilding page containers');
+
+    let rebuiltThisSession = false;
     try {
       await this.enqueueBridgeOperation(async () => {
-        // A disconnect may have landed while this rebuild waited in the queue.
-        if (!this.isConnected) throw new Error('bridge disconnected before rebuild');
+        // A disconnect — or a whole disconnect/reconnect cycle — may have landed
+        // while this rebuild waited in the queue.
+        if (!this.isConnected || this.sessionEpoch !== epoch) return;
         const rebuilt = await this.bridge.rebuildPageContainer(
           new RebuildPageContainer({ containerTotalNum: 4, ...this.createPageDefinition() })
         );
         if (!rebuilt) throw new Error('rebuildPageContainer failed');
-        if (!this.isConnected) throw new Error('bridge disconnected during rebuild');
+        if (!this.isConnected || this.sessionEpoch !== epoch) return;
         this.lastHeaderContent = '';
         this.lastSegmentContent = '';
         this.lastFooterContent = '';
@@ -524,12 +544,23 @@ export class HybridEvenG2Adapter implements EvenG2Adapter {
         this.flushedGeneration = 0;
         this.pageReady = true;
         this.isConnected = true;
+        rebuiltThisSession = true;
       });
     } catch (error) {
       console.warn('[EvenG2Adapter] Page recovery failed:', error);
-      // A failed rebuild leaves no usable page: transition to the disconnected
-      // state so waitUntilDisconnected() resolves and AppController reconnects.
-      this.markDisconnected('page recovery failed');
+      // Only our own session's failure means "no usable page". If a newer session
+      // already owns the bridge, tearing it down here would resolve its disconnect
+      // waiter and cost a spurious reconnect cycle for a page we never built.
+      if (this.sessionEpoch === epoch) {
+        // A failed rebuild leaves no usable page: transition to the disconnected
+        // state so waitUntilDisconnected() resolves and AppController reconnects.
+        this.markDisconnected('page recovery failed');
+      }
+      return;
+    }
+
+    if (!rebuiltThisSession) {
+      console.log('[EvenG2Adapter] Skipped stale page recovery (session already replaced)');
       return;
     }
 
