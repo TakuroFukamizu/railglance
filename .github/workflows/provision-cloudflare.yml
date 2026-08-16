@@ -144,14 +144,25 @@ jobs:
               ;;
             404)
               create_payload="$(jq -cn --arg name "$TF_STATE_BUCKET_NAME" '{name: $name, locationHint: "apac"}')"
-              curl --disable --fail --silent --show-error \
-                --request POST \
-                --header "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
-                --header 'Content-Type: application/json' \
-                --data "$create_payload" \
-                "https://api.cloudflare.com/client/v4/accounts/${R2_ACCOUNT_ID}/r2/buckets" \
-                > /dev/null
-              echo "Created Terraform state bucket: $TF_STATE_BUCKET_NAME"
+              create_response="$RUNNER_TEMP/r2-state-bucket-create.json"
+              create_status="$(
+                curl --disable --silent --show-error \
+                  --request POST \
+                  --output "$create_response" \
+                  --write-out '%{http_code}' \
+                  --header "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+                  --header 'Content-Type: application/json' \
+                  --data "$create_payload" \
+                  "https://api.cloudflare.com/client/v4/accounts/${R2_ACCOUNT_ID}/r2/buckets"
+              )"
+
+              if [[ "$create_status" == 200 || "$create_status" == 201 ]]; then
+                echo "Created Terraform state bucket: $TF_STATE_BUCKET_NAME"
+              else
+                echo "Unable to create Terraform state bucket (HTTP $create_status)." >&2
+                jq -r '.errors[]?.message' "$create_response" >&2 || true
+                exit 1
+              fi
               ;;
             *)
               echo "Unable to inspect Terraform state bucket (HTTP $http_status)." >&2
