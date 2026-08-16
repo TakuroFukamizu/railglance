@@ -43,6 +43,7 @@ import {
   DEFAULT_BRIDGE_READY_TIMEOUT_MS,
   HybridEvenG2Adapter,
 } from '../../src/infrastructure/even-g2/even-g2-adapter';
+import { resetBridgeHandshakeForTests } from '../../src/infrastructure/even-app/bridge-ready';
 
 /** Let pending timers and the microtask queue settle. */
 function wait(ms: number): Promise<void> {
@@ -52,6 +53,7 @@ function wait(ms: number): Promise<void> {
 describe('HybridEvenG2Adapter bridge-ready timeout', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    resetBridgeHandshakeForTests();
     sdk.bridge.createStartUpPageContainer.mockResolvedValue('success');
     sdk.bridge.updateImageRawData.mockResolvedValue('success');
     sdk.bridge.textContainerUpgrade.mockResolvedValue(true);
@@ -103,16 +105,45 @@ describe('HybridEvenG2Adapter bridge-ready timeout', () => {
   });
 
   it('reconnects on a later attempt once the bridge becomes available', async () => {
-    sdk.waitForEvenAppBridge.mockReturnValueOnce(new Promise(() => {}));
+    // The handshake outlives the attempt that timed out, so a bridge arriving
+    // during backoff resolves it and the next attempt picks it up.
+    let deliverBridge!: (bridge: unknown) => void;
+    sdk.waitForEvenAppBridge.mockReturnValue(
+      new Promise((resolve) => { deliverBridge = resolve; })
+    );
     const adapter = new HybridEvenG2Adapter(undefined, { bridgeReadyTimeoutMs: 20 });
 
     expect(await adapter.connect()).toBe(false);
 
-    // Bridge shows up before the AppController's next backoff attempt.
-    sdk.waitForEvenAppBridge.mockResolvedValue(sdk.bridge);
+    deliverBridge(sdk.bridge);
     expect(await adapter.connect()).toBe(true);
     expect(adapter.isBridgeConnected()).toBe(true);
     expect(sdk.bridge.createStartUpPageContainer).toHaveBeenCalledTimes(1);
+  });
+
+  it('reuses one SDK handshake across retries instead of stranding a listener', async () => {
+    sdk.waitForEvenAppBridge.mockReturnValue(new Promise(() => {}));
+    const adapter = new HybridEvenG2Adapter(undefined, { bridgeReadyTimeoutMs: 20 });
+
+    expect(await adapter.connect()).toBe(false);
+    expect(await adapter.connect()).toBe(false);
+    expect(await adapter.connect()).toBe(false);
+
+    // Each SDK call registers a one-shot `evenAppBridgeReady` listener that it
+    // cannot take back, so one call must cover all three attempts.
+    expect(sdk.waitForEvenAppBridge).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not cache a handshake that rejected', async () => {
+    sdk.waitForEvenAppBridge.mockRejectedValueOnce(new Error('bridge init failed'));
+    const adapter = new HybridEvenG2Adapter(undefined, { bridgeReadyTimeoutMs: 20 });
+
+    expect(await adapter.connect()).toBe(false);
+
+    // A failed handshake must not be replayed forever: ask the SDK again.
+    sdk.waitForEvenAppBridge.mockResolvedValue(sdk.bridge);
+    expect(await adapter.connect()).toBe(true);
+    expect(sdk.waitForEvenAppBridge).toHaveBeenCalledTimes(2);
   });
 
   it('does not raise an unhandled rejection when the abandoned wait rejects later', async () => {
@@ -143,12 +174,25 @@ describe('HybridEvenG2Adapter bridge-ready timeout', () => {
 
   it('clears the timeout timer once the bridge resolves normally', async () => {
     sdk.waitForEvenAppBridge.mockResolvedValue(sdk.bridge);
+    const timeoutMs = 60_000;
+
+    // Track the handle of the timer armed for THIS bound. Asserting only that
+    // clearTimeout was called would pass even if the handle were lost, since
+    // `finally { clearTimeout(timer) }` runs either way.
+    const armed: Array<ReturnType<typeof setTimeout>> = [];
+    const realSetTimeout = globalThis.setTimeout;
+    vi.spyOn(globalThis, 'setTimeout').mockImplementation(((fn: any, delay?: number, ...rest: any[]) => {
+      const handle = realSetTimeout(fn, delay as any, ...rest);
+      if (delay === timeoutMs) armed.push(handle);
+      return handle;
+    }) as typeof globalThis.setTimeout);
     const clearTimeoutSpy = vi.spyOn(globalThis, 'clearTimeout');
 
-    const adapter = new HybridEvenG2Adapter(undefined, { bridgeReadyTimeoutMs: 60_000 });
+    const adapter = new HybridEvenG2Adapter(undefined, { bridgeReadyTimeoutMs: timeoutMs });
     expect(await adapter.connect()).toBe(true);
 
-    expect(clearTimeoutSpy).toHaveBeenCalled();
+    expect(armed).toHaveLength(1);
+    expect(clearTimeoutSpy).toHaveBeenCalledWith(armed[0]);
   });
 });
 
@@ -180,6 +224,7 @@ describe('HybridEvenG2Adapter bridgeReadyTimeoutMs validation', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    resetBridgeHandshakeForTests();
     sdk.bridge.createStartUpPageContainer.mockResolvedValue('success');
     sdk.bridge.onEvenHubEvent.mockImplementation(() => vi.fn());
     sdk.waitForEvenAppBridge.mockResolvedValue(sdk.bridge);

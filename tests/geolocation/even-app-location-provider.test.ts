@@ -21,10 +21,14 @@ import {
   EvenAppLocationProvider,
 } from '../../src/infrastructure/geolocation/even-app-location-provider';
 import { LocationProvider } from '../../src/infrastructure/geolocation/browser-location-provider';
-import { DEFAULT_BRIDGE_READY_TIMEOUT_MS } from '../../src/infrastructure/even-app/bridge-ready';
+import {
+  DEFAULT_BRIDGE_READY_TIMEOUT_MS,
+  resetBridgeHandshakeForTests,
+} from '../../src/infrastructure/even-app/bridge-ready';
 
 describe('EvenAppLocationProvider', () => {
   beforeEach(() => {
+    resetBridgeHandshakeForTests();
     vi.clearAllMocks();
     vi.stubGlobal('window', { flutter_inappwebview: { callHandler: vi.fn() } });
     sdk.waitForEvenAppBridge.mockResolvedValue(sdk.bridge);
@@ -124,6 +128,7 @@ describe('EvenAppLocationProvider', () => {
  */
 describe('EvenAppLocationProvider bridge-ready timeout', () => {
   beforeEach(() => {
+    resetBridgeHandshakeForTests();
     vi.clearAllMocks();
     vi.stubGlobal('window', { flutter_inappwebview: { callHandler: vi.fn() } });
     // The SDK waits on an `evenAppBridgeReady` event that never arrives.
