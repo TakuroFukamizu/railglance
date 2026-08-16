@@ -56,6 +56,45 @@ export function resolveBridgeReadyTimeoutMs(
   return value;
 }
 
+let pendingHandshake: Promise<EvenAppBridge> | null = null;
+
+/**
+ * One shared handshake for all attempts.
+ *
+ * `waitForEvenAppBridge()` registers a one-shot `evenAppBridgeReady` listener per
+ * call and the SDK offers no cancellation, so a timed-out attempt cannot take its
+ * listener back. Calling the SDK again per retry would strand one listener — plus
+ * its closure and pending promise — on `window` every time, growing without bound
+ * for as long as the bridge stays absent.
+ *
+ * Sharing one handshake also makes a late bridge usable: the listener from the
+ * first attempt is still armed, so whichever attempt is waiting when the bridge
+ * finally arrives resolves with it.
+ */
+function sharedHandshake(): Promise<EvenAppBridge> {
+  const existing = pendingHandshake;
+  if (existing) return existing;
+
+  const started = waitForEvenAppBridge();
+  // A rejected handshake must not stay cached, or every later attempt would
+  // replay the same failure without ever asking the SDK again.
+  void started.catch(() => {
+    if (pendingHandshake === started) pendingHandshake = null;
+  });
+  pendingHandshake = started;
+  return started;
+}
+
+/**
+ * Drops the shared handshake.
+ *
+ * Only for tests: production code has a single bridge per page, so the cache is
+ * meant to live for the lifetime of the document.
+ */
+export function resetBridgeHandshakeForTests(): void {
+  pendingHandshake = null;
+}
+
 /**
  * Bounded wrapper around the SDK handshake.
  *
@@ -65,18 +104,17 @@ export function resolveBridgeReadyTimeoutMs(
  * settle, leaving no log and no error. Bounding it turns that silent stall into
  * an ordinary failure that backoff can retry and error reporting can observe.
  *
- * The losing side of the race is abandoned rather than cancelled — the SDK has
- * no cancellation — so a bridge that shows up late is dropped instead of being
- * wired up behind whatever fallback has since taken over.
+ * A timed-out attempt abandons the race but not the handshake: the SDK has no
+ * cancellation, so the underlying wait is kept and reused (see
+ * {@link sharedHandshake}) rather than restarted. A bridge that shows up late is
+ * therefore picked up by the next attempt instead of being lost.
  *
  * @param timeoutMs Must already be a delay `setTimeout` can honour; run
  *   caller-supplied values through {@link resolveBridgeReadyTimeoutMs} first.
  */
 export async function waitForEvenAppBridgeWithin(timeoutMs: number): Promise<EvenAppBridge> {
-  const pending = waitForEvenAppBridge();
-  // Promise.race already handles a late settle, but keep this explicit so the
-  // abandoned SDK promise can never surface as an unhandled rejection.
-  void pending.catch(() => {});
+  // Shared across attempts so retrying cannot accumulate SDK listeners.
+  const pending = sharedHandshake();
 
   let timer: ReturnType<typeof setTimeout> | undefined;
   const expiry = new Promise<never>((_resolve, reject) => {
