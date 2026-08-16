@@ -151,3 +151,92 @@ describe('HybridEvenG2Adapter bridge-ready timeout', () => {
     expect(clearTimeoutSpy).toHaveBeenCalled();
   });
 });
+
+/**
+ * `setTimeout` never rejects a bad delay — it silently substitutes ~1ms, so
+ * `Infinity`, `NaN`, `0` and negatives all fire on the next tick. An
+ * unvalidated option therefore does not reinstate the unbounded wait; it does
+ * the reverse, expiring the handshake before the bridge can ever answer and
+ * leaving the adapter permanently unable to connect. These assert the delay
+ * actually handed to the timer, which costs no wall-clock time and leaves no
+ * live timer behind.
+ */
+describe('HybridEvenG2Adapter bridgeReadyTimeoutMs validation', () => {
+  /**
+   * Counts only the option-validation warnings; unrelated bridge chatter (e.g. a
+   * background speed-image flush) also lands on console.warn during connect().
+   */
+  function boundWarnings(warn: { mock: { calls: unknown[][] } }): unknown[][] {
+    return warn.mock.calls.filter((args) => String(args[0]).includes('bridgeReadyTimeoutMs'));
+  }
+
+  const invalidBounds: Array<[string, number]> = [
+    ['Infinity', Number.POSITIVE_INFINITY],
+    ['-Infinity', Number.NEGATIVE_INFINITY],
+    ['NaN', Number.NaN],
+    ['zero', 0],
+    ['a negative value', -1],
+  ];
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    sdk.bridge.createStartUpPageContainer.mockResolvedValue('success');
+    sdk.bridge.onEvenHubEvent.mockImplementation(() => vi.fn());
+    sdk.waitForEvenAppBridge.mockResolvedValue(sdk.bridge);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it.each(invalidBounds)('falls back to the default bound when given %s', async (_label, value) => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const setTimeoutSpy = vi.spyOn(globalThis, 'setTimeout');
+
+    const adapter = new HybridEvenG2Adapter(undefined, { bridgeReadyTimeoutMs: value });
+    expect(await adapter.connect()).toBe(true);
+
+    expect(setTimeoutSpy).toHaveBeenCalledWith(
+      expect.any(Function),
+      DEFAULT_BRIDGE_READY_TIMEOUT_MS
+    );
+    // An overridden option is silently dropped otherwise; say so.
+    expect(boundWarnings(warn)).toHaveLength(1);
+  });
+
+  it('clamps a bound past the 32-bit timer limit instead of overflowing to ~1ms', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const setTimeoutSpy = vi.spyOn(globalThis, 'setTimeout');
+
+    // Finite and positive, so a Number.isFinite-only guard would let it through,
+    // yet setTimeout fires it after ~1ms.
+    const adapter = new HybridEvenG2Adapter(undefined, { bridgeReadyTimeoutMs: 2 ** 31 });
+    expect(await adapter.connect()).toBe(true);
+
+    expect(setTimeoutSpy).toHaveBeenCalledWith(expect.any(Function), 2_147_483_647);
+    expect(boundWarnings(warn)).toHaveLength(1);
+  });
+
+  it('passes a valid bound through untouched', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const setTimeoutSpy = vi.spyOn(globalThis, 'setTimeout');
+
+    const adapter = new HybridEvenG2Adapter(undefined, { bridgeReadyTimeoutMs: 1234 });
+    expect(await adapter.connect()).toBe(true);
+
+    expect(setTimeoutSpy).toHaveBeenCalledWith(expect.any(Function), 1234);
+    expect(boundWarnings(warn)).toHaveLength(0);
+  });
+
+  it('uses the default when no bound is supplied', async () => {
+    const setTimeoutSpy = vi.spyOn(globalThis, 'setTimeout');
+
+    const adapter = new HybridEvenG2Adapter();
+    expect(await adapter.connect()).toBe(true);
+
+    expect(setTimeoutSpy).toHaveBeenCalledWith(
+      expect.any(Function),
+      DEFAULT_BRIDGE_READY_TIMEOUT_MS
+    );
+  });
+});

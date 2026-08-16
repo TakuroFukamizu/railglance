@@ -22,8 +22,54 @@ import { createSpeedPng } from './speed-png-generator';
  */
 export const DEFAULT_BRIDGE_READY_TIMEOUT_MS = 10_000;
 
+/**
+ * Largest delay `setTimeout` can actually hold (2^31 - 1 ms, ~24.9 days).
+ *
+ * Anything above it overflows the 32-bit timer and fires after ~1ms instead,
+ * so a caller asking for a very long wait would silently get an instant one.
+ */
+const MAX_TIMER_DELAY_MS = 2_147_483_647;
+
+/**
+ * Resolves the configured handshake bound to a delay `setTimeout` can honour.
+ *
+ * `setTimeout` never rejects a bad delay, it quietly substitutes 1ms:
+ * `Infinity`, `NaN` and negatives all fire on the next tick. Passing one
+ * through would not restore the unbounded wait this bound exists to prevent —
+ * it causes the opposite failure, a handshake that expires before the bridge
+ * can ever answer, leaving the adapter permanently unable to connect. Values
+ * over {@link MAX_TIMER_DELAY_MS} overflow into the same instant-fire
+ * behaviour, so they are clamped rather than rejected.
+ */
+function resolveBridgeReadyTimeoutMs(value: number | undefined): number {
+  if (value === undefined) return DEFAULT_BRIDGE_READY_TIMEOUT_MS;
+
+  if (!Number.isFinite(value) || value <= 0) {
+    console.warn(
+      `[EvenG2Adapter] Ignoring invalid bridgeReadyTimeoutMs (${value}); ` +
+        `falling back to ${DEFAULT_BRIDGE_READY_TIMEOUT_MS}ms.`
+    );
+    return DEFAULT_BRIDGE_READY_TIMEOUT_MS;
+  }
+
+  if (value > MAX_TIMER_DELAY_MS) {
+    console.warn(
+      `[EvenG2Adapter] Clamping bridgeReadyTimeoutMs (${value}) to ` +
+        `${MAX_TIMER_DELAY_MS}ms, the longest delay setTimeout can hold.`
+    );
+    return MAX_TIMER_DELAY_MS;
+  }
+
+  return value;
+}
+
 export interface HybridEvenG2AdapterOptions {
-  /** Overrides {@link DEFAULT_BRIDGE_READY_TIMEOUT_MS}. */
+  /**
+   * Overrides {@link DEFAULT_BRIDGE_READY_TIMEOUT_MS}.
+   *
+   * Must be a finite, positive number of milliseconds. Anything else falls
+   * back to the default; values beyond {@link MAX_TIMER_DELAY_MS} are clamped.
+   */
   bridgeReadyTimeoutMs?: number;
 }
 
@@ -92,7 +138,7 @@ export class HybridEvenG2Adapter implements EvenG2Adapter {
     options: HybridEvenG2AdapterOptions = {}
   ) {
     this.onRenderCallback = onRender;
-    this.bridgeReadyTimeoutMs = options.bridgeReadyTimeoutMs ?? DEFAULT_BRIDGE_READY_TIMEOUT_MS;
+    this.bridgeReadyTimeoutMs = resolveBridgeReadyTimeoutMs(options.bridgeReadyTimeoutMs);
   }
 
   public getLastImageResult(): string {
@@ -151,7 +197,7 @@ export class HybridEvenG2Adapter implements EvenG2Adapter {
    * log and no error. Bounding it turns that silent stall into a normal connect
    * failure that backoff retries — and that error reporting can observe.
    */
-  private async waitForBridgeReady(): Promise<any> {
+  private async waitForBridgeReady(): Promise<Awaited<ReturnType<typeof waitForEvenAppBridge>>> {
     const pending = waitForEvenAppBridge();
     // Promise.race already handles a late settle, but keep this explicit so the
     // abandoned SDK promise can never surface as an unhandled rejection.
