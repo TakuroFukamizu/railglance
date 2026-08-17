@@ -41,7 +41,13 @@ export class HudRenderer {
     } else if (status === 'GPS_LOW_ACCURACY' || navState.mode === 'gps-degraded') {
       statusMode = 'GPS_DEGRADED';
       statusRightText = 'GPS弱';
-    } else if (confidence < 0.55) {
+    } else if (journeyState.lockState === 'REACQUIRING') {
+      statusMode = 'REACQUIRING';
+      statusRightText = '再検出中';
+    } else if (journeyState.lockState === 'SUSPICIOUS') {
+      statusMode = 'UNCERTAIN';
+      statusRightText = '確認中';
+    } else if (journeyState.lockState === 'UNRESOLVED' || status === 'MATCHING_ROUTE' || confidence < 0.55) {
       statusMode = 'UNCERTAIN';
       statusRightText = '判定中';
     }
@@ -66,8 +72,16 @@ export class HudRenderer {
     }
 
     // 3. HEADER Region Formulation
-    let lineName = '路線特定中';
-    if (line && confidence >= 0.55) {
+    let lineName = '路線判定中';
+    const showLine =
+      line &&
+      journeyState.lockState !== 'UNRESOLVED' &&
+      journeyState.lockState !== 'REACQUIRING' &&
+      (journeyState.lockState === 'LOCKED' ||
+        journeyState.lockState === 'SUSPICIOUS' ||
+        journeyState.lockState === 'MANUAL_LOCK' ||
+        (journeyState.lockState === undefined && confidence >= 0.55));
+    if (showLine && line) {
       lineName = line.name;
     }
 

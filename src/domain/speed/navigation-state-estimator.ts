@@ -1,6 +1,6 @@
 import { TrackingConfig } from '../../config/tracking-config';
 import { LocationSample, TrackNavigationState } from '../models/location';
-import { RouteMatch, TrackSegment } from '../models/railway';
+import { RouteMatch, TrackSegment, shouldDisplaySelectedRoute } from '../models/railway';
 import { RoutePositionProjector } from '../railway/route-position-projector';
 
 export interface GpsObservation {
@@ -220,7 +220,7 @@ export class NavigationStateEstimator {
     const obsVelocityMps = sample.speedMps ?? this.navState.velocityMps;
     let obsTrackPositionMeters: number | null = null;
 
-    if (match) {
+    if (match && shouldDisplaySelectedRoute(match)) {
       this.currentSegment = match.selectedSegment;
       this.navState.lineId = match.selectedLine.id;
       this.navState.routeId = match.selectedSegment.routeId ?? `route-${match.selectedLine.id}-main`;

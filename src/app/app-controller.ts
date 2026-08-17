@@ -1,6 +1,6 @@
 import { TrackingConfig } from '../config/tracking-config';
 import { LocationSample, FullSpeedState, SpeedEstimate } from '../domain/models/location';
-import { JourneyState, RouteMatch } from '../domain/models/railway';
+import { JourneyState, RouteMatch, shouldDisplaySelectedRoute } from '../domain/models/railway';
 import { HudViewModel } from '../domain/models/hud';
 import { SpeedEstimator } from '../domain/speed/speed-estimator';
 import { MapMatcher } from '../domain/railway/map-matcher';
@@ -169,6 +169,38 @@ export class AppController {
       status: 'INITIALIZING',
     };
     this.currentViewModel = this.hudRenderer.createViewModel(this.currentFullSpeedState, this.currentJourney, now);
+  }
+
+  public async startManualReacquire(): Promise<void> {
+    this.mapMatcher.startManualReacquire(Date.now());
+    this.journeyEstimator.invalidateRoute();
+    this.speedEstimator.getNavStateEstimator().clearRoute();
+    if (this.latestSample) {
+      await this.onLocationUpdate(this.latestSample);
+    }
+  }
+
+  public async lockSelectedRoute(segmentId: string): Promise<boolean> {
+    const locked = this.mapMatcher.lockSelectedRoute(segmentId, Date.now());
+    if (!locked) return false;
+    if (this.latestSample) {
+      await this.onLocationUpdate(this.latestSample);
+    }
+    return true;
+  }
+
+  public async unlockManualRoute(): Promise<void> {
+    this.mapMatcher.unlockManualRoute(Date.now());
+    this.journeyEstimator.invalidateRoute();
+    this.speedEstimator.getNavStateEstimator().clearRoute();
+    this.currentMatch = null;
+    if (this.latestSample) {
+      await this.onLocationUpdate(this.latestSample);
+    }
+  }
+
+  public getCurrentRouteMatch(): RouteMatch | null {
+    return this.currentMatch;
   }
 
   public async start(): Promise<void> {
@@ -436,10 +468,11 @@ export class AppController {
     // The provider was switched/stopped while matching: drop the sample before it can
     // mutate the (already reset) speed estimator.
     if (generation !== this.locationGeneration) return;
+    this.logger.logRouteObservation(sample, match);
 
     // 3. Compute track distance progress if match is valid
     let trackProgress: { distanceAlongPolylineMeters: number; timestampMs: number } | undefined;
-    if (match) {
+    if (match && shouldDisplaySelectedRoute(match)) {
       const closest = findClosestPointOnPolyline(
         sample.latitude,
         sample.longitude,

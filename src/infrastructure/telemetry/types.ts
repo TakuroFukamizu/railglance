@@ -49,6 +49,15 @@ export type EstimationTelemetryEvent = TelemetryEventBase & {
     selectedRouteId: string | null;
     selectedSegmentId: string | null;
     confidence: number;
+    lockState?: string | null;
+    currentScore?: number | null;
+    rescoredCurrentScore?: number | null;
+    scoreMargin?: number | null;
+    trajectoryHeadingDegrees?: number | null;
+    routeHealthTotal?: number | null;
+    challengerLineId?: string | null;
+    challengerWins?: number | null;
+    switchReason?: string | null;
     candidates: Array<{
       lineId: string;
       segmentId: string;
@@ -56,6 +65,7 @@ export type EstimationTelemetryEvent = TelemetryEventBase & {
       distanceScore: number;
       headingScore: number;
       continuityScore: number;
+      historyScore?: number | null;
       totalScore: number;
     }>;
   };
@@ -165,6 +175,15 @@ export function createEstimationTelemetryEvent(
       selectedRouteId: match?.selectedSegment.routeId ?? navState.routeId,
       selectedSegmentId: match?.selectedSegment.id ?? navState.segmentId,
       confidence: match?.confidence ?? 0,
+      lockState: match?.lockState ?? null,
+      currentScore: match?.currentScore ?? null,
+      rescoredCurrentScore: match?.rescoredCurrentScore ?? null,
+      scoreMargin: match?.scoreMargin ?? null,
+      trajectoryHeadingDegrees: match?.trajectoryHeadingDegrees ?? null,
+      routeHealthTotal: match?.routeHealth?.total ?? null,
+      challengerLineId: match?.challenger?.lineId ?? null,
+      challengerWins: match?.challenger?.consecutiveWins ?? null,
+      switchReason: match?.switchReason ?? null,
       candidates: (match?.candidates ?? []).map((candidate) => ({
         lineId: candidate.line.id,
         segmentId: candidate.segment.id,
@@ -172,6 +191,7 @@ export function createEstimationTelemetryEvent(
         distanceScore: candidate.distanceScore,
         headingScore: candidate.headingScore,
         continuityScore: candidate.continuityScore,
+        historyScore: candidate.historyScore,
         totalScore: candidate.totalScore,
       })),
     },

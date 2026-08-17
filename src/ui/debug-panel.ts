@@ -91,6 +91,30 @@ export class DebugPanel {
           <div>ステータス: <span class="badge ${journey.status}">${journey.status}</span></div>
         </div>
 
+        <div class="debug-card">
+          <h3>Route Matching Reliability</h3>
+          <div>Route State: <span class="badge ${match?.lockState ?? 'UNRESOLVED'}">${match?.lockState ?? 'UNRESOLVED'}</span></div>
+          <div>Current Route: <strong>${match?.selectedLine.name ?? 'なし'}</strong></div>
+          <div>Current Segment: ${match?.selectedSegment.id ?? 'なし'}</div>
+          <div>Current Score: ${match?.currentScore ?? match?.candidates.find((c) => c.segment.id === match?.selectedSegment.id)?.totalScore ?? '--'}</div>
+          <div>Current Score (rescored): ${match?.rescoredCurrentScore ?? '--'}</div>
+          <div>Top Candidate: ${match?.candidates[0] ? `${match.candidates[0].line.name} (${match.candidates[0].totalScore})` : 'なし'}</div>
+          <div>Second Candidate: ${match?.candidates[1] ? `${match.candidates[1].line.name} (${match.candidates[1].totalScore})` : 'なし'}</div>
+          <div>Score Margin: <strong>${match?.scoreMargin ?? '--'}</strong></div>
+          <div>Route Health: <strong>${match?.routeHealth ? match.routeHealth.total.toFixed(2) : '--'}</strong></div>
+          <div>Distance Consistency: ${match?.routeHealth?.distanceConsistency ?? '--'}</div>
+          <div>Heading Consistency: ${match?.routeHealth?.headingConsistency ?? '--'}</div>
+          <div>Trajectory Consistency: ${match?.routeHealth?.trajectoryConsistency ?? '--'}</div>
+          <div>Progress Consistency: ${match?.routeHealth?.progressConsistency ?? '--'}</div>
+          <div>Station Sequence Consistency: ${match?.routeHealth?.stationSequenceConsistency ?? '--'}</div>
+          <div>Challenger: ${match?.challenger ? match.challenger.lineId : 'なし'}</div>
+          <div>Challenger Score: ${match?.challenger?.latestScore ?? '--'}</div>
+          <div>Consecutive Wins: ${match?.challenger?.consecutiveWins ?? '--'}</div>
+          <div>Duration: ${match?.challenger ? `${Math.max(0, match.challenger.lastSeenAtMs - match.challenger.firstSeenAtMs)} ms` : '--'}</div>
+          <div>Trajectory Heading: ${match?.trajectoryHeadingDegrees !== null && match?.trajectoryHeadingDegrees !== undefined ? `${match.trajectoryHeadingDegrees.toFixed(1)}°` : '--'}</div>
+          <div>Manual Lock State: ${match?.lockState === 'MANUAL_LOCK' ? (match.manualLockAway ? '離れている' : 'ロック中') : 'なし'}</div>
+        </div>
+
         <div class="debug-card candidates-card">
           <h3>候補路線・セグメント スコア内訳</h3>
           ${
@@ -103,6 +127,7 @@ export class DebugPanel {
                       <th>距離点</th>
                       <th>Heading点</th>
                       <th>連続性</th>
+                      <th>履歴</th>
                       <th>合計点</th>
                     </tr>
                   </thead>
@@ -116,6 +141,7 @@ export class DebugPanel {
                         <td>${c.distanceScore}</td>
                         <td>${c.headingScore}</td>
                         <td>${c.continuityScore}</td>
+                        <td>${c.historyScore}</td>
                         <td><strong>${c.totalScore}</strong></td>
                       </tr>
                     `

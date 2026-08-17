@@ -113,10 +113,58 @@ async function init() {
     }
   });
 
+  const routeCandidateList = document.getElementById('route-candidate-list');
+  const routeCandidates = document.getElementById('route-candidates');
+  const unlockRouteButton = document.getElementById('btn-unlock-route') as HTMLButtonElement | null;
+  const routeLockWarning = document.getElementById('route-lock-warning');
+
+  const renderRouteControls = () => {
+    const match = controller.getCurrentRouteMatch();
+    const lockState = match?.lockState ?? 'UNRESOLVED';
+    if (unlockRouteButton) unlockRouteButton.hidden = lockState !== 'MANUAL_LOCK';
+    if (routeLockWarning) routeLockWarning.hidden = !(lockState === 'MANUAL_LOCK' && match?.manualLockAway);
+
+    const candidates = match?.candidates ?? [];
+    const showCandidates =
+      lockState === 'REACQUIRING' ||
+      lockState === 'UNRESOLVED' ||
+      (typeof match?.scoreMargin === 'number' && match.scoreMargin < 15 && candidates.length > 1);
+    if (routeCandidates) routeCandidates.hidden = !showCandidates || candidates.length === 0;
+    if (routeCandidateList) {
+      routeCandidateList.innerHTML = candidates
+        .map((candidate) => {
+          const percent = Math.max(0, Math.min(100, Math.round(candidate.totalScore)));
+          return `<li>
+            <button type="button" class="route-candidate-button" data-segment-id="${candidate.segment.id}">
+              <strong>${candidate.line.name}</strong>
+              <small>${percent}% · ${candidate.distanceMeters}m · ${candidate.segment.id}</small>
+            </button>
+          </li>`;
+        })
+        .join('');
+    }
+  };
+
   logger.subscribe((entry) => {
     const lastImageResult = evenG2Adapter.getLastImageResult ? evenG2Adapter.getLastImageResult() : 'none';
     const syncStatus = db.getSyncStatus ? db.getSyncStatus() : undefined;
     debugPanel.update(entry, lastImageResult, syncStatus);
+    renderRouteControls();
+  });
+
+  document.getElementById('btn-reacquire-route')?.addEventListener('click', () => {
+    void controller.startManualReacquire();
+  });
+
+  document.getElementById('btn-unlock-route')?.addEventListener('click', () => {
+    void controller.unlockManualRoute();
+  });
+
+  routeCandidateList?.addEventListener('click', (event) => {
+    const target = event.target as HTMLElement | null;
+    const button = target?.closest<HTMLButtonElement>('button[data-segment-id]');
+    if (!button?.dataset.segmentId) return;
+    void controller.lockSelectedRoute(button.dataset.segmentId);
   });
 
   document.getElementById('btn-start')?.addEventListener('click', () => {

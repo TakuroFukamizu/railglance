@@ -194,6 +194,18 @@ function object(value: unknown): JsonObject | null {
   return value !== null && typeof value === 'object' && !Array.isArray(value) ? value as JsonObject : null;
 }
 
+function optionalNumberField(source: JsonObject, key: string): JsonObject {
+  if (!(key in source)) return {};
+  const value = nullableNumber(source[key]);
+  return value === undefined ? {} : { [key]: value };
+}
+
+function optionalStringField(source: JsonObject, key: string): JsonObject {
+  if (!(key in source)) return {};
+  const value = nullableString(source[key], 80);
+  return value === undefined ? {} : { [key]: value };
+}
+
 function sanitizeBase(value: JsonObject): JsonObject | null {
   const timestampMs = finiteNumber(value.timestampMs);
   const datasetVersion = value.datasetVersion === undefined ? null : nullableString(value.datasetVersion);
@@ -286,7 +298,15 @@ function sanitizeEstimation(value: JsonObject, base: JsonObject): JsonObject | n
     const scores = numericFields(candidateObject, [
       'distanceMeters', 'distanceScore', 'headingScore', 'continuityScore', 'totalScore',
     ]);
-    return scores ? { lineId: candidateObject.lineId, segmentId: candidateObject.segmentId, ...scores } : null;
+    const historyScore = nullableNumber(candidateObject.historyScore);
+    return scores
+      ? {
+          lineId: candidateObject.lineId,
+          segmentId: candidateObject.segmentId,
+          ...scores,
+          ...(historyScore !== undefined ? { historyScore } : {}),
+        }
+      : null;
   });
   if (candidates.some((candidate) => candidate === null)) return null;
 
@@ -307,6 +327,15 @@ function sanitizeEstimation(value: JsonObject, base: JsonObject): JsonObject | n
       selectedSegmentId,
       confidence: matchConfidence,
       candidates,
+      ...optionalStringField(match, 'lockState'),
+      ...optionalNumberField(match, 'currentScore'),
+      ...optionalNumberField(match, 'rescoredCurrentScore'),
+      ...optionalNumberField(match, 'scoreMargin'),
+      ...optionalNumberField(match, 'trajectoryHeadingDegrees'),
+      ...optionalNumberField(match, 'routeHealthTotal'),
+      ...optionalStringField(match, 'challengerLineId'),
+      ...optionalNumberField(match, 'challengerWins'),
+      ...optionalStringField(match, 'switchReason'),
     },
     journey: { previousStationId, nextStationId, ...journeyNumbers },
     bridge: { connected: bridge.connected, lastImageResult: bridge.lastImageResult.slice(0, 500) },
