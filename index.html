@@ -54,6 +54,20 @@
           </div>
         </section>
 
+        <section class="route-control-section" aria-labelledby="route-control-title">
+          <h2 id="route-control-title">路線再検出</h2>
+          <p>誤った路線が表示されている場合は再検出できます。速度表示は止まりません。</p>
+          <div class="route-control-actions">
+            <button id="btn-reacquire-route" class="btn btn-secondary">路線を再検出</button>
+            <button id="btn-unlock-route" class="btn" hidden>自動判定に戻す</button>
+          </div>
+          <p id="route-lock-warning" class="route-lock-warning" hidden>選択した路線から離れています</p>
+          <div id="route-candidates" class="route-candidates" hidden>
+            <h3>路線候補</h3>
+            <ul id="route-candidate-list"></ul>
+          </div>
+        </section>
+
         <section class="diagnostic-section" aria-labelledby="diagnostic-title">
           <h2 id="diagnostic-title">テスター向け診断記録</h2>
           <p>

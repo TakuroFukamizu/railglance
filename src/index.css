@@ -371,3 +371,84 @@ body {
   background-color: #da3633;
   color: white;
 }
+
+.badge.LOCKED, .badge.MANUAL_LOCK {
+  background-color: #238636;
+  color: white;
+}
+
+.badge.UNRESOLVED, .badge.MATCHING_ROUTE {
+  background-color: #1f6feb;
+  color: white;
+}
+
+.badge.SUSPICIOUS, .badge.ROUTE_UNCERTAIN {
+  background-color: #d29922;
+  color: black;
+}
+
+.badge.REACQUIRING {
+  background-color: #db6d28;
+  color: white;
+}
+
+.route-control-section {
+  margin-top: 20px;
+  background-color: var(--panel-bg);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 16px;
+  line-height: 1.6;
+}
+
+.route-control-section > p {
+  margin-top: 8px;
+  color: #8c959f;
+}
+
+.route-control-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.route-lock-warning {
+  margin-top: 10px;
+  color: #f85149;
+  font-weight: 600;
+}
+
+.route-candidates {
+  margin-top: 14px;
+}
+
+.route-candidates h3 {
+  font-size: 14px;
+  margin-bottom: 8px;
+}
+
+.route-candidates ul {
+  list-style: none;
+  display: grid;
+  gap: 8px;
+}
+
+.route-candidate-button {
+  width: 100%;
+  text-align: left;
+  background-color: #21262d;
+  color: #c9d1d9;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  padding: 10px 12px;
+  cursor: pointer;
+}
+
+.route-candidate-button strong {
+  display: block;
+}
+
+.route-candidate-button small {
+  color: #8c959f;
+}

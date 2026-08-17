@@ -136,4 +136,47 @@ describe('HudRenderer status mapping', () => {
     expect(model.footer.statusRight).toBe('測位中');
     expect(model.rawFormattedText).toContain('路線再特定中');
   });
+
+  it('keeps speed visible and shows 路線判定中 while the route is unresolved', () => {
+    const nowMs = LAST_GPS_MS + 1000;
+    const state = speedState(
+      { speedKmh: 42, confidence: 0.8, source: 'os-geolocation', timestamp: nowMs },
+      42,
+      'gps-locked'
+    );
+
+    const model = renderer.createViewModel(
+      state,
+      journeyState({
+        line: null,
+        confidence: 0.3,
+        status: 'MATCHING_ROUTE',
+        lockState: 'UNRESOLVED',
+      }),
+      nowMs
+    );
+
+    expect(model.header.lineName).toBe('路線判定中');
+    expect(model.footer.statusRight).toBe('判定中');
+    expect(model.speed.displaySpeedKmhText).toBe('42');
+  });
+
+  it('keeps the current line and shows 確認中 while the route is suspicious', () => {
+    const nowMs = LAST_GPS_MS + 1000;
+    const state = speedState(
+      { speedKmh: 78, confidence: 0.8, source: 'os-geolocation', timestamp: nowMs },
+      78,
+      'gps-locked'
+    );
+
+    const model = renderer.createViewModel(
+      state,
+      journeyState({ lockState: 'SUSPICIOUS', status: 'ROUTE_UNCERTAIN' }),
+      nowMs
+    );
+
+    expect(model.header.lineName).toBe('小田急小田原線');
+    expect(model.footer.statusRight).toBe('確認中');
+    expect(model.speed.displaySpeedKmhText).toBe('78');
+  });
 });

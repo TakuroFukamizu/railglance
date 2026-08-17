@@ -7,6 +7,7 @@ import { DeviceMotionSensorFusionProvider } from './infrastructure/sensors/devic
 import { HudViewModel } from './domain/models/hud';
 import { captureRuntimeError } from './infrastructure/observability/sentry';
 import type { DiagnosticStatus } from './infrastructure/telemetry/runtime-telemetry';
+import { DEFAULT_TRACKING_CONFIG } from './config/tracking-config';
 
 class DemoGpsReplayerProvider implements LocationProvider {
   private listener: ((sample: LocationSample) => void) | null = null;
@@ -113,10 +114,65 @@ async function init() {
     }
   });
 
+  const routeCandidateList = document.getElementById('route-candidate-list');
+  const routeCandidates = document.getElementById('route-candidates');
+  const unlockRouteButton = document.getElementById('btn-unlock-route') as HTMLButtonElement | null;
+  const routeLockWarning = document.getElementById('route-lock-warning');
+
+  const renderRouteControls = () => {
+    const match = controller.getCurrentRouteMatch();
+    const lockState = match?.lockState ?? 'UNRESOLVED';
+    if (unlockRouteButton) unlockRouteButton.hidden = lockState !== 'MANUAL_LOCK';
+    if (routeLockWarning) routeLockWarning.hidden = !(lockState === 'MANUAL_LOCK' && match?.manualLockAway);
+
+    const candidates = match?.candidates ?? [];
+    const showCandidates =
+      lockState === 'REACQUIRING' ||
+      lockState === 'UNRESOLVED' ||
+      (typeof match?.scoreMargin === 'number' &&
+        match.scoreMargin < DEFAULT_TRACKING_CONFIG.routeCandidateTieMargin &&
+        candidates.length > 1);
+    if (routeCandidates) routeCandidates.hidden = !showCandidates || candidates.length === 0;
+    if (routeCandidateList) {
+      routeCandidateList.replaceChildren();
+      for (const candidate of candidates) {
+        const percent = Math.max(0, Math.min(100, Math.round(candidate.totalScore)));
+        const item = document.createElement('li');
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'route-candidate-button';
+        button.dataset.segmentId = candidate.segment.id;
+        const name = document.createElement('strong');
+        name.textContent = candidate.line.name;
+        const detail = document.createElement('small');
+        detail.textContent = `${percent}% · ${candidate.distanceMeters}m · ${candidate.segment.id}`;
+        button.append(name, detail);
+        item.append(button);
+        routeCandidateList.append(item);
+      }
+    }
+  };
+
   logger.subscribe((entry) => {
     const lastImageResult = evenG2Adapter.getLastImageResult ? evenG2Adapter.getLastImageResult() : 'none';
     const syncStatus = db.getSyncStatus ? db.getSyncStatus() : undefined;
     debugPanel.update(entry, lastImageResult, syncStatus);
+    renderRouteControls();
+  });
+
+  document.getElementById('btn-reacquire-route')?.addEventListener('click', () => {
+    void controller.startManualReacquire();
+  });
+
+  document.getElementById('btn-unlock-route')?.addEventListener('click', () => {
+    void controller.unlockManualRoute();
+  });
+
+  routeCandidateList?.addEventListener('click', (event) => {
+    const target = event.target as HTMLElement | null;
+    const button = target?.closest<HTMLButtonElement>('button[data-segment-id]');
+    if (!button?.dataset.segmentId) return;
+    void controller.lockSelectedRoute(button.dataset.segmentId);
   });
 
   document.getElementById('btn-start')?.addEventListener('click', () => {

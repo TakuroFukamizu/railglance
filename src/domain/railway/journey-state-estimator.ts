@@ -1,6 +1,6 @@
 import { TrackingConfig } from '../../config/tracking-config';
 import { LocationSample, FullSpeedState, TrackNavigationState } from '../models/location';
-import { JourneyState, RailwayLine, RouteMatch, Station, TrackSegment, TravelDirection } from '../models/railway';
+import { JourneyState, RailwayLine, RouteMatch, Station, TrackSegment, TravelDirection, shouldDisplaySelectedRoute } from '../models/railway';
 import { calculateBearing, calculateHeadingDifference } from '../geo/heading';
 import { haversineDistance } from '../geo/distance';
 import { RailwayDataRepository } from './repository';
@@ -87,8 +87,10 @@ export class JourneyStateEstimator {
     const navState = navStateInput ?? speedState?.navState;
     const now = sample?.timestampMs ?? navState?.lastPredictionTimestampMs ?? Date.now();
 
-    if (match?.selectedLine) {
-      this.cachedLine = match.selectedLine;
+    const displayableMatch = shouldDisplaySelectedRoute(match) ? match : null;
+
+    if (displayableMatch?.selectedLine) {
+      this.cachedLine = displayableMatch.selectedLine;
       this.lastMatchTimestampMs = now;
     }
 
@@ -104,7 +106,7 @@ export class JourneyStateEstimator {
       this.lastMatchTimestampMs !== null &&
       now - this.lastMatchTimestampMs >= this.config.routeMatchLossGraceMs;
 
-    if (!match && !isDrActive && (navState?.mode === 'lost' || isGraceExpired)) {
+    if (!displayableMatch && !isDrActive && (navState?.mode === 'lost' || isGraceExpired)) {
       this.cachedLine = null;
       return {
         line: null,
@@ -115,11 +117,13 @@ export class JourneyStateEstimator {
         distanceToNextStationMeters: null,
         progressRatio: null,
         confidence: 0.0,
-        status: 'ROUTE_UNCERTAIN',
+        status: match?.lockState === 'UNRESOLVED' || match?.lockState === 'REACQUIRING' ? 'MATCHING_ROUTE' : 'ROUTE_UNCERTAIN',
+        lockState: match?.lockState,
+        manualLockAway: match?.manualLockAway,
       };
     }
 
-    const activeLineId = match?.selectedLine.id || navState?.lineId || this.cachedLine?.id;
+    const activeLineId = displayableMatch?.selectedLine.id || navState?.lineId || this.cachedLine?.id;
 
     if (!activeLineId) {
       return {
@@ -131,11 +135,17 @@ export class JourneyStateEstimator {
         distanceToNextStationMeters: null,
         progressRatio: null,
         confidence: 0.0,
-        status: sample && sample.accuracyMeters > this.config.maxGpsAccuracyMeters ? 'GPS_LOW_ACCURACY' : 'ROUTE_UNCERTAIN',
+        status: sample && sample.accuracyMeters > this.config.maxGpsAccuracyMeters
+          ? 'GPS_LOW_ACCURACY'
+          : match?.lockState === 'UNRESOLVED' || match?.lockState === 'REACQUIRING'
+            ? 'MATCHING_ROUTE'
+            : 'ROUTE_UNCERTAIN',
+        lockState: match?.lockState,
+        manualLockAway: match?.manualLockAway,
       };
     }
 
-    const selectedLine = match?.selectedLine || this.cachedLine || (await this.repository.getLine(activeLineId));
+    const selectedLine = displayableMatch?.selectedLine || this.cachedLine || (await this.repository.getLine(activeLineId));
     if (selectedLine) {
       this.cachedLine = selectedLine;
     }
@@ -151,11 +161,13 @@ export class JourneyStateEstimator {
         progressRatio: null,
         confidence: 0.0,
         status: 'ROUTE_UNCERTAIN',
+        lockState: match?.lockState,
+        manualLockAway: match?.manualLockAway,
       };
     }
 
     let direction: TravelDirection = 'UNKNOWN';
-    if (match && sample) {
+    if (displayableMatch && sample) {
       const heading = sample.headingDegrees ?? (this.lastSample
         ? calculateBearing(
             this.lastSample.latitude,
@@ -166,7 +178,7 @@ export class JourneyStateEstimator {
         : null);
 
       if (heading !== null) {
-        const coords = match.selectedSegment.coordinates;
+        const coords = displayableMatch.selectedSegment.coordinates;
         const startPoint = coords[0];
         const endPoint = coords[coords.length - 1];
         const segmentBearing = calculateBearing(startPoint[0], startPoint[1], endPoint[0], endPoint[1]);
@@ -201,8 +213,10 @@ export class JourneyStateEstimator {
         nextStation: null,
         distanceToNextStationMeters: null,
         progressRatio: null,
-        confidence: match ? match.confidence : 0.5,
+        confidence: displayableMatch ? displayableMatch.confidence : 0.5,
         status: 'ROUTE_UNCERTAIN',
+        lockState: match?.lockState,
+        manualLockAway: match?.manualLockAway,
       };
     }
 
@@ -212,7 +226,7 @@ export class JourneyStateEstimator {
     let distanceToNextStationMeters: number | null = null;
     let progressRatio: number | null = null;
 
-    const currentSeg = currentSegmentInput || match?.selectedSegment;
+    const currentSeg = currentSegmentInput || displayableMatch?.selectedSegment;
     const isDown = isDownDirection(direction);
 
     if (currentSeg && (currentSeg.fromStationId || currentSeg.toStationId)) {
@@ -340,10 +354,14 @@ export class JourneyStateEstimator {
       : isUpDirection(direction)
         ? selectedLine.directionAName ?? '上り'
         : null;
-    const confidence = match ? match.confidence : (navState?.confidence ?? 0.5);
+    const confidence = displayableMatch ? displayableMatch.confidence : (navState?.confidence ?? 0.5);
 
     let status: JourneyState['status'] = 'TRACKING';
-    if (navState?.mode === 'dead-reckoning' || navState?.mode === 'dead-reckoning-low-confidence') {
+    if (match?.lockState === 'UNRESOLVED' || match?.lockState === 'REACQUIRING') {
+      status = 'MATCHING_ROUTE';
+    } else if (match?.lockState === 'SUSPICIOUS') {
+      status = 'ROUTE_UNCERTAIN';
+    } else if (navState?.mode === 'dead-reckoning' || navState?.mode === 'dead-reckoning-low-confidence') {
       status = 'TRACKING';
     } else if (confidence < this.config.confidenceMedium) {
       status = 'ROUTE_UNCERTAIN';
@@ -359,6 +377,8 @@ export class JourneyStateEstimator {
       progressRatio,
       confidence,
       status,
+      lockState: match?.lockState,
+      manualLockAway: match?.manualLockAway,
     };
   }
 

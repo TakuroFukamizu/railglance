@@ -1,5 +1,5 @@
 import { LocationSample, FullSpeedState } from '../../domain/models/location';
-import { JourneyState, RouteMatch } from '../../domain/models/railway';
+import { JourneyState, RouteLockEvent, RouteMatch } from '../../domain/models/railway';
 import { HudViewModel } from '../../domain/models/hud';
 import { TelemetrySink, NoopTelemetrySink } from '../telemetry/sinks';
 import {
@@ -56,6 +56,9 @@ export class EstimationLogger {
       emaOutputSpeed: smoothedSpeedKmh,
       gpsAccuracyMeters: rawLocation?.accuracyMeters ?? null,
       selectedLine: entry.match?.selectedLine.name ?? 'None',
+      lockState: entry.match?.lockState ?? entry.journey.lockState ?? null,
+      scoreMargin: entry.match?.scoreMargin ?? null,
+      routeHealth: entry.match?.routeHealth?.total ?? null,
     });
 
     for (const listener of this.listeners) {
@@ -71,6 +74,45 @@ export class EstimationLogger {
   public logGpsObservation(sample: LocationSample, accepted = true, rejectionReason?: string): void {
     if (!this.isDiagnosticEnabled()) return;
     this.sink.write(createGpsTelemetryEvent(this.identity, sample, accepted, rejectionReason));
+  }
+
+  public logRouteObservation(sample: LocationSample, match: RouteMatch | null): void {
+    if (!match) return;
+    this.writeRouteTransition(sample.timestampMs, 'route-observation', {
+      lockState: match.lockState ?? null,
+      currentLineId: match.selectedLine.id,
+      currentSegmentId: match.selectedSegment.id,
+      currentScore: match.currentScore ?? match.candidates[0]?.totalScore ?? null,
+      rescoredScore: match.rescoredCurrentScore ?? null,
+      topLineId: match.candidates[0]?.line.id ?? null,
+      topScore: match.candidates[0]?.totalScore ?? null,
+      secondScore: match.candidates[1]?.totalScore ?? null,
+      scoreMargin: match.scoreMargin ?? null,
+      healthTotal: match.routeHealth?.total ?? null,
+      challengerLineId: match.challenger?.lineId ?? null,
+      challengerWins: match.challenger?.consecutiveWins ?? null,
+      trajectoryHeading: match.trajectoryHeadingDegrees ?? null,
+      switchReason: match.switchReason ?? null,
+    });
+    this.logRouteEvents(match.lockEvents ?? [], sample.timestampMs);
+  }
+
+  public logRouteEvents(events: RouteLockEvent[], timestampMs: number): void {
+    for (const event of events) {
+      this.writeRouteTransition(timestampMs, event.type, {
+        reason: event.reason ?? null,
+        ...event.data,
+      });
+    }
+  }
+
+  private writeRouteTransition(
+    timestampMs: number,
+    message: string,
+    data: Record<string, string | number | boolean | null>
+  ): void {
+    if (!this.isDiagnosticEnabled()) return;
+    this.sink.write(createStateTransitionTelemetryEvent(this.identity, timestampMs, 'route', message, data));
   }
 
   public flush(): Promise<void> {

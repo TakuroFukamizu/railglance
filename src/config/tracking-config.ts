@@ -35,6 +35,42 @@ export type TrackingConfig = {
   confidenceHigh: number;
   confidenceMedium: number;
   confidenceLow: number;
+
+  routeInitialLockMinScore: number;
+  routeInitialLockMinMargin: number;
+  routeInitialLockConsecutiveCount: number;
+  routeInitialLockMinimumMs: number;
+
+  routeSuspiciousHealthThreshold: number;
+  routeSuspiciousMinimumMs: number;
+  routeReacquireMinimumMs: number;
+
+  routeChallengerMinMargin: number;
+  routeChallengerConsecutiveCount: number;
+  routeChallengerMinimumMs: number;
+
+  routeTrajectoryWindowMs: number;
+  routeTrajectoryMinDistanceMeters: number;
+
+  routeManualLockMaxDistanceMeters: number;
+  routeManualLockDurationMs: number;
+
+  continuitySameSegment: number;
+  continuityAdjacentSegment: number;
+  continuityReachableSameRoute: number;
+  continuitySameLineDisconnected: number;
+  continuitySuspiciousScale: number;
+  continuityReacquiringScale: number;
+
+  routeWindowMs: number;
+  routeWindowMinSamples: number;
+  routeMinimumAccuracyMeters: number;
+  routeConventionalMaxSpeedKmh: number;
+  routeImpossibleSpeedPenalty: number;
+  routeRelockConsecutiveCount: number;
+  routeRelockMinimumMs: number;
+  routeCandidateTieMargin: number;
+  routeProgressJitterMeters: number;
 };
 
 export const DEFAULT_TRACKING_CONFIG: TrackingConfig = {
@@ -55,4 +91,40 @@ export const DEFAULT_TRACKING_CONFIG: TrackingConfig = {
   confidenceHigh: 0.85,
   confidenceMedium: 0.6,
   confidenceLow: 0.4,
+
+  routeInitialLockMinScore: 55,
+  routeInitialLockMinMargin: 12,
+  routeInitialLockConsecutiveCount: 3,
+  routeInitialLockMinimumMs: 3000,
+
+  routeSuspiciousHealthThreshold: 0.45,
+  routeSuspiciousMinimumMs: 4000,
+  routeReacquireMinimumMs: 4000,
+
+  routeChallengerMinMargin: 12,
+  routeChallengerConsecutiveCount: 3,
+  routeChallengerMinimumMs: 4000,
+
+  routeTrajectoryWindowMs: 12000,
+  routeTrajectoryMinDistanceMeters: 40,
+
+  routeManualLockMaxDistanceMeters: 250,
+  routeManualLockDurationMs: 30 * 60 * 1000,
+
+  continuitySameSegment: 20,
+  continuityAdjacentSegment: 15,
+  continuityReachableSameRoute: 8,
+  continuitySameLineDisconnected: 2,
+  continuitySuspiciousScale: 0.4,
+  continuityReacquiringScale: 0.05,
+
+  routeWindowMs: 15000,
+  routeWindowMinSamples: 4,
+  routeMinimumAccuracyMeters: 15,
+  routeConventionalMaxSpeedKmh: 160,
+  routeImpossibleSpeedPenalty: 25,
+  routeRelockConsecutiveCount: 3,
+  routeRelockMinimumMs: 3000,
+  routeCandidateTieMargin: 15,
+  routeProgressJitterMeters: 15,
 };
