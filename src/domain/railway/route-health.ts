@@ -9,8 +9,11 @@ export type RouteObservation = {
   routeId: string | null;
   distanceMeters: number;
   headingDifferenceDegrees: number | null;
+  trajectoryHeadingDifferenceDegrees: number | null;
   trackPositionMeters: number | null;
   stationSequence: number | null;
+  previousSegmentIds: string[];
+  nextSegmentIds: string[];
 };
 
 export function emptyRouteHealth(): RouteHealth {
@@ -46,19 +49,25 @@ export function evaluateRouteHealth(
     .filter((value): value is number => value !== null);
   const meanHeadingDiff = headingDiffs.length > 0 ? average(headingDiffs) : 45;
   const headingConsistency = clamp01(1 - meanHeadingDiff / 90);
-  const trajectoryConsistency = headingConsistency;
+
+  const trajectoryDiffs = observations
+    .map((obs) => obs.trajectoryHeadingDifferenceDegrees)
+    .filter((value): value is number => value !== null);
+  const trajectoryConsistency =
+    trajectoryDiffs.length === 0 ? 0.5 : clamp01(1 - average(trajectoryDiffs) / 90);
 
   const stationSequences = observations
     .map((obs) => obs.stationSequence)
     .filter((value): value is number => value !== null);
   const stationSequenceConsistency =
-    stationSequences.length < 2 ? 0.7 : monotonicityRatio(stationSequences, 0);
+    stationSequences.length < 2 ? 0.5 : monotonicityRatio(stationSequences, 0);
 
-  const sameOrAdjacent = observations.filter((obs, index) => {
-    if (index === 0) return true;
-    return obs.lineId === observations[index - 1].lineId;
+  const topologyPairs = observations.length < 2 ? 0 : observations.length - 1;
+  const connectedPairs = observations.filter((obs, index) => {
+    if (index === 0) return false;
+    return observationsAreTopologicallyConnected(observations[index - 1], obs);
   }).length;
-  const topologyConsistency = observations.length === 0 ? 0.5 : sameOrAdjacent / observations.length;
+  const topologyConsistency = topologyPairs === 0 ? 0.5 : connectedPairs / topologyPairs;
 
   const positions = observations
     .map((obs) => obs.trackPositionMeters)
@@ -96,6 +105,18 @@ export function evaluateRouteHealth(
     challengerDominance: round2(challengerDominance),
     total: round2(total),
   };
+}
+
+export function observationsAreTopologicallyConnected(
+  previous: RouteObservation,
+  current: RouteObservation
+): boolean {
+  if (previous.segmentId === current.segmentId) return true;
+  if (previous.nextSegmentIds.includes(current.segmentId)) return true;
+  if (previous.previousSegmentIds.includes(current.segmentId)) return true;
+  if (current.nextSegmentIds.includes(previous.segmentId)) return true;
+  if (current.previousSegmentIds.includes(previous.segmentId)) return true;
+  return false;
 }
 
 export function headingDifferenceOrNull(

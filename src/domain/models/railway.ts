@@ -63,6 +63,10 @@ export type DatasetMetadata = {
 
 export type TravelDirection = 'UP' | 'DOWN' | 'DIRECTION_A' | 'DIRECTION_B' | 'UNKNOWN';
 
+export function routeIdentityKey(segment: TrackSegment): string {
+  return segment.routeId ?? `line:${segment.lineId}`;
+}
+
 export type RouteLockState =
   | 'UNRESOLVED'
   | 'LOCKED'

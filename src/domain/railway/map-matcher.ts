@@ -9,10 +9,12 @@ import {
   RouteLockState,
   RouteMatch,
   RouteSwitchReason,
+  Station,
   TrackSegment,
   WindowRouteScore,
+  routeIdentityKey,
 } from '../models/railway';
-import { computeTrajectory, resolveEffectiveHeading, trimLocationHistory } from '../geo/trajectory';
+import { computeTrajectory, osSpeedStopped, resolveEffectiveHeading, trimLocationHistory } from '../geo/trajectory';
 import { scoreCandidate } from './candidate-scorer';
 import { calculateConfidence } from './confidence';
 import { evaluateRouteHealth, headingDifferenceOrNull, RouteObservation } from './route-health';
@@ -21,13 +23,21 @@ import { scoreRoutesOverWindow } from './window-scorer';
 export interface RailwayDatabaseReader {
   findSegmentsNear(latitude: number, longitude: number, radiusMeters: number): Promise<TrackSegment[]>;
   getLine(lineId: string): Promise<RailwayLine | undefined>;
+  getStation?(stationId: string): Promise<Station | undefined>;
 }
 
 type PendingLeader = {
+  routeKey: string;
   lineId: string;
   segmentId: string;
   firstSeenAtMs: number;
   consecutiveCount: number;
+};
+
+type RouteConfirmation = {
+  routeKey: string;
+  firstSeenAtMs: number;
+  count: number;
 };
 
 export class MapMatcher {
@@ -44,6 +54,7 @@ export class MapMatcher {
   private pendingEvents: RouteLockEvent[] = [];
   private lastCandidates: RouteCandidateScore[] = [];
   private healthLowSinceMs: number | null = null;
+  private confirmation: RouteConfirmation | null = null;
 
   constructor(
     private db: RailwayDatabaseReader,
@@ -54,11 +65,16 @@ export class MapMatcher {
     return this.lockState;
   }
 
+  public takeLockEvents(): RouteLockEvent[] {
+    return this.consumeEvents();
+  }
+
   public startManualReacquire(nowMs: number): void {
     this.manualReacquireActive = true;
     this.manualLockUntilMs = null;
     this.pendingLeader = null;
     this.challenger = null;
+    this.confirmation = null;
     this.suspiciousSinceMs = null;
     this.lastSwitchReason = 'manual-reacquire';
     this.pushEvent('manual-reacquire', 'manual-reacquire', {
@@ -80,6 +96,7 @@ export class MapMatcher {
     this.currentMatch = fromHistory;
     this.pendingLeader = null;
     this.challenger = null;
+    this.confirmation = null;
     this.suspiciousSinceMs = null;
     this.lastSwitchReason = 'manual-selection';
     this.pushEvent('manual-route-lock', 'manual-selection', {
@@ -101,6 +118,7 @@ export class MapMatcher {
     this.currentMatch = null;
     this.pendingLeader = null;
     this.challenger = null;
+    this.confirmation = null;
     this.suspiciousSinceMs = null;
     this.healthLowSinceMs = null;
     this.observations = [];
@@ -117,10 +135,8 @@ export class MapMatcher {
   }
 
   public async match(sample: LocationSample): Promise<RouteMatch | null> {
-    const eventsAtStart = this.pendingEvents.length;
-
     if (sample.accuracyMeters > this.config.maxGpsAccuracyMeters) {
-      return this.buildMatch(sample, [], null, null, eventsAtStart);
+      return this.buildMatch(sample, [], null, null);
     }
 
     this.history.push(sample);
@@ -141,12 +157,12 @@ export class MapMatcher {
     );
 
     if (segments.length === 0) {
-      return this.handleNoCandidates(sample, eventsAtStart);
+      return this.handleNoCandidates(sample);
     }
 
-    const stopped = (sample.speedMps ?? 0) * 3.6 <= this.config.stopSpeedThresholdKmh;
-    const trajectory = computeTrajectory(this.history, sample.timestampMs, this.config, stopped);
-    const effectiveHeading = resolveEffectiveHeading(trajectory, sample);
+    const trajectory = computeTrajectory(this.history, sample.timestampMs, this.config);
+    const osStopped = osSpeedStopped(sample, this.config);
+    const effectiveHeading = resolveEffectiveHeading(trajectory, sample, osStopped);
 
     const candidateScores: RouteCandidateScore[] = [];
     for (const segment of segments) {
@@ -167,18 +183,28 @@ export class MapMatcher {
     }
 
     if (candidateScores.length === 0) {
-      return this.handleNoCandidates(sample, eventsAtStart);
+      return this.handleNoCandidates(sample);
     }
 
     candidateScores.sort((a, b) => b.totalScore - a.totalScore);
     this.lastCandidates = candidateScores.slice(0, 8);
 
     const topCandidate = candidateScores[0];
-    const secondCandidate = this.nextDifferentLine(candidateScores, topCandidate.line.id);
+    const secondCandidate = this.nextDifferentRoute(candidateScores, routeIdentityKey(topCandidate.segment));
     const scoreMargin = topCandidate.totalScore - (secondCandidate?.totalScore ?? 0);
     const rescoredCurrent = this.rescoreCurrent(candidateScores);
+    if (this.lockState === 'MANUAL_LOCK' && !rescoredCurrent && this.currentMatch) {
+      const projected = await this.projectLockedSegment(sample);
+      if (projected) {
+        this.currentMatch = projected;
+      }
+    }
 
-    this.recordObservation(sample, rescoredCurrent ?? (this.isCurrentLine(topCandidate) ? topCandidate : null));
+    await this.recordObservation(
+      sample,
+      rescoredCurrent,
+      trajectory.reliable && osStopped !== true ? trajectory.headingDegrees : null
+    );
     this.updateChallenger(topCandidate, rescoredCurrent, scoreMargin, sample.timestampMs);
 
     const health = this.lockState === 'UNRESOLVED'
@@ -186,7 +212,7 @@ export class MapMatcher {
       : evaluateRouteHealth(
           this.observations,
           rescoredCurrent,
-          this.challenger && !this.isCurrentLine(topCandidate) ? this.challenger.latestMargin : null,
+          this.challenger && !this.isCurrentRoute(topCandidate) ? this.challenger.latestMargin : null,
           this.config
         );
 
@@ -202,10 +228,9 @@ export class MapMatcher {
       rescoredCurrent,
       health,
       windowScores,
-      stopped,
     });
 
-    return this.buildMatch(sample, candidateScores, health, windowScores, eventsAtStart, {
+    return this.buildMatch(sample, candidateScores, health, windowScores, {
       scoreMargin,
       currentScore: this.currentMatch?.totalScore ?? null,
       rescoredCurrentScore: rescoredCurrent?.totalScore ?? null,
@@ -227,10 +252,17 @@ export class MapMatcher {
     this.pendingEvents = [];
     this.lastCandidates = [];
     this.healthLowSinceMs = null;
+    this.confirmation = null;
   }
 
-  private async handleNoCandidates(sample: LocationSample, eventsAtStart: number): Promise<RouteMatch | null> {
-    if (this.currentMatch && this.lockState !== 'UNRESOLVED' && this.lockState !== 'MANUAL_LOCK') {
+  private async handleNoCandidates(sample: LocationSample): Promise<RouteMatch | null> {
+    if (this.lockState === 'MANUAL_LOCK' && this.currentMatch) {
+      const projected = await this.projectLockedSegment(sample);
+      if (projected) this.currentMatch = projected;
+      return this.buildMatch(sample, projected ? [projected] : [], null, []);
+    }
+
+    if (this.currentMatch && this.lockState !== 'UNRESOLVED') {
       this.recordLostObservation(sample);
       if (this.lockState === 'LOCKED') {
         this.enterSuspicious(sample.timestampMs, 'current-route-lost');
@@ -245,7 +277,7 @@ export class MapMatcher {
         this.transitionTo('UNRESOLVED', sample.timestampMs, 'current-route-lost');
       }
     }
-    return this.buildMatch(sample, [], null, [], eventsAtStart);
+    return this.buildMatch(sample, [], null, []);
   }
 
   private advanceState(input: {
@@ -256,7 +288,6 @@ export class MapMatcher {
     rescoredCurrent: RouteCandidateScore | null;
     health: RouteHealth | null;
     windowScores: WindowRouteScore[];
-    stopped: boolean;
   }): void {
     const { sample, topCandidate, scoreMargin, rescoredCurrent, health, windowScores } = input;
 
@@ -271,7 +302,7 @@ export class MapMatcher {
     }
 
     if (rescoredCurrent) {
-      this.adoptSameLineProgress(rescoredCurrent, topCandidate);
+      this.adoptSameRouteProgress(rescoredCurrent, topCandidate);
     } else if (this.currentMatch) {
       this.recordLostObservation(sample);
     }
@@ -294,17 +325,13 @@ export class MapMatcher {
         this.transitionTo('LOCKED', sample.timestampMs);
         return;
       }
-      if (!this.isCurrentLine(topCandidate) && scoreMargin >= this.config.routeChallengerMinMargin) {
-        this.trackPendingLeader(topCandidate, scoreMargin, sample.timestampMs, true);
+      if (!this.isCurrentRoute(topCandidate) && scoreMargin >= this.config.routeChallengerMinMargin) {
+        this.trackPendingLeader(topCandidate, sample.timestampMs, true);
       }
       if (!this.maybeEnterReacquiring(sample.timestampMs)) return;
     }
 
     if (this.lockState === 'REACQUIRING') {
-      if (!this.currentMatch) {
-        this.considerInitialLock(topCandidate, scoreMargin, sample.timestampMs);
-        return;
-      }
       this.considerReacquireLock(topCandidate, scoreMargin, health, windowScores, sample);
     }
   }
@@ -325,11 +352,12 @@ export class MapMatcher {
       return;
     }
 
-    if (this.pendingLeader && this.pendingLeader.lineId === topCandidate.line.id) {
+    if (this.pendingLeader && this.pendingLeader.routeKey === routeIdentityKey(topCandidate.segment)) {
       this.pendingLeader.consecutiveCount += 1;
       this.pendingLeader.segmentId = topCandidate.segment.id;
     } else {
       this.pendingLeader = {
+        routeKey: routeIdentityKey(topCandidate.segment),
         lineId: topCandidate.line.id,
         segmentId: topCandidate.segment.id,
         firstSeenAtMs: nowMs,
@@ -365,65 +393,113 @@ export class MapMatcher {
     const windowLeader = windowScores[0] ?? null;
     const windowSecond = windowScores[1] ?? null;
     const windowMargin = windowLeader && windowSecond ? windowLeader.totalScore - windowSecond.totalScore : 1;
+    const windowLeaderCandidate = this.candidateForWindow(windowLeader, topCandidate);
     const windowAgrees =
-      windowLeader !== null &&
-      windowLeader.lineId === topCandidate.line.id &&
+      windowLeaderCandidate !== null &&
       (windowScores.length < 2 || windowMargin >= 0.05);
 
-    const currentLineStillBest = this.currentMatch !== null && this.isCurrentLine(topCandidate);
+    const currentRouteStillBest = this.currentMatch !== null && this.isCurrentRoute(topCandidate);
     const healthRecovered = (health?.total ?? 0) >= this.config.routeSuspiciousHealthThreshold + 0.15;
 
-    if (currentLineStillBest && healthRecovered && !this.manualReacquireActive) {
-      this.adoptSameLineProgress(this.rescoreCurrent([topCandidate]) ?? topCandidate, topCandidate);
+    if (currentRouteStillBest && healthRecovered && !this.manualReacquireActive) {
+      this.adoptSameRouteProgress(this.rescoreCurrent([topCandidate]) ?? topCandidate, topCandidate);
       this.finishReacquireLock(topCandidate, nowMs);
       return;
     }
 
+    if (this.currentMatch && this.isCurrentRoute(topCandidate) && this.confirmation) {
+      this.continueConfirmation(topCandidate, nowMs);
+      return;
+    }
+
+    const preferred = windowAgrees && windowLeaderCandidate ? windowLeaderCandidate : topCandidate;
     const accuracyOk = sample.accuracyMeters <= Math.max(50, this.config.routeMinimumAccuracyMeters * 2);
     const trajectoryOk = this.history.length >= this.config.routeWindowMinSamples;
     const evidenceOk = accuracyOk || trajectoryOk;
     const healthContradicts =
-      health === null || health.total < this.config.routeSuspiciousHealthThreshold || this.manualReacquireActive;
+      this.currentMatch === null ||
+      health === null ||
+      health.total < this.config.routeSuspiciousHealthThreshold ||
+      this.manualReacquireActive;
     const triple =
+      this.currentMatch !== null &&
       evidenceOk &&
       this.challengerDominant() &&
       healthContradicts &&
-      scoreMargin >= this.config.routeChallengerMinMargin;
+      scoreMargin >= this.config.routeChallengerMinMargin &&
+      !this.isCurrentRoute(preferred);
 
     const windowSupportedSwitch =
       evidenceOk &&
       healthContradicts &&
       windowAgrees &&
-      !this.isCurrentLine(topCandidate) &&
-      scoreMargin >= this.config.routeChallengerMinMargin &&
-      topCandidate.totalScore >= this.config.routeInitialLockMinScore;
+      preferred.totalScore >= this.config.routeInitialLockMinScore &&
+      (this.currentMatch === null || !this.isCurrentRoute(preferred));
 
-    const candidate = triple || windowSupportedSwitch ? topCandidate : null;
+    const candidate = triple || windowSupportedSwitch ? preferred : null;
     if (!candidate) {
-      this.trackPendingLeader(topCandidate, scoreMargin, nowMs, false);
+      this.trackPendingLeader(preferred, nowMs, false);
+      this.confirmation = null;
       return;
     }
 
-    this.trackPendingLeader(candidate, scoreMargin, nowMs, true);
+    this.trackPendingLeader(candidate, nowMs, true);
     const pending = this.pendingLeader;
-    if (!pending || pending.lineId !== candidate.line.id) return;
+    if (!pending || pending.routeKey !== routeIdentityKey(candidate.segment)) return;
 
     const duration = nowMs - pending.firstSeenAtMs;
-    const neededCount = this.manualReacquireActive
+    const neededCount = this.manualReacquireActive || this.currentMatch === null
       ? this.config.routeRelockConsecutiveCount
       : this.config.routeChallengerConsecutiveCount;
-    const neededMs = this.manualReacquireActive
+    const neededMs = this.manualReacquireActive || this.currentMatch === null
       ? this.config.routeRelockMinimumMs
       : this.config.routeChallengerMinimumMs;
 
     if (pending.consecutiveCount >= neededCount && duration >= neededMs) {
-      const reason: RouteSwitchReason = this.currentMatch && this.currentMatch.line.id !== candidate.line.id
+      const reason: RouteSwitchReason = this.currentMatch && routeIdentityKey(this.currentMatch.segment) !== routeIdentityKey(candidate.segment)
         ? 'challenger-dominant'
         : this.manualReacquireActive
           ? 'manual-reacquire'
           : 'route-health-low';
       this.switchCurrent(candidate, nowMs, reason);
-      this.finishReacquireLock(candidate, nowMs, reason);
+      this.beginConfirmation(candidate, nowMs);
+    }
+  }
+
+  private candidateForWindow(
+    windowLeader: WindowRouteScore | null,
+    fallback: RouteCandidateScore
+  ): RouteCandidateScore | null {
+    if (!windowLeader) return null;
+    return (
+      this.lastCandidates.find((candidate) => routeIdentityKey(candidate.segment) === windowLeader.routeId) ??
+      this.lastCandidates.find((candidate) => candidate.line.id === windowLeader.lineId) ??
+      (routeIdentityKey(fallback.segment) === windowLeader.routeId || fallback.line.id === windowLeader.lineId
+        ? fallback
+        : null)
+    );
+  }
+
+  private beginConfirmation(candidate: RouteCandidateScore, nowMs: number): void {
+    this.confirmation = {
+      routeKey: routeIdentityKey(candidate.segment),
+      firstSeenAtMs: nowMs,
+      count: 1,
+    };
+  }
+
+  private continueConfirmation(candidate: RouteCandidateScore, nowMs: number): void {
+    if (!this.confirmation || this.confirmation.routeKey !== routeIdentityKey(candidate.segment)) {
+      this.beginConfirmation(candidate, nowMs);
+      return;
+    }
+    this.confirmation.count += 1;
+    const duration = nowMs - this.confirmation.firstSeenAtMs;
+    if (
+      this.confirmation.count >= this.config.routeRelockConsecutiveCount &&
+      duration >= this.config.routeRelockMinimumMs
+    ) {
+      this.finishReacquireLock(candidate, nowMs, this.lastSwitchReason ?? 'challenger-dominant');
     }
   }
 
@@ -432,6 +508,7 @@ export class MapMatcher {
     this.suspiciousSinceMs = null;
     this.pendingLeader = null;
     this.challenger = null;
+    this.confirmation = null;
     if (reason) this.lastSwitchReason = reason;
     this.pushEvent('route-lock', reason, {
       lineId: candidate.line.id,
@@ -454,8 +531,8 @@ export class MapMatcher {
     this.observations = [];
   }
 
-  private adoptSameLineProgress(rescoredCurrent: RouteCandidateScore, topCandidate: RouteCandidateScore): void {
-    if (this.currentMatch && topCandidate.line.id === this.currentMatch.line.id) {
+  private adoptSameRouteProgress(rescoredCurrent: RouteCandidateScore, topCandidate: RouteCandidateScore): void {
+    if (this.currentMatch && this.isCurrentRoute(topCandidate)) {
       this.currentMatch = topCandidate;
       return;
     }
@@ -481,7 +558,7 @@ export class MapMatcher {
     scoreMargin: number,
     topCandidate: RouteCandidateScore
   ): boolean {
-    if (!this.currentMatch || !this.isCurrentLine(topCandidate)) return false;
+    if (!this.currentMatch || !this.isCurrentRoute(topCandidate)) return false;
     if ((health?.total ?? 0) < this.config.routeSuspiciousHealthThreshold + 0.12) return false;
     return scoreMargin >= 0 || !this.challenger;
   }
@@ -515,7 +592,7 @@ export class MapMatcher {
 
   private challengerDominant(): boolean {
     if (!this.challenger || !this.currentMatch) return false;
-    if (this.challenger.lineId === this.currentMatch.line.id) return false;
+    if (this.challenger.routeId === routeIdentityKey(this.currentMatch.segment)) return false;
     const duration = this.challenger.lastSeenAtMs - this.challenger.firstSeenAtMs;
     return (
       this.challenger.latestMargin >= this.config.routeChallengerMinMargin &&
@@ -530,30 +607,28 @@ export class MapMatcher {
     scoreMargin: number,
     nowMs: number
   ): void {
-    if (!this.currentMatch || this.isCurrentLine(topCandidate)) {
-      if (this.challenger && nowMs - this.challenger.lastSeenAtMs > this.config.routeChallengerMinimumMs) {
-        this.challenger = null;
-      }
+    if (!this.currentMatch || this.isCurrentRoute(topCandidate)) {
+      this.challenger = null;
       return;
     }
 
     const comparedMargin = rescoredCurrent
       ? topCandidate.totalScore - rescoredCurrent.totalScore
       : scoreMargin;
+    const challengerKey = routeIdentityKey(topCandidate.segment);
 
-    if (this.challenger && this.challenger.lineId === topCandidate.line.id) {
+    if (this.challenger && this.challenger.routeId === challengerKey) {
       this.challenger.consecutiveWins += 1;
       this.challenger.lastSeenAtMs = nowMs;
       this.challenger.latestScore = topCandidate.totalScore;
       this.challenger.latestMargin = comparedMargin;
       this.challenger.segmentId = topCandidate.segment.id;
-      this.challenger.routeId = topCandidate.segment.routeId ?? null;
       return;
     }
 
     this.challenger = {
       segmentId: topCandidate.segment.id,
-      routeId: topCandidate.segment.routeId ?? null,
+      routeId: challengerKey,
       lineId: topCandidate.line.id,
       consecutiveWins: 1,
       firstSeenAtMs: nowMs,
@@ -565,7 +640,6 @@ export class MapMatcher {
 
   private trackPendingLeader(
     candidate: RouteCandidateScore,
-    _scoreMargin: number,
     nowMs: number,
     qualifies: boolean
   ): void {
@@ -573,12 +647,14 @@ export class MapMatcher {
       this.pendingLeader = null;
       return;
     }
-    if (this.pendingLeader && this.pendingLeader.lineId === candidate.line.id) {
+    const key = routeIdentityKey(candidate.segment);
+    if (this.pendingLeader && this.pendingLeader.routeKey === key) {
       this.pendingLeader.consecutiveCount += 1;
       this.pendingLeader.segmentId = candidate.segment.id;
       return;
     }
     this.pendingLeader = {
+      routeKey: key,
       lineId: candidate.line.id,
       segmentId: candidate.segment.id,
       firstSeenAtMs: nowMs,
@@ -588,35 +664,44 @@ export class MapMatcher {
 
   private rescoreCurrent(candidateScores: RouteCandidateScore[]): RouteCandidateScore | null {
     if (!this.currentMatch) return null;
+    const currentKey = routeIdentityKey(this.currentMatch.segment);
     return (
       candidateScores.find((candidate) => candidate.segment.id === this.currentMatch?.segment.id) ??
-      candidateScores.find((candidate) => candidate.line.id === this.currentMatch?.line.id) ??
+      candidateScores.find((candidate) => routeIdentityKey(candidate.segment) === currentKey) ??
       null
     );
   }
 
-  private isCurrentLine(candidate: RouteCandidateScore): boolean {
-    return this.currentMatch !== null && candidate.line.id === this.currentMatch.line.id;
+  private isCurrentRoute(candidate: RouteCandidateScore): boolean {
+    return this.currentMatch !== null && routeIdentityKey(candidate.segment) === routeIdentityKey(this.currentMatch.segment);
   }
 
-  private nextDifferentLine(
+  private nextDifferentRoute(
     candidates: RouteCandidateScore[],
-    lineId: string
+    routeKey: string
   ): RouteCandidateScore | null {
-    return candidates.find((candidate) => candidate.line.id !== lineId) ?? candidates[1] ?? null;
+    return candidates.find((candidate) => routeIdentityKey(candidate.segment) !== routeKey) ?? candidates[1] ?? null;
   }
 
-  private recordObservation(sample: LocationSample, scored: RouteCandidateScore | null): void {
+  private async recordObservation(
+    sample: LocationSample,
+    scored: RouteCandidateScore | null,
+    trajectoryHeadingDegrees: number | null
+  ): Promise<void> {
     if (!scored) return;
+    const station = this.db.getStation ? await this.db.getStation(scored.segment.fromStationId) : undefined;
     this.observations.push({
       timestampMs: sample.timestampMs,
       lineId: scored.line.id,
       segmentId: scored.segment.id,
       routeId: scored.segment.routeId ?? null,
       distanceMeters: scored.distanceMeters,
-      headingDifferenceDegrees: headingDifferenceOrNull(scored.effectiveHeadingDegrees ?? sample.headingDegrees, scored.bearingDegrees),
+      headingDifferenceDegrees: headingDifferenceOrNull(sample.headingDegrees, scored.bearingDegrees),
+      trajectoryHeadingDifferenceDegrees: headingDifferenceOrNull(trajectoryHeadingDegrees, scored.bearingDegrees),
       trackPositionMeters: scored.trackPositionMeters ?? null,
-      stationSequence: stationSequenceHint(scored.segment),
+      stationSequence: station?.sequence ?? null,
+      previousSegmentIds: scored.segment.previousSegmentIds ?? [],
+      nextSegmentIds: scored.segment.nextSegmentIds ?? [],
     });
     this.observations = this.observations.filter(
       (obs) => sample.timestampMs - obs.timestampMs <= this.config.routeWindowMs
@@ -632,8 +717,11 @@ export class MapMatcher {
       routeId: this.currentMatch.segment.routeId ?? null,
       distanceMeters: this.config.routeSearchRadiusMeters,
       headingDifferenceDegrees: 90,
+      trajectoryHeadingDifferenceDegrees: 90,
       trackPositionMeters: null,
       stationSequence: null,
+      previousSegmentIds: this.currentMatch.segment.previousSegmentIds ?? [],
+      nextSegmentIds: this.currentMatch.segment.nextSegmentIds ?? [],
     });
     this.observations = this.observations.filter(
       (obs) => sample.timestampMs - obs.timestampMs <= this.config.routeWindowMs
@@ -688,10 +776,24 @@ export class MapMatcher {
     });
   }
 
-  private consumeEvents(fromIndex: number): RouteLockEvent[] {
-    const events = this.pendingEvents.slice(fromIndex);
+  private consumeEvents(): RouteLockEvent[] {
+    const events = this.pendingEvents;
     this.pendingEvents = [];
     return events;
+  }
+
+  private async projectLockedSegment(sample: LocationSample): Promise<RouteCandidateScore | null> {
+    if (!this.currentMatch) return null;
+    return scoreCandidate({
+      sample,
+      segment: this.currentMatch.segment,
+      line: this.currentMatch.line,
+      previousSegment: this.currentMatch.segment,
+      nearbySegments: [this.currentMatch.segment],
+      lockState: this.lockState,
+      effectiveHeadingDegrees: sample.headingDegrees,
+      config: this.config,
+    });
   }
 
   private buildMatch(
@@ -699,16 +801,14 @@ export class MapMatcher {
     candidates: RouteCandidateScore[],
     health: RouteHealth | null,
     windowScores: WindowRouteScore[] | null,
-    eventsAtStart: number,
     extras: Partial<RouteMatch> = {}
   ): RouteMatch | null {
     const selected = this.currentMatch ?? candidates[0] ?? null;
     if (!selected) {
-      this.consumeEvents(eventsAtStart);
       return null;
     }
 
-    const second = this.nextDifferentLine(candidates, selected.line.id);
+    const second = this.nextDifferentRoute(candidates, routeIdentityKey(selected.segment));
     let confidence = calculateConfidence(selected, second);
     if (this.lockState === 'UNRESOLVED' || (this.lockState === 'REACQUIRING' && this.manualReacquireActive)) {
       confidence = Math.min(confidence, 0.45);
@@ -748,12 +848,7 @@ export class MapMatcher {
       manualLockAway,
       showSelectedRoute,
       windowScores: windowScores ?? [],
-      lockEvents: this.consumeEvents(eventsAtStart),
+      lockEvents: this.consumeEvents(),
     };
   }
-}
-
-function stationSequenceHint(segment: TrackSegment): number | null {
-  const from = Number.parseInt(segment.fromStationId.replace(/\D+/g, ''), 10);
-  return Number.isFinite(from) ? from : null;
 }

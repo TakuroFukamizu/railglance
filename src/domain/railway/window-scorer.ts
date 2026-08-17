@@ -3,7 +3,8 @@ import { LocationSample } from '../models/location';
 import { RailwayLine, TrackSegment, WindowRouteScore } from '../models/railway';
 import { findClosestPointOnPolyline } from '../geo/polyline';
 import { calculateBearing, calculateHeadingDifference } from '../geo/heading';
-import { computeTrajectory } from '../geo/trajectory';
+import { computeTrajectory, osSpeedStopped } from '../geo/trajectory';
+import { segmentsAreAdjacent } from './continuity';
 
 export type WindowScoreableRoute = {
   routeId: string;
@@ -19,11 +20,13 @@ export function scoreRoutesOverWindow(
   if (history.length === 0) return [];
 
   const latest = history[history.length - 1];
-  const trajectory = computeTrajectory(history, latest.timestampMs, config, false);
-  const stopped = (latest.speedMps ?? 0) * 3.6 <= config.stopSpeedThresholdKmh;
+  const trajectory = computeTrajectory(history, latest.timestampMs, config);
+  const osStopped = osSpeedStopped(latest, config);
+  const heading = osStopped === true || !trajectory.reliable ? null : trajectory.headingDegrees;
+  const stopped = osStopped === true;
 
   return routes
-    .map((route) => scoreOneRoute(history, route, trajectory.headingDegrees, stopped, config))
+    .map((route) => scoreOneRoute(history, route, heading, stopped, config))
     .sort((a, b) => b.totalScore - a.totalScore);
 }
 
@@ -42,12 +45,11 @@ function scoreOneRoute(
   const meanDistanceScore = clamp01(1 - meanDistance / 120);
 
   const headingDiffs = projections
-    .map((projection, index) => {
-      const heading = trajectoryHeading ?? history[index].headingDegrees;
-      if (heading === null) return null;
+    .map((projection) => {
+      if (trajectoryHeading === null) return null;
       return Math.min(
-        calculateHeadingDifference(heading, projection.bearingDegrees),
-        calculateHeadingDifference(heading, (projection.bearingDegrees + 180) % 360)
+        calculateHeadingDifference(trajectoryHeading, projection.bearingDegrees),
+        calculateHeadingDifference(trajectoryHeading, (projection.bearingDegrees + 180) % 360)
       );
     })
     .filter((value): value is number => value !== null);
@@ -63,9 +65,16 @@ function scoreOneRoute(
   const sequences = projections
     .map((projection) => projection.stationSequence)
     .filter((value): value is number => value !== null);
-  const stationSequenceScore = sequences.length < 2 ? 0.65 : monotonicityRatio(sequences, 0);
+  const stationSequenceScore = sequences.length < 2 ? 0.5 : monotonicityRatio(sequences, 0);
 
-  const topologyScore = projections.every((projection) => projection.lineId === route.line.id) ? 1 : 0.4;
+  const topologyPairs = projections.length < 2 ? 0 : projections.length - 1;
+  const connectedPairs = projections.filter((projection, index) => {
+    const previous = projections[index - 1]?.segment;
+    const current = projection.segment;
+    if (index === 0 || !previous || !current) return false;
+    return previous.id === current.id || segmentsAreAdjacent(previous, current);
+  }).length;
+  const topologyScore = topologyPairs === 0 ? 0.5 : connectedPairs / topologyPairs;
 
   const totalScore =
     meanDistanceScore * 0.32 +
@@ -94,6 +103,7 @@ function projectOntoRoute(sample: LocationSample, segments: TrackSegment[]) {
     trackPositionMeters: null as number | null,
     stationSequence: null as number | null,
     lineId: segments[0]?.lineId ?? '',
+    segment: null as TrackSegment | null,
   };
 
   for (const segment of segments) {
@@ -107,17 +117,13 @@ function projectOntoRoute(sample: LocationSample, segments: TrackSegment[]) {
       distanceMeters: closest.distanceMeters,
       bearingDegrees: calculateBearing(p1[0], p1[1], p2[0], p2[1]),
       trackPositionMeters: (segment.startOffsetMeters ?? 0) + closest.distanceAlongPolylineMeters,
-      stationSequence: stationSequenceHint(segment),
+      stationSequence: segment.startOffsetMeters ?? null,
       lineId: segment.lineId,
+      segment,
     };
   }
 
   return best;
-}
-
-function stationSequenceHint(segment: TrackSegment): number | null {
-  const from = Number.parseInt(segment.fromStationId.replace(/\D+/g, ''), 10);
-  return Number.isFinite(from) ? from : null;
 }
 
 function monotonicityRatio(values: number[], jitter: number): number {
