@@ -12,14 +12,22 @@ export type TrajectoryEstimate = {
 };
 
 /**
+ * True when OS speed says the train is stopped. Null when the device did not
+ * provide a speed — that is not treated as 0 km/h.
+ */
+export function osSpeedStopped(sample: LocationSample, config: TrackingConfig): boolean | null {
+  if (sample.speedMps === null) return null;
+  return sample.speedMps * 3.6 <= config.stopSpeedThresholdKmh;
+}
+
+/**
  * Representative heading from recent GPS movement, preferred over a single-fix
- * device heading. Low-speed / short-distance windows are marked unreliable.
+ * device heading. Reliability is based only on displacement, not OS speed.
  */
 export function computeTrajectory(
   history: LocationSample[],
   nowMs: number,
-  config: TrackingConfig,
-  stopped: boolean
+  config: TrackingConfig
 ): TrajectoryEstimate {
   const window = history.filter(
     (sample) => nowMs - sample.timestampMs >= 0 && nowMs - sample.timestampMs <= config.routeTrajectoryWindowMs
@@ -50,7 +58,6 @@ export function computeTrajectory(
       : newest.headingDegrees;
 
   const reliable =
-    !stopped &&
     distanceMeters >= config.routeTrajectoryMinDistanceMeters &&
     accumulated >= config.routeTrajectoryMinDistanceMeters * 0.6;
 
@@ -65,8 +72,10 @@ export function computeTrajectory(
 
 export function resolveEffectiveHeading(
   trajectory: TrajectoryEstimate,
-  sample: LocationSample
+  sample: LocationSample,
+  osStopped: boolean | null
 ): number | null {
+  if (osStopped === true) return sample.headingDegrees;
   if (trajectory.reliable && trajectory.headingDegrees !== null) {
     return trajectory.headingDegrees;
   }

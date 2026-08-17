@@ -1,5 +1,6 @@
 import type { EstimationLogEntry } from '../logging/logger';
 import type { LocationSample } from '../../domain/models/location';
+import type { RouteLockState, RouteSwitchReason } from '../../domain/models/railway';
 
 export const TELEMETRY_SCHEMA_VERSION = 1 as const;
 
@@ -49,7 +50,7 @@ export type EstimationTelemetryEvent = TelemetryEventBase & {
     selectedRouteId: string | null;
     selectedSegmentId: string | null;
     confidence: number;
-    lockState?: string | null;
+    lockState?: RouteLockState | null;
     currentScore?: number | null;
     rescoredCurrentScore?: number | null;
     scoreMargin?: number | null;
@@ -57,7 +58,7 @@ export type EstimationTelemetryEvent = TelemetryEventBase & {
     routeHealthTotal?: number | null;
     challengerLineId?: string | null;
     challengerWins?: number | null;
-    switchReason?: string | null;
+    switchReason?: RouteSwitchReason | null;
     candidates: Array<{
       lineId: string;
       segmentId: string;

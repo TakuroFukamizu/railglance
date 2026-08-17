@@ -99,6 +99,8 @@ const ASAKUSABASHI_TO_AKIHABARA: LocationSample[] = [
   point(35.6983, 139.7730, 8_000),
   point(35.6986, 139.7708, 9_000),
   point(35.6990, 139.7680, 10_000),
+  point(35.6992, 139.7665, 11_000),
+  point(35.6994, 139.7650, 12_000),
 ];
 
 const TOKYO_TO_UENO_SHINKANSEN: LocationSample[] = [

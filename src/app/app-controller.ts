@@ -178,7 +178,9 @@ export class AppController {
 
   public async startManualReacquire(): Promise<void> {
     await this.enqueueEstimationWork(async () => {
-      this.mapMatcher.startManualReacquire(Date.now());
+      const nowMs = Date.now();
+      this.mapMatcher.startManualReacquire(nowMs);
+      this.flushRouteLockEvents(nowMs);
       this.journeyEstimator.invalidateRoute();
       this.speedEstimator.getNavStateEstimator().clearRoute();
       if (this.latestSample) {
@@ -192,8 +194,10 @@ export class AppController {
   public async lockSelectedRoute(segmentId: string): Promise<boolean> {
     let locked = false;
     await this.enqueueEstimationWork(async () => {
-      locked = this.mapMatcher.lockSelectedRoute(segmentId, Date.now());
+      const nowMs = Date.now();
+      locked = this.mapMatcher.lockSelectedRoute(segmentId, nowMs);
       if (!locked) return;
+      this.flushRouteLockEvents(nowMs);
       if (this.latestSample) {
         await this.processLocationUpdate(this.latestSample, this.locationGeneration);
       }
@@ -203,7 +207,9 @@ export class AppController {
 
   public async unlockManualRoute(): Promise<void> {
     await this.enqueueEstimationWork(async () => {
-      this.mapMatcher.unlockManualRoute(Date.now());
+      const nowMs = Date.now();
+      this.mapMatcher.unlockManualRoute(nowMs);
+      this.flushRouteLockEvents(nowMs);
       this.journeyEstimator.invalidateRoute();
       this.speedEstimator.getNavStateEstimator().clearRoute();
       this.currentMatch = null;
@@ -211,6 +217,11 @@ export class AppController {
         await this.processLocationUpdate(this.latestSample, this.locationGeneration);
       }
     });
+  }
+
+  private flushRouteLockEvents(timestampMs: number): void {
+    if (typeof this.mapMatcher.takeLockEvents !== 'function') return;
+    this.logger.logRouteEvents(this.mapMatcher.takeLockEvents(), timestampMs);
   }
 
   public getCurrentRouteMatch(): RouteMatch | null {
@@ -517,6 +528,7 @@ export class AppController {
     // The provider was switched/stopped while matching: drop the sample before it can
     // mutate the (already reset) speed estimator.
     if (generation !== this.locationGeneration) return;
+    this.flushRouteLockEvents(sample.timestampMs);
     this.logger.logRouteObservation(sample, match);
 
     // 3. Compute track distance progress if match is valid

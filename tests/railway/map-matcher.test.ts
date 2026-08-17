@@ -332,11 +332,14 @@ describe('MapMatcher challenger and health recovery', () => {
     }));
     await lockOnA(matcher);
 
+    const states: string[] = [];
     let last = null;
-    for (let i = 0; i < 8; i++) {
-      last = await matcher.match(sample(35.12 + i * 0.005, 139.008, 20_000 + i * 1000));
+    for (let i = 0; i < 7; i++) {
+      last = await matcher.match(sample(35.12 + i * 0.004, 139.008, 20_000 + i * 1000));
+      if (last?.lockState) states.push(last.lockState);
     }
 
+    expect(states).toContain('REACQUIRING');
     expect(last?.lockState).toBe('LOCKED');
     expect(last?.selectedLine.id).toBe('line-b');
     expect(last?.switchReason).toBe('challenger-dominant');
@@ -352,19 +355,22 @@ describe('MapMatcher manual reacquire and lock', () => {
       routeWindowMinSamples: 2,
       routeInitialLockMinMargin: 5,
     }));
-    await lockOnA(matcher);
+    await lockOnA(matcher, 1_000);
     expect(matcher.getLockState()).toBe('LOCKED');
 
     matcher.startManualReacquire(20_000);
     expect(matcher.getLockState()).toBe('REACQUIRING');
 
-    const first = await matcher.match(sample(35.12, 139.008, 21_000));
+    const first = await matcher.match(sample(35.10, 139.008, 21_000));
     expect(first?.lockState).toBe('REACQUIRING');
     expect(first?.showSelectedRoute).toBe(false);
     expect(first?.candidates[0]?.continuityScore ?? 99).toBeLessThan(2);
+    expect(first?.windowScores?.some((score) => score.routeId === 'route-b')).toBe(true);
 
-    await matcher.match(sample(35.13, 139.008, 22_000));
-    const locked = await matcher.match(sample(35.14, 139.008, 23_000));
+    await matcher.match(sample(35.11, 139.008, 22_000));
+    await matcher.match(sample(35.12, 139.008, 23_000));
+    await matcher.match(sample(35.13, 139.008, 24_000));
+    const locked = await matcher.match(sample(35.14, 139.008, 25_000));
     expect(locked?.lockState).toBe('LOCKED');
     expect(locked?.selectedLine.id).toBe('line-b');
   });
