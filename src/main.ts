@@ -7,6 +7,7 @@ import { DeviceMotionSensorFusionProvider } from './infrastructure/sensors/devic
 import { HudViewModel } from './domain/models/hud';
 import { captureRuntimeError } from './infrastructure/observability/sentry';
 import type { DiagnosticStatus } from './infrastructure/telemetry/runtime-telemetry';
+import { DEFAULT_TRACKING_CONFIG } from './config/tracking-config';
 
 class DemoGpsReplayerProvider implements LocationProvider {
   private listener: ((sample: LocationSample) => void) | null = null;
@@ -128,20 +129,27 @@ async function init() {
     const showCandidates =
       lockState === 'REACQUIRING' ||
       lockState === 'UNRESOLVED' ||
-      (typeof match?.scoreMargin === 'number' && match.scoreMargin < 15 && candidates.length > 1);
+      (typeof match?.scoreMargin === 'number' &&
+        match.scoreMargin < DEFAULT_TRACKING_CONFIG.routeCandidateTieMargin &&
+        candidates.length > 1);
     if (routeCandidates) routeCandidates.hidden = !showCandidates || candidates.length === 0;
     if (routeCandidateList) {
-      routeCandidateList.innerHTML = candidates
-        .map((candidate) => {
-          const percent = Math.max(0, Math.min(100, Math.round(candidate.totalScore)));
-          return `<li>
-            <button type="button" class="route-candidate-button" data-segment-id="${candidate.segment.id}">
-              <strong>${candidate.line.name}</strong>
-              <small>${percent}% · ${candidate.distanceMeters}m · ${candidate.segment.id}</small>
-            </button>
-          </li>`;
-        })
-        .join('');
+      routeCandidateList.replaceChildren();
+      for (const candidate of candidates) {
+        const percent = Math.max(0, Math.min(100, Math.round(candidate.totalScore)));
+        const item = document.createElement('li');
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'route-candidate-button';
+        button.dataset.segmentId = candidate.segment.id;
+        const name = document.createElement('strong');
+        name.textContent = candidate.line.name;
+        const detail = document.createElement('small');
+        detail.textContent = `${percent}% · ${candidate.distanceMeters}m · ${candidate.segment.id}`;
+        button.append(name, detail);
+        item.append(button);
+        routeCandidateList.append(item);
+      }
     }
   };
 

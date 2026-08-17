@@ -10,6 +10,8 @@ export function segmentsAreAdjacent(a: TrackSegment, b: TrackSegment): boolean {
   const bNeighbors = new Set([...(b.previousSegmentIds ?? []), ...(b.nextSegmentIds ?? [])]);
   if (bNeighbors.has(a.id)) return true;
 
+  if (a.lineId !== b.lineId) return false;
+
   const aStations = new Set([a.fromStationId, a.toStationId].filter(Boolean));
   const bStations = new Set([b.fromStationId, b.toStationId].filter(Boolean));
   for (const stationId of aStations) {
@@ -71,7 +73,8 @@ function isReachableAlongTopology(
   nearbySegments: TrackSegment[],
   maxHops: number
 ): boolean {
-  if (from.lineId !== to.lineId && from.routeId !== to.routeId) return false;
+  const sameDefinedRoute = from.routeId !== undefined && from.routeId === to.routeId;
+  if (from.lineId !== to.lineId && !sameDefinedRoute) return false;
 
   const byId = new Map(nearbySegments.map((segment) => [segment.id, segment]));
   byId.set(from.id, from);

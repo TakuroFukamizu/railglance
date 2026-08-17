@@ -49,6 +49,25 @@ describe('topology continuity', () => {
     expect(classifyContinuity(base, otherLine, [base, otherLine])).toBe('unrelated');
   });
 
+  it('does not treat different lines that share a station as reachable when routeId is missing', () => {
+    const sobu: TrackSegment = {
+      id: 'sobu-akihabara',
+      lineId: 'chuo-sobu',
+      fromStationId: 'akihabara',
+      toStationId: 'kanda',
+      coordinates: [[35.698, 139.773], [35.691, 139.771]],
+    };
+    const shinkansen: TrackSegment = {
+      id: 'tohoku-tokyo-ueno',
+      lineId: 'tohoku-shinkansen',
+      fromStationId: 'tokyo',
+      toStationId: 'akihabara',
+      coordinates: [[35.681, 139.767], [35.698, 139.773]],
+    };
+
+    expect(classifyContinuity(sobu, shinkansen, [sobu, shinkansen])).toBe('unrelated');
+  });
+
   it('does not give a high bonus to a disconnected segment on the same line', () => {
     const disconnected = continuityBonus('same-line-disconnected', 'LOCKED', DEFAULT_TRACKING_CONFIG);
     const adjacentBonus = continuityBonus('adjacent-segment', 'LOCKED', DEFAULT_TRACKING_CONFIG);
