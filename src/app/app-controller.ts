@@ -309,10 +309,9 @@ export class AppController {
     // dropped even before its stop() resolves.
     this.locationGeneration++;
     this.locationProvider = newProvider;
-    // Clear the visible/controller state synchronously for the switch contract.
-    // A second reset is queued below so any matcher mutation that is still in
-    // flight cannot leak into the new provider's state.
-    this.resetEstimationState();
+    // Clear only controller-visible state synchronously. Estimator internals may
+    // still be in an async match/update and are reset below, behind that work.
+    this.clearControllerEstimationState();
     // Queue the reset behind any in-flight match, but do not make the provider
     // lifecycle wait for it: callers may need to complete the switch while the
     // outgoing provider's current match is still awaiting an external result.
@@ -449,6 +448,10 @@ export class AppController {
     this.speedEstimator.reset();
     this.journeyEstimator.reset();
     this.mapMatcher.reset();
+    this.clearControllerEstimationState();
+  }
+
+  private clearControllerEstimationState(): void {
     this.latestSample = null;
     this.currentMatch = null;
   }
