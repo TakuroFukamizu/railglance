@@ -42,18 +42,27 @@ vi.mock('../../src/infrastructure/even-g2/speed-png-generator', () => ({
 
 import { HybridEvenG2Adapter } from '../../src/infrastructure/even-g2/even-g2-adapter';
 
-function viewModel(speed: string, lineName = '小田急線'): HudViewModel {
+function viewModel(
+  speed: string,
+  lineName = '小田急線',
+  extras: {
+    nextStationName?: string;
+    distanceToNextText?: string;
+    statusMode?: HudViewModel['statusMode'];
+    statusRight?: string;
+  } = {}
+): HudViewModel {
   return {
     header: { lineName, serviceOrDirection: '上り' },
     speed: { displaySpeedKmhText: speed, unitText: 'km/h', isEstimated: false },
     segment: {
       previousStationName: '海老名',
-      nextStationName: '座間',
+      nextStationName: extras.nextStationName ?? '座間',
       progressRatio: 0.5,
-      distanceToNextText: '次まで 1km',
+      distanceToNextText: extras.distanceToNextText ?? '次まで 1km',
     },
-    footer: { leftInfo: '上り', statusRight: 'GPS' },
-    statusMode: 'GPS',
+    footer: { leftInfo: '上り', statusRight: extras.statusRight ?? 'GPS' },
+    statusMode: extras.statusMode ?? 'GPS',
     rawFormattedText: speed,
     timestampMs: 1000,
   };
@@ -227,5 +236,107 @@ describe('HybridEvenG2Adapter', () => {
     hubEvent?.({ sysEvent: { eventType: 7 } });
     await expect(disconnected).resolves.toBeUndefined();
     expect(adapter.isBridgeConnected()).toBe(false);
+  });
+
+  it('does not skip a speed image just because the previous image completed less than 1000ms ago', async () => {
+    const adapter = new HybridEvenG2Adapter();
+    await adapter.connect();
+    const afterConnect = sdk.bridge.updateImageRawData.mock.calls.length;
+
+    await adapter.render(viewModel('80'));
+    await flushBridge();
+    await adapter.render(viewModel('81'));
+    await flushBridge();
+
+    expect(sdk.bridge.updateImageRawData.mock.calls.length).toBe(afterConnect + 2);
+  });
+
+  it('sends a normal speed change ahead of lower-priority station and distance text', async () => {
+    const adapter = new HybridEvenG2Adapter();
+    await adapter.connect();
+    await adapter.render(viewModel('80'));
+    await flushBridge();
+
+    const order: string[] = [];
+    sdk.bridge.updateImageRawData.mockImplementation(async () => {
+      order.push('speed');
+      return 'success';
+    });
+    sdk.bridge.textContainerUpgrade.mockImplementation(async (update) => {
+      order.push(update.containerName);
+      return true;
+    });
+
+    await adapter.render(viewModel('81', '小田急線', {
+      nextStationName: '本厚木',
+      distanceToNextText: '次まで 2km',
+    }));
+    await flushBridge();
+
+    expect(order).toContain('speed');
+    expect(order).toContain('segment');
+    expect(order.indexOf('speed')).toBeLessThan(order.indexOf('segment'));
+    expect(order.indexOf('speed')).toBeLessThan(order.indexOf('footer'));
+  });
+
+  it('sends route/status text before speed when header or statusMode changes', async () => {
+    const adapter = new HybridEvenG2Adapter();
+    await adapter.connect();
+    await adapter.render(viewModel('80'));
+    await flushBridge();
+
+    const order: string[] = [];
+    sdk.bridge.updateImageRawData.mockImplementation(async () => {
+      order.push('speed');
+      return 'success';
+    });
+    sdk.bridge.textContainerUpgrade.mockImplementation(async (update) => {
+      order.push(update.containerName);
+      return true;
+    });
+
+    await adapter.render(viewModel('81', '路線判定中', {
+      statusMode: 'UNCERTAIN',
+      statusRight: '判定中',
+    }));
+    await flushBridge();
+
+    expect(order[0]).toBe('header');
+    expect(order).toContain('speed');
+    expect(order.indexOf('header')).toBeLessThan(order.indexOf('speed'));
+    expect(order.indexOf('footer')).toBeLessThan(order.indexOf('speed'));
+  });
+
+  it('abandons remaining stale fields when a newer render arrives mid-flush and then sends the latest model', async () => {
+    const adapter = new HybridEvenG2Adapter();
+    await adapter.connect();
+    await adapter.render(viewModel('80'));
+    await flushBridge();
+
+    let releaseSpeed!: (value: string) => void;
+    sdk.bridge.updateImageRawData.mockImplementationOnce(
+      () => new Promise<string>((resolve) => { releaseSpeed = resolve; })
+    );
+
+    await adapter.render(viewModel('10', '小田急線', { nextStationName: '本厚木' }));
+    await flushBridge();
+    expect(releaseSpeed).toBeTypeOf('function');
+
+    const segmentContents: string[] = [];
+    sdk.bridge.textContainerUpgrade.mockImplementation(async (update) => {
+      if (update.containerName === 'segment') {
+        segmentContents.push(update.content);
+      }
+      return true;
+    });
+    sdk.bridge.updateImageRawData.mockResolvedValue('success');
+
+    await adapter.render(viewModel('99', '小田急線', { nextStationName: '新宿' }));
+    releaseSpeed('success');
+    await flushBridge();
+    await flushBridge();
+
+    expect(segmentContents.some((content) => content.includes('本厚木'))).toBe(false);
+    expect(segmentContents.some((content) => content.includes('新宿'))).toBe(true);
   });
 });

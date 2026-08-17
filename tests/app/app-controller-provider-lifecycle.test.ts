@@ -240,12 +240,15 @@ describe('AppController location provider lifecycle', () => {
     expect((controller as any).currentMatch).toBeNull();
 
     await controller.switchLocationProvider(replacement);
-    expect(mapMatcher.reset).toHaveBeenCalled();
+    // The visible state is cleared immediately, while matcher reset waits for
+    // the in-flight match to finish so it cannot mutate matcher state mid-call.
+    expect(mapMatcher.reset).not.toHaveBeenCalled();
     expect((controller as any).currentMatch).toBeNull();
 
     // Map matching for the stale sample completes only now, after the switch.
     resolveMatch(routeMatch);
     await flush();
+    expect(mapMatcher.reset).toHaveBeenCalled();
 
     // It must not resurrect state the switch just cleared, nor feed the (already reset)
     // estimators with the outgoing provider's sample.
