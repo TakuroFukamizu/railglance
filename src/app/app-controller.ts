@@ -94,8 +94,13 @@ export class AppController {
   private renderTimerId: any = null;
   private isRunning = false;
   private isConnectingEvenG2 = false;
-  private renderTickInFlight = false;
-  private renderTickPending = false;
+
+  // Serializes estimator mutations that can overlap: real GPS fixes, manual
+  // reacquire/lock/unlock reprocessing, and the periodic DR/staleness tick.
+  // The tail never rejects so one failure cannot poison later work.
+  private estimationWork: Promise<void> = Promise.resolve();
+  // Coalesce periodic ticks so they cannot backlog behind slow GPS work.
+  private estimatorTickQueued = false;
 
   // Location provider lifecycle serialization.
   // - `locationLifecycle` is a never-rejecting tail promise used as a FIFO queue so that
@@ -172,31 +177,40 @@ export class AppController {
   }
 
   public async startManualReacquire(): Promise<void> {
-    this.mapMatcher.startManualReacquire(Date.now());
-    this.journeyEstimator.invalidateRoute();
-    this.speedEstimator.getNavStateEstimator().clearRoute();
-    if (this.latestSample) {
-      await this.onLocationUpdate(this.latestSample);
-    }
+    await this.enqueueEstimationWork(async () => {
+      this.mapMatcher.startManualReacquire(Date.now());
+      this.journeyEstimator.invalidateRoute();
+      this.speedEstimator.getNavStateEstimator().clearRoute();
+      if (this.latestSample) {
+        // Call the internal processor directly: enqueueing public onLocationUpdate
+        // from queued work would deadlock on this same FIFO.
+        await this.processLocationUpdate(this.latestSample, this.locationGeneration);
+      }
+    });
   }
 
   public async lockSelectedRoute(segmentId: string): Promise<boolean> {
-    const locked = this.mapMatcher.lockSelectedRoute(segmentId, Date.now());
-    if (!locked) return false;
-    if (this.latestSample) {
-      await this.onLocationUpdate(this.latestSample);
-    }
-    return true;
+    let locked = false;
+    await this.enqueueEstimationWork(async () => {
+      locked = this.mapMatcher.lockSelectedRoute(segmentId, Date.now());
+      if (!locked) return;
+      if (this.latestSample) {
+        await this.processLocationUpdate(this.latestSample, this.locationGeneration);
+      }
+    });
+    return locked;
   }
 
   public async unlockManualRoute(): Promise<void> {
-    this.mapMatcher.unlockManualRoute(Date.now());
-    this.journeyEstimator.invalidateRoute();
-    this.speedEstimator.getNavStateEstimator().clearRoute();
-    this.currentMatch = null;
-    if (this.latestSample) {
-      await this.onLocationUpdate(this.latestSample);
-    }
+    await this.enqueueEstimationWork(async () => {
+      this.mapMatcher.unlockManualRoute(Date.now());
+      this.journeyEstimator.invalidateRoute();
+      this.speedEstimator.getNavStateEstimator().clearRoute();
+      this.currentMatch = null;
+      if (this.latestSample) {
+        await this.processLocationUpdate(this.latestSample, this.locationGeneration);
+      }
+    });
   }
 
   public getCurrentRouteMatch(): RouteMatch | null {
@@ -207,9 +221,10 @@ export class AppController {
     if (this.isRunning) return;
     this.isRunning = true;
 
-    // 1. Immediately start HUD render timer (Web Viewport DOM / Local Preview)
+    // Periodic estimator tick for dead-reckoning, staleness, and GPS-loss.
+    // HUD snapshots after a real GPS fix are published immediately, not here.
     this.renderTimerId = setInterval(() => {
-      void this.runRenderTick();
+      this.scheduleEstimatorTick();
     }, this.config.hudRefreshMs);
 
     // 2. Connect Even G2 in background with persistent auto-reconnect
@@ -294,7 +309,16 @@ export class AppController {
     // dropped even before its stop() resolves.
     this.locationGeneration++;
     this.locationProvider = newProvider;
+    // Clear the visible/controller state synchronously for the switch contract.
+    // A second reset is queued below so any matcher mutation that is still in
+    // flight cannot leak into the new provider's state.
     this.resetEstimationState();
+    // Queue the reset behind any in-flight match, but do not make the provider
+    // lifecycle wait for it: callers may need to complete the switch while the
+    // outgoing provider's current match is still awaiting an external result.
+    void this.enqueueEstimationWork(async () => {
+      this.resetEstimationState();
+    });
 
     return this.enqueueLocationLifecycle(async () => {
       await this.deactivateLocationProvider();
@@ -389,7 +413,9 @@ export class AppController {
       this.locationGeneration++;
       this.activeLocationProvider = null;
       await this.stopProviderSafely(provider);
-      this.resetEstimationState();
+      await this.enqueueEstimationWork(async () => {
+        this.resetEstimationState();
+      });
       this.onLocationError(this.toLocationProviderError(error));
     }
   }
@@ -432,6 +458,19 @@ export class AppController {
   }
 
   /**
+   * FIFO for estimator mutations. Real GPS fixes are never coalesced: PR #42
+   * route-lock uses consecutive counts and fix history, so every sample must run.
+   */
+  private enqueueEstimationWork(task: () => Promise<void>): Promise<void> {
+    const run = this.estimationWork.then(task);
+    this.estimationWork = run.then(
+      () => undefined,
+      () => undefined
+    );
+    return run;
+  }
+
+  /**
    * Processes one location sample. Results are computed into locals and only committed
    * while the sample's provider generation is still the current one: a switch/stop that
    * lands while map matching or journey estimation is awaited must not be able to write
@@ -443,7 +482,14 @@ export class AppController {
   public async onLocationUpdate(sample: LocationSample): Promise<void> {
     // Captured synchronously at invocation: the provider callback checks the generation
     // and calls this in the same synchronous block, so both observe the same value.
+    // The queued processor must keep this snapshot — capturing again when the task
+    // starts would treat a sample that queued across a switch as live.
     const generation = this.locationGeneration;
+    return this.enqueueEstimationWork(() => this.processLocationUpdate(sample, generation));
+  }
+
+  private async processLocationUpdate(sample: LocationSample, generation: number): Promise<void> {
+    if (generation !== this.locationGeneration) return;
 
     // Safe to publish immediately: this runs before any await, so a later switch's
     // resetEstimationState() clears it rather than being overwritten by it. Keeping it
@@ -503,6 +549,39 @@ export class AppController {
     this.speedEstimator.getNavStateEstimator().setDirection(
       this.toNavigationDirection(this.currentJourney.direction)
     );
+    this.publishHudSnapshot();
+  }
+
+  /**
+   * Pure HUD publish from already-committed estimator state. Must not rematch,
+   * re-estimate speed, or re-estimate journey — those belong to the GPS path
+   * and the periodic tick only.
+   */
+  private publishHudSnapshot(nowMs = Date.now()): void {
+    this.currentViewModel = this.hudRenderer.createViewModel(
+      this.currentFullSpeedState,
+      this.currentJourney,
+      nowMs
+    );
+
+    // render() is non-blocking for Glass BLE (coalesced flush). Do not let a
+    // slow/hung bridge transfer stall the AppController estimation loop.
+    void Promise.resolve(this.evenG2Adapter.render(this.currentViewModel)).catch((error) => {
+      console.warn('[AppController] Even G2 render notice:', error);
+      captureRuntimeError(error, 'even-g2-render');
+    });
+
+    const logEntry: EstimationLogEntry = {
+      timestampMs: nowMs,
+      rawLocation: this.latestSample,
+      speedState: this.currentFullSpeedState,
+      match: this.currentMatch,
+      journey: this.currentJourney,
+      hudViewModel: this.currentViewModel,
+      bridgeConnected: this.evenG2Adapter.isBridgeConnected?.() ?? false,
+      lastImageResult: this.evenG2Adapter.getLastImageResult(),
+    };
+    this.logger.log(logEntry);
   }
 
   private onLocationError(err: { code?: number; message: string }): void {
@@ -510,23 +589,20 @@ export class AppController {
     captureRuntimeError(new Error(err.message), 'geolocation', { code: err.code ?? null });
   }
 
-  private async runRenderTick(): Promise<void> {
-    if (!this.isRunning) return;
-    if (this.renderTickInFlight) {
-      this.renderTickPending = true;
-      return;
-    }
-    this.renderTickInFlight = true;
-    this.renderTickPending = false;
-    try {
-      await this.onRenderTick();
-    } catch (error) {
-      console.warn('[AppController] HUD render tick failed:', error);
-      captureRuntimeError(error, 'hud-render-tick');
-    } finally {
-      this.renderTickInFlight = false;
-      if (this.renderTickPending && this.isRunning) void this.runRenderTick();
-    }
+  private scheduleEstimatorTick(): void {
+    if (!this.isRunning || this.estimatorTickQueued) return;
+    this.estimatorTickQueued = true;
+    void this.enqueueEstimationWork(async () => {
+      try {
+        if (!this.isRunning) return;
+        await this.onRenderTick();
+      } catch (error) {
+        console.warn('[AppController] HUD render tick failed:', error);
+        captureRuntimeError(error, 'hud-render-tick');
+      } finally {
+        this.estimatorTickQueued = false;
+      }
+    });
   }
 
   private async onRenderTick(): Promise<void> {
@@ -560,30 +636,7 @@ export class AppController {
       this.currentJourney.status = 'GPS_UNAVAILABLE';
     }
 
-    this.currentViewModel = this.hudRenderer.createViewModel(
-      this.currentFullSpeedState,
-      this.currentJourney,
-      now
-    );
-
-    // render() is non-blocking for Glass BLE (coalesced flush). Do not let a
-    // slow/hung bridge transfer stall the AppController render loop.
-    void this.evenG2Adapter.render(this.currentViewModel).catch((error) => {
-      console.warn('[AppController] Even G2 render notice:', error);
-      captureRuntimeError(error, 'even-g2-render');
-    });
-
-    const logEntry: EstimationLogEntry = {
-      timestampMs: now,
-      rawLocation: this.latestSample,
-      speedState: this.currentFullSpeedState,
-      match: this.currentMatch,
-      journey: this.currentJourney,
-      hudViewModel: this.currentViewModel,
-      bridgeConnected: this.evenG2Adapter.isBridgeConnected?.() ?? false,
-      lastImageResult: this.evenG2Adapter.getLastImageResult(),
-    };
-    this.logger.log(logEntry);
+    this.publishHudSnapshot(now);
   }
 
   private toNavigationDirection(direction: JourneyState['direction']): 'UP' | 'DOWN' | 'UNKNOWN' {

@@ -77,8 +77,7 @@ export class HybridEvenG2Adapter implements EvenG2Adapter {
 
   private lastRenderedSpeedKmh: number | null = null;
   private lastRenderedIsEstimated = false;
-  private lastImageUpdateTimeMs = 0;
-  private readonly SPEED_IMAGE_MIN_INTERVAL_MS = 1000;
+  private lastStatusMode: HudViewModel['statusMode'] | null = null;
   private latestRequestedSpeedKmh: number | null = null;
   private latestRequestedIsEstimated = false;
   private lastModel: HudViewModel | null = null;
@@ -198,7 +197,7 @@ export class HybridEvenG2Adapter implements EvenG2Adapter {
         this.lastFooterContent = '';
         this.lastRenderedSpeedKmh = null;
         this.lastRenderedIsEstimated = false;
-        this.lastImageUpdateTimeMs = 0;
+        this.lastStatusMode = null;
         this.flushedGeneration = 0;
         this.pageReady = true;
         this.isConnected = true;
@@ -272,20 +271,11 @@ export class HybridEvenG2Adapter implements EvenG2Adapter {
 
       const generationAtStart = this.renderGeneration;
       const model = this.lastModel;
+      const completed = await this.flushHudModel(model, generationAtStart);
 
-      await this.pushTextContainers(model);
-
-      const rawSpeedVal =
-        model.speed.displaySpeedKmhText === '--' ? null : parseInt(model.speed.displaySpeedKmhText, 10);
-      const speedKmh = isNaN(rawSpeedVal as any) ? null : rawSpeedVal;
-      const isEstimated = model.speed.isEstimated;
-      const now = Date.now();
-      const isSpeedChanged =
-        speedKmh !== this.lastRenderedSpeedKmh || isEstimated !== this.lastRenderedIsEstimated;
-      const isTimeElapsed = now - this.lastImageUpdateTimeMs >= this.SPEED_IMAGE_MIN_INTERVAL_MS;
-
-      if (isSpeedChanged && isTimeElapsed) {
-        await this.pushSpeedImage(speedKmh, isEstimated, false);
+      if (!completed) {
+        if (this.isConnected && this.pageReady) this.queueHudFlush();
+        return;
       }
 
       this.flushedGeneration = generationAtStart;
@@ -300,9 +290,51 @@ export class HybridEvenG2Adapter implements EvenG2Adapter {
     });
   }
 
-  private async pushTextContainers(model: HudViewModel): Promise<void> {
-    if (!this.bridge || !this.pageReady) return;
+  /**
+   * Apply one HUD model as a sequence of native calls. Returns false when a
+   * newer render generation arrived at a safe await boundary so remaining
+   * stale fields must be abandoned.
+   */
+  private async flushHudModel(model: HudViewModel, generationAtStart: number): Promise<boolean> {
+    const texts = this.buildHudTextContents(model);
+    const { speedKmh, isEstimated } = this.parseHudSpeed(model);
+    const routeStatusCritical =
+      texts.headerContent !== this.lastHeaderContent || model.statusMode !== this.lastStatusMode;
 
+    const sendHeader = () => this.pushTextField(1, 'header', texts.headerContent, 'lastHeaderContent');
+    const sendFooter = () => this.pushTextField(4, 'footer', texts.footerContent, 'lastFooterContent');
+    const sendSegment = () => this.pushTextField(3, 'segment', texts.segmentContent, 'lastSegmentContent');
+    const sendSpeed = () => this.pushSpeedImage(speedKmh, isEstimated, false);
+
+    // Route/status-critical frames must not leave an old line/status visible
+    // while the speed image of the new frame is transferring.
+    const ops = routeStatusCritical
+      ? [sendHeader, sendFooter, sendSegment, sendSpeed]
+      : [sendSpeed, sendHeader, sendSegment, sendFooter];
+
+    for (const op of ops) {
+      if (!this.isFlushGenerationCurrent(generationAtStart)) return false;
+      await op();
+    }
+    if (!this.isFlushGenerationCurrent(generationAtStart)) return false;
+    if (
+      texts.headerContent === this.lastHeaderContent &&
+      texts.footerContent === this.lastFooterContent
+    ) {
+      this.lastStatusMode = model.statusMode;
+    }
+    return true;
+  }
+
+  private isFlushGenerationCurrent(generationAtStart: number): boolean {
+    return this.renderGeneration === generationAtStart && this.isConnected && this.pageReady;
+  }
+
+  private buildHudTextContents(model: HudViewModel): {
+    headerContent: string;
+    segmentContent: string;
+    footerContent: string;
+  } {
     const headerContent = `${model.header.lineName}               ${model.header.serviceOrDirection}`;
 
     let progressBarStr = '━━━━━━━━━━━━';
@@ -318,53 +350,37 @@ export class HybridEvenG2Adapter implements EvenG2Adapter {
     }
     const segmentContent = `${model.segment.previousStationName} ${progressBarStr} ${model.segment.nextStationName}`;
     const footerContent = `${model.segment.distanceToNextText}               ${model.footer.statusRight}`;
+    return { headerContent, segmentContent, footerContent };
+  }
 
-    if (headerContent !== this.lastHeaderContent) {
-      try {
-        const updated = await this.bridge.textContainerUpgrade(
-          new TextContainerUpgrade({ containerID: 1, containerName: 'header', content: headerContent })
-        );
-        if (updated === false) {
-          console.warn('[EvenG2Adapter] header textContainerUpgrade returned false (will retry)');
-        } else {
-          this.lastHeaderContent = headerContent;
-        }
-      } catch (error) {
-        console.warn('[EvenG2Adapter] header textContainerUpgrade error:', error);
-        captureRuntimeError(error, 'even-g2-text-update', { container: 'header' });
-      }
-    }
+  private parseHudSpeed(model: HudViewModel): { speedKmh: number | null; isEstimated: boolean } {
+    const rawSpeedVal =
+      model.speed.displaySpeedKmhText === '--' ? null : parseInt(model.speed.displaySpeedKmhText, 10);
+    const speedKmh = isNaN(rawSpeedVal as any) ? null : rawSpeedVal;
+    return { speedKmh, isEstimated: model.speed.isEstimated };
+  }
 
-    if (segmentContent !== this.lastSegmentContent) {
-      try {
-        const updated = await this.bridge.textContainerUpgrade(
-          new TextContainerUpgrade({ containerID: 3, containerName: 'segment', content: segmentContent })
-        );
-        if (updated === false) {
-          console.warn('[EvenG2Adapter] segment textContainerUpgrade returned false (will retry)');
-        } else {
-          this.lastSegmentContent = segmentContent;
-        }
-      } catch (error) {
-        console.warn('[EvenG2Adapter] segment textContainerUpgrade error:', error);
-        captureRuntimeError(error, 'even-g2-text-update', { container: 'segment' });
-      }
-    }
+  private async pushTextField(
+    containerID: number,
+    containerName: 'header' | 'segment' | 'footer',
+    content: string,
+    cacheKey: 'lastHeaderContent' | 'lastSegmentContent' | 'lastFooterContent'
+  ): Promise<void> {
+    if (!this.bridge || !this.pageReady) return;
+    if (content === this[cacheKey]) return;
 
-    if (footerContent !== this.lastFooterContent) {
-      try {
-        const updated = await this.bridge.textContainerUpgrade(
-          new TextContainerUpgrade({ containerID: 4, containerName: 'footer', content: footerContent })
-        );
-        if (updated === false) {
-          console.warn('[EvenG2Adapter] footer textContainerUpgrade returned false (will retry)');
-        } else {
-          this.lastFooterContent = footerContent;
-        }
-      } catch (error) {
-        console.warn('[EvenG2Adapter] footer textContainerUpgrade error:', error);
-        captureRuntimeError(error, 'even-g2-text-update', { container: 'footer' });
+    try {
+      const updated = await this.bridge.textContainerUpgrade(
+        new TextContainerUpgrade({ containerID, containerName, content })
+      );
+      if (updated === false) {
+        console.warn(`[EvenG2Adapter] ${containerName} textContainerUpgrade returned false (will retry)`);
+      } else {
+        this[cacheKey] = content;
       }
+    } catch (error) {
+      console.warn(`[EvenG2Adapter] ${containerName} textContainerUpgrade error:`, error);
+      captureRuntimeError(error, 'even-g2-text-update', { container: containerName });
     }
   }
 
@@ -407,7 +423,6 @@ export class HybridEvenG2Adapter implements EvenG2Adapter {
       if (ImageRawDataUpdateResult.isSuccess(result)) {
         this.lastRenderedSpeedKmh = speedKmh;
         this.lastRenderedIsEstimated = isEstimated;
-        this.lastImageUpdateTimeMs = Date.now();
       } else {
         console.warn('[EvenG2Adapter] Speed image update non-success result:', resultStr);
       }
@@ -553,6 +568,7 @@ export class HybridEvenG2Adapter implements EvenG2Adapter {
         this.lastFooterContent = '';
         this.lastRenderedSpeedKmh = null;
         this.lastRenderedIsEstimated = false;
+        this.lastStatusMode = null;
         this.flushedGeneration = 0;
         this.pageReady = true;
         this.isConnected = true;
