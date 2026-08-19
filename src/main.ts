@@ -8,6 +8,7 @@ import { HudViewModel } from './domain/models/hud';
 import { captureRuntimeError } from './infrastructure/observability/sentry';
 import type { DiagnosticStatus } from './infrastructure/telemetry/runtime-telemetry';
 import { DEFAULT_TRACKING_CONFIG } from './config/tracking-config';
+import { formatBuildInfo, readBuildInfo } from './config/build-info';
 
 class DemoGpsReplayerProvider implements LocationProvider {
   private listener: ((sample: LocationSample) => void) | null = null;
@@ -104,7 +105,15 @@ function updateViewportDOM(model: HudViewModel): void {
   if (footerRightEl) footerRightEl.textContent = model.footer.statusRight;
 }
 
+function renderBuildInfo(): void {
+  const el = document.getElementById('build-info');
+  if (el) el.textContent = formatBuildInfo(readBuildInfo());
+}
+
 async function init() {
+  // Rendered before any await so the stamp is visible even when bootstrap fails.
+  renderBuildInfo();
+
   const debugPanel = new DebugPanel('debug-panel');
   const motionSensorProvider = new DeviceMotionSensorFusionProvider();
 
