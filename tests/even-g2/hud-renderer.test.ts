@@ -23,6 +23,7 @@ const journeyState = (overrides: Partial<JourneyState> = {}): JourneyState => ({
   nextStation: station('ebina', '海老名', 2),
   distanceToNextStationMeters: 1200,
   progressRatio: 0.5,
+  stationDataComplete: true,
   confidence: 0.9,
   status: 'TRACKING',
   ...overrides,

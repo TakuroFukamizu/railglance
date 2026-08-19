@@ -434,6 +434,27 @@ export class DexieRailwayDatabase extends Dexie implements RailwayDataRepository
     return this.mergeById(bundled, remote).sort((a, b) => a.sequence - b.sequence);
   }
 
+  public async getStationDataCompleteness(lineId: string): Promise<boolean> {
+    const bundledCount = await this.stations.where('lineId').equals(lineId).count();
+    if (bundledCount > 0) {
+      // This line ID exists in the local bundled/sample table. The ETL build
+      // republishes that same sparse sample data into the R2 dataset under
+      // identical IDs, so the presence of remote rows for this exact lineId
+      // does not prove the station list is dense — treat it as permanently
+      // unreliable for next-station assertions.
+      return false;
+    }
+    if (!this.activeVersion) {
+      return false;
+    }
+    const remoteCount = await this.remoteStations
+      .where('lineId')
+      .equals(lineId)
+      .filter((station) => station.datasetVersion === this.activeVersion)
+      .count();
+    return remoteCount > 0;
+  }
+
   public async getSegmentsByRoute(routeId: string): Promise<TrackSegment[]> {
     const bundled = await this.trackSegments.where('routeId').equals(routeId).toArray();
     const remote = this.activeVersion

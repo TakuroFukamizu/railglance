@@ -122,6 +122,7 @@ function createJourneyEstimator() {
       nextStation: null,
       distanceToNextStationMeters: null,
       progressRatio: null,
+      stationDataComplete: true,
       confidence: 0,
       status: 'INITIALIZING',
     }),

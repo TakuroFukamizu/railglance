@@ -184,6 +184,7 @@ export type JourneyState = {
   nextStation: Station | null;
   distanceToNextStationMeters: number | null;
   progressRatio: number | null; // 0.0 to 1.0
+  stationDataComplete: boolean; // false = station list completeness is not confirmed (e.g. sparse bundled fallback data, or remote data not yet available for this line); previous/nextStation should not be asserted
   confidence: number;
   status: 'INITIALIZING' | 'WAITING_FOR_GPS' | 'MATCHING_ROUTE' | 'TRACKING' | 'GPS_UNAVAILABLE' | 'ROUTE_UNCERTAIN' | 'GPS_LOW_ACCURACY';
   lockState?: RouteLockState;

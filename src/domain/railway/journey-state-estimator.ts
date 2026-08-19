@@ -116,6 +116,7 @@ export class JourneyStateEstimator {
         nextStation: null,
         distanceToNextStationMeters: null,
         progressRatio: null,
+        stationDataComplete: true,
         confidence: 0.0,
         status: match?.lockState === 'UNRESOLVED' || match?.lockState === 'REACQUIRING' ? 'MATCHING_ROUTE' : 'ROUTE_UNCERTAIN',
         lockState: match?.lockState,
@@ -134,6 +135,7 @@ export class JourneyStateEstimator {
         nextStation: null,
         distanceToNextStationMeters: null,
         progressRatio: null,
+        stationDataComplete: true,
         confidence: 0.0,
         status: sample && sample.accuracyMeters > this.config.maxGpsAccuracyMeters
           ? 'GPS_LOW_ACCURACY'
@@ -159,6 +161,7 @@ export class JourneyStateEstimator {
         nextStation: null,
         distanceToNextStationMeters: null,
         progressRatio: null,
+        stationDataComplete: true,
         confidence: 0.0,
         status: 'ROUTE_UNCERTAIN',
         lockState: match?.lockState,
@@ -204,6 +207,7 @@ export class JourneyStateEstimator {
     }
 
     const lineStations = await this.repository.getStationsByLine(selectedLine.id);
+    const stationDataComplete = (await this.repository.getStationDataCompleteness?.(selectedLine.id)) ?? true;
     if (lineStations.length === 0) {
       return {
         line: selectedLine,
@@ -213,6 +217,7 @@ export class JourneyStateEstimator {
         nextStation: null,
         distanceToNextStationMeters: null,
         progressRatio: null,
+        stationDataComplete,
         confidence: displayableMatch ? displayableMatch.confidence : 0.5,
         status: 'ROUTE_UNCERTAIN',
         lockState: match?.lockState,
@@ -333,6 +338,17 @@ export class JourneyStateEstimator {
       }
     }
 
+    if (!stationDataComplete) {
+      // Bundled/sparse fallback data: do not assert a specific next station,
+      // since intermediate real stations may be missing from this dataset.
+      // Line, direction, and confidence are unaffected — only the specific
+      // station identity/distance/progress claims are suppressed.
+      previousStation = null;
+      nextStation = null;
+      distanceToNextStationMeters = null;
+      progressRatio = null;
+    }
+
     // セグメント長ベースで進捗率を確定できなかった場合のみ、駅間の直線距離で近似する。
     if (progressRatio === null && previousStation && nextStation && distanceToNextStationMeters !== null) {
       const totalSegDist = haversineDistance(
@@ -375,6 +391,7 @@ export class JourneyStateEstimator {
       nextStation,
       distanceToNextStationMeters,
       progressRatio,
+      stationDataComplete,
       confidence,
       status,
       lockState: match?.lockState,

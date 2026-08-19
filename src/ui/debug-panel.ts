@@ -105,6 +105,7 @@ export class DebugPanel {
           <div>次駅まで距離: ${journey.distanceToNextStationMeters !== null ? `${journey.distanceToNextStationMeters} m` : 'なし'}</div>
           <div>路線判定信頼度: <strong>${(journey.confidence * 100).toFixed(0)}% (${journey.confidence.toFixed(2)})</strong></div>
           <div>ステータス: <span class="badge ${escapeHtml(journey.status)}">${escapeHtml(journey.status)}</span></div>
+          <div>駅データ完全性: ${journey.stationDataComplete ? '✓ 完全 (同期済み)' : '⚠ 不完全 (未確認)'}</div>
         </div>
 
         <div class="debug-card">
