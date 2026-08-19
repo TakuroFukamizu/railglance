@@ -85,6 +85,7 @@ function entry(timestampMs: number, mode: FullSpeedState['navState']['mode'], ro
     nextStation: null,
     distanceToNextStationMeters: 1000,
     progressRatio: 0.5,
+    stationDataComplete: true,
     confidence: 0.8,
     status: 'TRACKING',
   };

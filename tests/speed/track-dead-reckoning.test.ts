@@ -100,11 +100,14 @@ describe('Track-Constrained Dead Reckoning & Segment Crossing', () => {
     const journey = await journeyEstimator.update(null, null, dummySpeedState, state, navEstimator.getCurrentSegment());
 
     expect(journey.line?.id).toBe('odakyu-odawara');
-    expect(journey.previousStation?.name).toBe('座間');
-    expect(journey.nextStation?.name).toBe('相武台前');
-    expect(journey.distanceToNextStationMeters).toBeGreaterThanOrEqual(0);
-    expect(journey.progressRatio).toBeGreaterThan(0.0);
-    expect(journey.progressRatio).toBeLessThanOrEqual(1.0);
+    // Bundled sample data is sparse: station identity/distance/progress must not be asserted.
+    expect(journey.stationDataComplete).toBe(false);
+    expect(journey.previousStation).toBeNull();
+    expect(journey.nextStation).toBeNull();
+    expect(journey.distanceToNextStationMeters).toBeNull();
+    expect(journey.progressRatio).toBeNull();
+    expect(journey.direction).not.toBe('UNKNOWN');
+    expect(journey.confidence).toBeGreaterThan(0);
   });
 
   it('moves backward and transitions to previousSegmentId during DOWN dead reckoning', () => {

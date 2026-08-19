@@ -594,3 +594,277 @@ describe('direction normalization', () => {
     expect(isUpDirection('UNKNOWN')).toBe(false);
   });
 });
+
+describe('JourneyStateEstimator - station data completeness', () => {
+  const ODAKYU: RailwayLine = {
+    id: 'odakyu-odawara',
+    operatorId: 'odakyu',
+    name: '小田急小田原線',
+    directionAName: '上り',
+    directionBName: '下り',
+  };
+
+  const MACHIDA: Station = {
+    id: 'st-machida',
+    lineId: 'odakyu-odawara',
+    name: '町田',
+    sequence: 7,
+    latitude: 35.5424,
+    longitude: 139.4456,
+  };
+
+  const SHINYURIGAOKA: Station = {
+    id: 'st-shinyurigaoka',
+    lineId: 'odakyu-odawara',
+    name: '新百合ヶ丘',
+    sequence: 8,
+    latitude: 35.6038,
+    longitude: 139.5076,
+  };
+
+  // Mirrors bundled `seg-machida-shinyurigaoka`, which skips 玉川学園前 / 鶴川 / 柿生.
+  const SPARSE_SEGMENT: TrackSegment = {
+    id: 'seg-machida-shinyurigaoka',
+    lineId: 'odakyu-odawara',
+    fromStationId: 'st-machida',
+    toStationId: 'st-shinyurigaoka',
+    coordinates: [
+      [35.5424, 139.4456],
+      [35.5700, 139.4750],
+      [35.6038, 139.5076],
+    ],
+    lengthMeters: 8800,
+    startOffsetMeters: 0,
+  };
+
+  class CompletenessRepository implements RailwayDataRepository {
+    getStationDataCompleteness?: (lineId: string) => Promise<boolean>;
+
+    constructor(
+      private stations: Station[],
+      completeness?: boolean
+    ) {
+      if (completeness !== undefined) {
+        this.getStationDataCompleteness = async () => completeness;
+      }
+    }
+
+    async ensureCoverageAround(): Promise<RailwayCoverageResult> {
+      return { state: 'bundled', loadedTileCount: 0 };
+    }
+    async findSegmentsNear(): Promise<TrackSegment[]> {
+      return [];
+    }
+    async getLine(lineId: string): Promise<RailwayLine | undefined> {
+      return { ...ODAKYU, id: lineId };
+    }
+    async getRoute(): Promise<RailwayRoute | undefined> {
+      return undefined;
+    }
+    async getStation(id: string): Promise<Station | undefined> {
+      return this.stations.find((station) => station.id === id);
+    }
+    async getStationsByLine(): Promise<Station[]> {
+      return this.stations;
+    }
+    async getSegmentsByRoute(): Promise<TrackSegment[]> {
+      return [];
+    }
+    getDataState(): RailwayDataState {
+      return 'bundled';
+    }
+  }
+
+  function sparseMatch(): RouteMatch {
+    return {
+      selectedLine: ODAKYU,
+      selectedSegment: SPARSE_SEGMENT,
+      confidence: 0.9,
+      candidates: [],
+      timestampMs: 10000,
+    };
+  }
+
+  function sparseSample(): LocationSample {
+    return {
+      latitude: 35.56,
+      longitude: 139.46,
+      accuracyMeters: 10,
+      speedMps: 25,
+      headingDegrees: 45,
+      timestampMs: 10000,
+    };
+  }
+
+  function sparseSpeedState(): FullSpeedState {
+    const selectedEst: SpeedEstimate = {
+      speedKmh: 90,
+      confidence: 0.9,
+      source: 'os-geolocation',
+      timestamp: 10000,
+    };
+    return {
+      selectedEstimate: selectedEst,
+      smoothedSpeedKmh: 90,
+      isStopped: false,
+      isValid: true,
+      candidates: {
+        osSpeed: selectedEst,
+        positionDeltaSpeed: null,
+        trackDistanceSpeed: null,
+        deadReckoningSpeed: null,
+        sensorFusionSpeed: null,
+      },
+      navState: {
+        lineId: 'odakyu-odawara',
+        routeId: null,
+        segmentId: SPARSE_SEGMENT.id,
+        direction: 'UP',
+        trackPositionMeters: 2000,
+        velocityMps: 25,
+        accelerationMps2: 0,
+        accelerationBiasMps2: 0,
+        lastObservationTimestampMs: 10000,
+        lastPredictionTimestampMs: 10000,
+        mode: 'gps-locked',
+        confidence: 0.9,
+      },
+    };
+  }
+
+  async function estimateSparse(
+    repository: RailwayDataRepository
+  ) {
+    const estimator = new JourneyStateEstimator(repository, DEFAULT_TRACKING_CONFIG);
+    const speedState = sparseSpeedState();
+    return estimator.update(
+      sparseSample(),
+      sparseMatch(),
+      speedState,
+      speedState.navState,
+      SPARSE_SEGMENT
+    );
+  }
+
+  it('suppresses next station when station data is marked incomplete', async () => {
+    const state = await estimateSparse(
+      new CompletenessRepository([MACHIDA, SHINYURIGAOKA], false)
+    );
+
+    expect(state.stationDataComplete).toBe(false);
+    expect(state.previousStation).toBeNull();
+    expect(state.nextStation).toBeNull();
+    expect(state.distanceToNextStationMeters).toBeNull();
+    expect(state.progressRatio).toBeNull();
+
+    expect(state.line?.id).toBe('odakyu-odawara');
+    expect(state.direction).toBe('UP');
+    expect(state.directionName).toBe('上り');
+    expect(state.confidence).toBe(0.9);
+    expect(state.status).toBe('TRACKING');
+  });
+
+  it('still resolves next station when station data is marked complete', async () => {
+    const state = await estimateSparse(
+      new CompletenessRepository([MACHIDA, SHINYURIGAOKA], true)
+    );
+
+    expect(state.stationDataComplete).toBe(true);
+    expect(state.previousStation?.id).toBe('st-machida');
+    expect(state.nextStation?.id).toBe('st-shinyurigaoka');
+    expect(state.previousStation?.name).toBe('町田');
+    expect(state.nextStation?.name).toBe('新百合ヶ丘');
+    expect(state.distanceToNextStationMeters).toBe(6800);
+    expect(state.progressRatio).toBe(2000 / 8800);
+    expect(state.line?.id).toBe('odakyu-odawara');
+    expect(state.direction).toBe('UP');
+    expect(state.confidence).toBe(0.9);
+  });
+
+  it('defaults to complete when the repository does not implement completeness reporting', async () => {
+    const estimator = new JourneyStateEstimator(new MockStationDatabase(), DEFAULT_TRACKING_CONFIG);
+
+    const state = await estimateAt(estimator, 'UP', 1500, SEG_1);
+
+    expect(state.stationDataComplete).toBe(true);
+    expect(state.previousStation?.name).toBe('海老名');
+    expect(state.nextStation?.name).toBe('座間');
+    expect(state.distanceToNextStationMeters).toBe(1700);
+    expect(state.progressRatio).toBe(1500 / 3200);
+  });
+
+  it('walks through intermediate stations in order on a complete dataset without skipping', async () => {
+    const stations: Station[] = [
+      { id: 'st-machida', lineId: 'odakyu-odawara', name: '町田', sequence: 1, latitude: 35.5424, longitude: 139.4456 },
+      { id: 'st-tamagawagakuenmae', lineId: 'odakyu-odawara', name: '玉川学園前', sequence: 2, latitude: 35.5630, longitude: 139.4620 },
+      { id: 'st-tsurukawa', lineId: 'odakyu-odawara', name: '鶴川', sequence: 3, latitude: 35.5830, longitude: 139.4810 },
+      { id: 'st-kakio', lineId: 'odakyu-odawara', name: '柿生', sequence: 4, latitude: 35.5940, longitude: 139.4960 },
+      { id: 'st-shinyurigaoka', lineId: 'odakyu-odawara', name: '新百合ヶ丘', sequence: 5, latitude: 35.6038, longitude: 139.5076 },
+    ];
+
+    const lengths = [2500, 2300, 1800, 2200];
+    const pairs: Array<[string, string]> = [
+      ['st-machida', 'st-tamagawagakuenmae'],
+      ['st-tamagawagakuenmae', 'st-tsurukawa'],
+      ['st-tsurukawa', 'st-kakio'],
+      ['st-kakio', 'st-shinyurigaoka'],
+    ];
+    let offset = 0;
+    const segments: TrackSegment[] = pairs.map(([fromStationId, toStationId], index) => {
+      const from = stations[index];
+      const to = stations[index + 1];
+      const segment: TrackSegment = {
+        id: `seg-${fromStationId}-${toStationId}`,
+        lineId: 'odakyu-odawara',
+        fromStationId,
+        toStationId,
+        coordinates: [
+          [from.latitude, from.longitude],
+          [to.latitude, to.longitude],
+        ],
+        lengthMeters: lengths[index],
+        startOffsetMeters: offset,
+      };
+      offset += lengths[index];
+      return segment;
+    });
+
+    const estimator = new JourneyStateEstimator(
+      new CompletenessRepository(stations, true),
+      DEFAULT_TRACKING_CONFIG
+    );
+
+    const expectedNext = ['玉川学園前', '鶴川', '柿生', '新百合ヶ丘'];
+    for (let i = 0; i < segments.length; i++) {
+      const segment = segments[i];
+      const midPosition = (segment.startOffsetMeters ?? 0) + lengths[i] / 2;
+      const navState = {
+        lineId: 'odakyu-odawara',
+        routeId: null,
+        segmentId: segment.id,
+        direction: 'UP' as const,
+        trackPositionMeters: midPosition,
+        velocityMps: 25,
+        accelerationMps2: 0,
+        accelerationBiasMps2: 0,
+        lastObservationTimestampMs: 10000 + i * 1000,
+        lastPredictionTimestampMs: 10000 + i * 1000,
+        mode: 'gps-locked' as const,
+        confidence: 0.9,
+      };
+
+      const state = await estimator.update(null, null, DUMMY_SPEED_STATE, navState, segment);
+
+      expect(state.stationDataComplete).toBe(true);
+      expect(state.nextStation?.name).toBe(expectedNext[i]);
+      expect(state.previousStation?.name).toBe(stations[i].name);
+      if (i === 0) {
+        expect(state.nextStation?.name).not.toBe('鶴川');
+        expect(state.nextStation?.name).not.toBe('新百合ヶ丘');
+      }
+      if (i < segments.length - 1) {
+        expect(state.nextStation?.name).not.toBe('新百合ヶ丘');
+      }
+    }
+  });
+});

@@ -48,4 +48,14 @@ export interface RailwayDataRepository {
   ): Promise<TrackSegment[]>;
 
   getDataState(): RailwayDataState;
+
+  /**
+   * Best-effort signal for whether the station list for this line is known
+   * to be complete (backed by synced remote data) vs. potentially sparse
+   * (served only from the bundled dev/fallback dataset). Optional — callers
+   * should treat a missing implementation as "complete" (fail-open) since
+   * most RailwayDataRepository implementations (e.g. test mocks) use fixture
+   * data that is complete by construction.
+   */
+  getStationDataCompleteness?(lineId: string): Promise<boolean>;
 }

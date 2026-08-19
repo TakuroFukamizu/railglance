@@ -1,3 +1,4 @@
+import { RailwayDataState } from '../domain/railway/repository';
 import { EstimationLogEntry } from '../infrastructure/logging/logger';
 import { DatasetSyncStatus } from '../infrastructure/storage/dexie-railway-database';
 import { escapeHtml, escapeHtmlValue } from './html';
@@ -29,15 +30,18 @@ export class DebugPanel {
 
     const gpsAgeMs = rawLocation ? timestampMs - rawLocation.timestampMs : 'N/A';
 
-    const renderSyncBadge = (status?: string) => {
+    const renderSyncBadge = (status?: RailwayDataState) => {
       switch (status) {
-        case 'READY_R2':
-          return '<span style="color: #00FF00; background: #004400; padding: 2px 6px; border-radius: 4px; font-weight: bold;">✓ Ready (R2 H3 Streaming)</span>';
-        case 'SYNCING':
-          return '<span style="color: #FFFF00; background: #444400; padding: 2px 6px; border-radius: 4px; font-weight: bold;">⚡ Connecting R2...</span>';
-        case 'ERROR':
+        case 'cloud':
+          return '<span style="color: #00FF00; background: #004400; padding: 2px 6px; border-radius: 4px; font-weight: bold;">✓ Ready</span>';
+        case 'cached':
+          return '<span style="color: #88FF88; background: #223322; padding: 2px 6px; border-radius: 4px; font-weight: bold;">Cached (Offline)</span>';
+        case 'downloading':
+          return '<span style="color: #FFFF00; background: #444400; padding: 2px 6px; border-radius: 4px; font-weight: bold;">⚡ Connecting...</span>';
+        case 'error':
+        case 'unavailable':
           return '<span style="color: #FF6666; background: #440000; padding: 2px 6px; border-radius: 4px; font-weight: bold;">✕ Error</span>';
-        case 'LOCAL_SAMPLE':
+        case 'bundled':
         default:
           return '<span style="color: #AAAAAA; background: #222222; padding: 2px 6px; border-radius: 4px;">Local Sample</span>';
       }
@@ -90,6 +94,7 @@ export class DebugPanel {
           <div>次駅まで距離: ${journey.distanceToNextStationMeters !== null ? `${journey.distanceToNextStationMeters} m` : 'なし'}</div>
           <div>路線判定信頼度: <strong>${(journey.confidence * 100).toFixed(0)}% (${journey.confidence.toFixed(2)})</strong></div>
           <div>ステータス: <span class="badge ${escapeHtml(journey.status)}">${escapeHtml(journey.status)}</span></div>
+          <div>駅データ完全性: ${journey.stationDataComplete ? '✓ 完全 (同期済み)' : '⚠ 不完全 (bundled fallback)'}</div>
         </div>
 
         <div class="debug-card">
