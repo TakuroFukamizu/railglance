@@ -7,6 +7,7 @@ describe('formatBuildTime', () => {
     expect(formatBuildTime('2026-08-19T07:48:00.000Z', 'Asia/Tokyo')).toBe('2026/08/19 16:48');
   });
 
+  // ja-JP resolves to h24 on some WebViews unless hourCycle is pinned, printing 24:00.
   it('renders midnight as 00 rather than 24', () => {
     expect(formatBuildTime('2026-08-19T15:00:00.000Z', 'Asia/Tokyo')).toBe('2026/08/20 00:00');
   });
@@ -22,6 +23,10 @@ describe('formatBuildInfo', () => {
     expect(
       formatBuildInfo({ version: '0.1.0', buildTimeIso: '2026-08-19T07:48:00.000Z' }, 'Asia/Tokyo')
     ).toBe('v0.1.0 · ビルド 2026/08/19 16:48');
+  });
+
+  it('falls back in Japanese rather than printing a bare v prefix', () => {
+    expect(formatBuildInfo({ version: null, buildTimeIso: null })).toBe('バージョン不明 · ビルド 不明');
   });
 });
 

@@ -33,7 +33,8 @@ export default defineConfig(({ mode }) => {
         ]
       : [],
     define: {
-      __APP_VERSION__: JSON.stringify(appManifest.version ?? 'unknown'),
+      // Empty rather than a placeholder: build-info.ts owns the user-facing fallback.
+      __APP_VERSION__: JSON.stringify(appManifest.version ?? ''),
       __BUILD_TIME__: JSON.stringify(buildTimeIso),
     },
     build: {
