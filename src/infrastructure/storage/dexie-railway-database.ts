@@ -16,6 +16,8 @@ import sampleTrackSegments from '../../data/sample/track-segments.json';
 import sampleMetadata from '../../data/sample/metadata.json';
 import { addRuntimeBreadcrumb, captureRuntimeError } from '../observability/sentry';
 
+export type FetchStepStatus = 'ok' | 'failed' | number;
+
 export type DatasetSyncStatus = {
   status: RailwayDataState;
   version?: string;
@@ -26,6 +28,12 @@ export type DatasetSyncStatus = {
   totalLines?: number;
   totalStations?: number;
   errorMessage?: string;
+  manifestUrl?: string;
+  latestFetchStatus?: FetchStepStatus;
+  manifestFetchStatus?: FetchStepStatus;
+  lastTileUrl?: string;
+  lastTileFetchStatus?: FetchStepStatus;
+  lastSuccessfulFetchAtMs?: number;
 };
 
 export type DexieRailwayDatabaseOptions = {
@@ -124,27 +132,19 @@ export class DexieRailwayDatabase extends Dexie implements RailwayDataRepository
       console.log('[H3 Tile Streamer] VITE_RAILWAY_DATA_BASE_URL detected:', this.activeBaseUrl);
       this.connectRemoteManifest(this.activeBaseUrl).catch((err) => {
         console.warn('[H3 Tile Streamer Error]:', err);
-        this.currentState = 'bundled';
-        this.syncStatus = {
-          status: 'bundled',
-          baseUrl: this.activeBaseUrl,
-          version: sampleMetadata.version,
-          schemaVersion: targetSchemaVersion,
-          errorMessage: err instanceof Error ? err.message : String(err),
-        };
         captureRuntimeError(err, 'dataset-manifest-fetch', { baseUrl: this.activeBaseUrl });
         addRuntimeBreadcrumb('railglance.dataset', 'Dataset manifest fetch failed', {}, 'warning');
       });
     } else {
       this.currentState = 'bundled';
-      this.syncStatus = {
+      this.updateSyncStatus({
         status: 'bundled',
         version: sampleMetadata.version,
         schemaVersion: targetSchemaVersion,
         loadedTileCount: 0,
         totalLines: await this.lines.count(),
         totalStations: await this.stations.count(),
-      };
+      });
     }
   }
 
@@ -152,20 +152,24 @@ export class DexieRailwayDatabase extends Dexie implements RailwayDataRepository
     this.activeBaseUrl = baseUrl.replace(/\/+$/, '');
     baseUrl = this.activeBaseUrl;
     this.currentState = 'downloading';
-    this.syncStatus = {
+    this.updateSyncStatus({
       status: 'downloading',
       baseUrl,
       version: 'Checking Manifest...',
-    };
+    });
 
     try {
-      const latestRes = await fetch(`${baseUrl}/datasets/latest.json`, { mode: 'cors' });
+      const latestRes = await this.fetchWithStatus(
+        `${baseUrl}/datasets/latest.json`,
+        'latestFetchStatus'
+      );
       if (!latestRes.ok) throw new Error(`HTTP ${latestRes.status} on latest.json`);
       const latestInfo = parseLatestDatasetPointer(await latestRes.json());
       this.activeVersion = latestInfo.version;
 
       const manifestUrl = `${baseUrl}${latestInfo.manifestUrl}`;
-      const manifestRes = await fetch(manifestUrl, { mode: 'cors' });
+      this.updateSyncStatus({ manifestUrl });
+      const manifestRes = await this.fetchWithStatus(manifestUrl, 'manifestFetchStatus');
       if (!manifestRes.ok) throw new Error(`HTTP ${manifestRes.status} on manifest.json`);
       const manifest = parseRailwayDatasetManifest(await manifestRes.json());
       if (manifest.version !== latestInfo.version || manifest.schemaVersion !== latestInfo.schemaVersion) {
@@ -177,7 +181,7 @@ export class DexieRailwayDatabase extends Dexie implements RailwayDataRepository
       console.log(`[H3 Tile Streamer] Manifest connected! Dataset Version: ${manifest.version}, Schema: ${manifest.schemaVersion}`);
 
       this.currentState = this.loadedCells.size > 0 ? 'cloud' : 'cached';
-      this.syncStatus = {
+      this.updateSyncStatus({
         status: this.currentState,
         baseUrl,
         version: manifest.version,
@@ -185,18 +189,19 @@ export class DexieRailwayDatabase extends Dexie implements RailwayDataRepository
         loadedTileCount: this.loadedCells.size,
         totalLines: manifest.totalLines,
         totalStations: manifest.totalStations,
-      };
+        errorMessage: undefined,
+      });
     } catch (err) {
       console.warn('[H3 Tile Streamer Manifest Error]:', err);
       this.activeVersion = undefined;
       this.currentState = 'bundled';
-      this.syncStatus = {
+      this.updateSyncStatus({
         status: 'bundled',
         baseUrl,
         version: sampleMetadata.version,
         schemaVersion: RAILWAY_DATASET_SCHEMA_VERSION,
         errorMessage: err instanceof Error ? err.message : String(err),
-      };
+      });
       captureRuntimeError(err, 'dataset-manifest-fetch', { baseUrl });
       addRuntimeBreadcrumb('railglance.dataset', 'Dataset manifest fetch failed', {}, 'warning');
       throw err;
@@ -204,25 +209,25 @@ export class DexieRailwayDatabase extends Dexie implements RailwayDataRepository
   }
 
   public async ensureCoverageAround(latitude: number, longitude: number): Promise<RailwayCoverageResult> {
+    const cellId = this.h3Tiler.latLonToCellId(latitude, longitude);
+    this.updateSyncStatus({ currentCellId: cellId });
+
     if (!this.activeBaseUrl || !this.activeVersion) {
       return {
         state: this.currentState,
+        cellId,
         loadedTileCount: this.loadedCells.size,
       };
     }
-
-    const cellId = this.h3Tiler.latLonToCellId(latitude, longitude);
-    this.syncStatus.currentCellId = cellId;
 
     try {
       const coverageCells = this.h3Tiler.coverageCellIds(latitude, longitude, 1);
       await Promise.all(coverageCells.map((coverageCellId) => this.loadTile(coverageCellId)));
 
-      this.syncStatus = {
-        ...this.syncStatus,
+      this.updateSyncStatus({
         status: this.currentState,
         loadedTileCount: this.loadedCells.size,
-      };
+      });
 
       return {
         state: this.currentState,
@@ -252,7 +257,7 @@ export class DexieRailwayDatabase extends Dexie implements RailwayDataRepository
 
     const request = (async () => {
       const tileUrl = `${this.activeBaseUrl}/datasets/v${requestVersion}/h3/6/${cellId}.json`;
-      const res = await fetch(tileUrl, { mode: 'cors' });
+      const res = await this.fetchWithStatus(tileUrl, 'lastTileFetchStatus');
       if (res.status === 404) {
         if (this.activeVersion === requestVersion) this.loadedCells.add(cellId);
         return;
@@ -446,5 +451,31 @@ export class DexieRailwayDatabase extends Dexie implements RailwayDataRepository
     const merged = new Map(bundled.map((item) => [item.id, item]));
     for (const item of remote) merged.set(item.id, item);
     return [...merged.values()];
+  }
+
+  private updateSyncStatus(patch: Partial<DatasetSyncStatus>): void {
+    this.syncStatus = { ...this.syncStatus, ...patch };
+  }
+
+  private async fetchWithStatus(
+    url: string,
+    statusField: 'latestFetchStatus' | 'manifestFetchStatus' | 'lastTileFetchStatus'
+  ): Promise<Response> {
+    const urlPatch = statusField === 'lastTileFetchStatus' ? { lastTileUrl: url } : {};
+    try {
+      const res = await fetch(url, { mode: 'cors' });
+      this.updateSyncStatus({
+        ...urlPatch,
+        [statusField]: res.ok ? 'ok' : res.status,
+        ...(res.ok ? { lastSuccessfulFetchAtMs: Date.now() } : {}),
+      });
+      return res;
+    } catch (err) {
+      this.updateSyncStatus({
+        ...urlPatch,
+        [statusField]: 'failed',
+      });
+      throw err;
+    }
   }
 }
