@@ -1,6 +1,14 @@
 import { defineConfig, loadEnv } from 'vite';
+import { readFileSync } from 'node:fs';
 import path from 'path';
 import { sentryVitePlugin } from '@sentry/vite-plugin';
+
+// The Even Hub package manifest is the version testers actually install, so the
+// on-screen stamp reads from app.json rather than package.json.
+const appManifest = JSON.parse(readFileSync(path.resolve(__dirname, './app.json'), 'utf8')) as {
+  version?: string;
+};
+const buildTimeIso = new Date().toISOString();
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '');
@@ -24,6 +32,10 @@ export default defineConfig(({ mode }) => {
           }),
         ]
       : [],
+    define: {
+      __APP_VERSION__: JSON.stringify(appManifest.version ?? 'unknown'),
+      __BUILD_TIME__: JSON.stringify(buildTimeIso),
+    },
     build: {
       sourcemap: sentryUploadEnabled ? 'hidden' : false,
     },
