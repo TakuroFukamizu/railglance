@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { formatBuildInfo, formatBuildTime, readBuildInfo } from '../../src/config/build-info';
 
@@ -26,8 +27,9 @@ describe('formatBuildInfo', () => {
 
 describe('readBuildInfo', () => {
   it('reads the constants Vite injects at build time', () => {
+    const { version } = JSON.parse(readFileSync(new URL('../../app.json', import.meta.url), 'utf8'));
     const info = readBuildInfo();
-    expect(info.version).toBe('0.1.0');
+    expect(info.version).toBe(version);
     expect(info.buildTimeIso).not.toBeNull();
     expect(Number.isNaN(new Date(info.buildTimeIso as string).getTime())).toBe(false);
   });
