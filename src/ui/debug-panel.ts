@@ -3,6 +3,24 @@ import { EstimationLogEntry } from '../infrastructure/logging/logger';
 import { DatasetSyncStatus } from '../infrastructure/storage/dexie-railway-database';
 import { escapeHtml, escapeHtmlValue } from './html';
 
+export function renderSyncBadge(status?: RailwayDataState): string {
+  switch (status) {
+    case 'cloud':
+      return '<span style="color: #00FF00; background: #004400; padding: 2px 6px; border-radius: 4px; font-weight: bold;">✓ Ready (R2 H3 Streaming)</span>';
+    case 'cached':
+      return '<span style="color: #00D4C8; background: #003833; padding: 2px 6px; border-radius: 4px; font-weight: bold;">✓ Ready (Cached)</span>';
+    case 'downloading':
+      return '<span style="color: #FFFF00; background: #444400; padding: 2px 6px; border-radius: 4px; font-weight: bold;">⚡ Connecting R2...</span>';
+    case 'error':
+      return '<span style="color: #FF6666; background: #440000; padding: 2px 6px; border-radius: 4px; font-weight: bold;">✕ Error</span>';
+    case 'unavailable':
+      return '<span style="color: #FF6666; background: #440000; padding: 2px 6px; border-radius: 4px; font-weight: bold;">✕ Unavailable</span>';
+    case 'bundled':
+    default:
+      return '<span style="color: #AAAAAA; background: #222222; padding: 2px 6px; border-radius: 4px;">Local Sample</span>';
+  }
+}
+
 export class DebugPanel {
   private container: HTMLElement;
 
@@ -30,22 +48,9 @@ export class DebugPanel {
 
     const gpsAgeMs = rawLocation ? timestampMs - rawLocation.timestampMs : 'N/A';
 
-    const renderSyncBadge = (status?: RailwayDataState) => {
-      switch (status) {
-        case 'cloud':
-          return '<span style="color: #00FF00; background: #004400; padding: 2px 6px; border-radius: 4px; font-weight: bold;">✓ Ready</span>';
-        case 'cached':
-          return '<span style="color: #88FF88; background: #223322; padding: 2px 6px; border-radius: 4px; font-weight: bold;">Cached (Offline)</span>';
-        case 'downloading':
-          return '<span style="color: #FFFF00; background: #444400; padding: 2px 6px; border-radius: 4px; font-weight: bold;">⚡ Connecting...</span>';
-        case 'error':
-        case 'unavailable':
-          return '<span style="color: #FF6666; background: #440000; padding: 2px 6px; border-radius: 4px; font-weight: bold;">✕ Error</span>';
-        case 'bundled':
-        default:
-          return '<span style="color: #AAAAAA; background: #222222; padding: 2px 6px; border-radius: 4px;">Local Sample</span>';
-      }
-    };
+    const lastSuccessfulFetchLabel = datasetSyncStatus?.lastSuccessfulFetchAtMs
+      ? escapeHtml(new Date(datasetSyncStatus.lastSuccessfulFetchAtMs).toLocaleTimeString())
+      : '--';
 
     const html = `
       <div class="debug-grid">
@@ -57,6 +62,12 @@ export class DebugPanel {
           <div>オンデマンド取得済みタイル数: <strong>${datasetSyncStatus?.loadedTileCount ?? 0} 個</strong></div>
           <div>キャッシュ内規模: <strong>${datasetSyncStatus?.totalLines ?? 0} 路線 / ${datasetSyncStatus?.totalStations ?? 0} 駅</strong></div>
           <div>ベースURL: <small style="color: #88CCFF;">${escapeHtmlValue(datasetSyncStatus?.baseUrl, '(ローカル内蔵データ)')}</small></div>
+          <div>Latest URL: <small style="color: #88CCFF;">${escapeHtmlValue(datasetSyncStatus?.latestUrl, 'なし')}</small></div>
+          <div>Latest fetch status: <strong>${escapeHtmlValue(datasetSyncStatus?.latestFetchStatus, '--')}</strong></div>
+          <div>Manifest URL: <small style="color: #88CCFF;">${escapeHtmlValue(datasetSyncStatus?.manifestUrl, 'なし')}</small></div>
+          <div>Manifest fetch status: <strong>${escapeHtmlValue(datasetSyncStatus?.manifestFetchStatus, '--')}</strong></div>
+          <div>Last tile URL: <small style="color: #88CCFF;">${escapeHtmlValue(datasetSyncStatus?.lastTileUrl, 'なし')}</small> (${escapeHtmlValue(datasetSyncStatus?.lastTileFetchStatus, '--')})</div>
+          <div>Last successful fetch: <strong>${lastSuccessfulFetchLabel}</strong></div>
           ${datasetSyncStatus?.errorMessage ? `<div style="color: #FF8888; font-size: 11px; margin-top: 4px;">Error: ${escapeHtml(datasetSyncStatus.errorMessage)}</div>` : ''}
         </div>
 
