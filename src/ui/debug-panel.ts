@@ -62,8 +62,9 @@ export class DebugPanel {
           <div>オンデマンド取得済みタイル数: <strong>${datasetSyncStatus?.loadedTileCount ?? 0} 個</strong></div>
           <div>キャッシュ内規模: <strong>${datasetSyncStatus?.totalLines ?? 0} 路線 / ${datasetSyncStatus?.totalStations ?? 0} 駅</strong></div>
           <div>ベースURL: <small style="color: #88CCFF;">${escapeHtmlValue(datasetSyncStatus?.baseUrl, '(ローカル内蔵データ)')}</small></div>
-          <div>Manifest URL: <small style="color: #88CCFF;">${escapeHtmlValue(datasetSyncStatus?.manifestUrl, 'なし')}</small></div>
+          <div>Latest URL: <small style="color: #88CCFF;">${escapeHtmlValue(datasetSyncStatus?.latestUrl, 'なし')}</small></div>
           <div>Latest fetch status: <strong>${escapeHtmlValue(datasetSyncStatus?.latestFetchStatus, '--')}</strong></div>
+          <div>Manifest URL: <small style="color: #88CCFF;">${escapeHtmlValue(datasetSyncStatus?.manifestUrl, 'なし')}</small></div>
           <div>Manifest fetch status: <strong>${escapeHtmlValue(datasetSyncStatus?.manifestFetchStatus, '--')}</strong></div>
           <div>Last tile URL: <small style="color: #88CCFF;">${escapeHtmlValue(datasetSyncStatus?.lastTileUrl, 'なし')}</small> (${escapeHtmlValue(datasetSyncStatus?.lastTileFetchStatus, '--')})</div>
           <div>Last successful fetch: <strong>${lastSuccessfulFetchLabel}</strong></div>

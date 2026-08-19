@@ -28,6 +28,7 @@ export type DatasetSyncStatus = {
   totalLines?: number;
   totalStations?: number;
   errorMessage?: string;
+  latestUrl?: string;
   manifestUrl?: string;
   latestFetchStatus?: FetchStepStatus;
   manifestFetchStatus?: FetchStepStatus;
@@ -159,10 +160,9 @@ export class DexieRailwayDatabase extends Dexie implements RailwayDataRepository
     });
 
     try {
-      const latestRes = await this.fetchWithStatus(
-        `${baseUrl}/datasets/latest.json`,
-        'latestFetchStatus'
-      );
+      const latestUrl = `${baseUrl}/datasets/latest.json`;
+      this.updateSyncStatus({ latestUrl });
+      const latestRes = await this.fetchWithStatus(latestUrl, 'latestFetchStatus');
       if (!latestRes.ok) throw new Error(`HTTP ${latestRes.status} on latest.json`);
       const latestInfo = parseLatestDatasetPointer(await latestRes.json());
       this.activeVersion = latestInfo.version;

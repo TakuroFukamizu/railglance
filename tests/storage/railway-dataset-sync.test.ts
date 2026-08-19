@@ -135,6 +135,7 @@ describe('railway dataset remote sync', () => {
 
     expect(status.latestFetchStatus).toBe('ok');
     expect(status.manifestFetchStatus).toBe('ok');
+    expect(status.latestUrl).toBe(`${baseUrl}/datasets/latest.json`);
     expect(status.manifestUrl).toBe(`${baseUrl}/datasets/v2.0.0/manifest.json`);
     expect(status.lastSuccessfulFetchAtMs).toBeGreaterThanOrEqual(before);
     expect(status.lastSuccessfulFetchAtMs).toBeLessThanOrEqual(after);
