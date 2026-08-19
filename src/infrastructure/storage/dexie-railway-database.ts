@@ -443,9 +443,9 @@ export class DexieRailwayDatabase extends Dexie implements RailwayDataRepository
       return false;
     }
     const remoteCount = await this.remoteStations
-      .where('datasetVersion')
-      .equals(this.activeVersion)
-      .filter((station) => station.lineId === lineId)
+      .where('lineId')
+      .equals(lineId)
+      .filter((station) => station.datasetVersion === this.activeVersion)
       .count();
     return remoteCount > 0;
   }
