@@ -165,7 +165,8 @@ async function init() {
   logger.subscribe((entry) => {
     const lastImageResult = evenG2Adapter.getLastImageResult ? evenG2Adapter.getLastImageResult() : 'none';
     const syncStatus = db.getSyncStatus ? db.getSyncStatus() : undefined;
-    debugPanel.update(entry, lastImageResult, syncStatus);
+    const bridge = evenG2Adapter.getBridgeDiagnostics?.();
+    debugPanel.update(entry, lastImageResult, syncStatus, bridge);
     renderRouteControls();
   });
 

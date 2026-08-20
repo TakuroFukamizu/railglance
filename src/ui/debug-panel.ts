@@ -1,6 +1,10 @@
 import { RailwayDataState } from '../domain/railway/repository';
 import { EstimationLogEntry } from '../infrastructure/logging/logger';
 import { DatasetSyncStatus } from '../infrastructure/storage/dexie-railway-database';
+import {
+  type BridgeDiagnosticsSnapshot,
+  DEFAULT_IMAGE_OPERATION_TIMEOUT_MS,
+} from '../infrastructure/even-g2/bridge-operation';
 import { escapeHtml, escapeHtmlValue } from './html';
 
 export function renderSyncBadge(status?: RailwayDataState): string {
@@ -38,7 +42,8 @@ export class DebugPanel {
   public update(
     entry: EstimationLogEntry,
     lastImageResult?: string,
-    datasetSyncStatus?: DatasetSyncStatus
+    datasetSyncStatus?: DatasetSyncStatus,
+    bridge?: BridgeDiagnosticsSnapshot
   ): void {
     const { rawLocation, speedState, match, journey, timestampMs } = entry;
     const { selectedEstimate, smoothedSpeedKmh, isStopped, isValid, candidates, navState } = speedState;
@@ -50,6 +55,23 @@ export class DebugPanel {
 
     const lastSuccessfulFetchLabel = datasetSyncStatus?.lastSuccessfulFetchAtMs
       ? escapeHtml(new Date(datasetSyncStatus.lastSuccessfulFetchAtMs).toLocaleTimeString())
+      : '--';
+
+    const operationAgeMs = bridge?.operationAgeMs ?? null;
+    const operationAgeLabel =
+      operationAgeMs === null ? '--' : `${(operationAgeMs / 1000).toFixed(1)}`;
+    const operationAgeColor =
+      operationAgeMs !== null && operationAgeMs > DEFAULT_IMAGE_OPERATION_TIMEOUT_MS
+        ? '#FF6666'
+        : 'inherit';
+    const operationStartedLabel = bridge?.operation.currentStartedAtMs
+      ? escapeHtml(new Date(bridge.operation.currentStartedAtMs).toLocaleTimeString())
+      : '--';
+    const lastCompletedAtLabel = bridge?.operation.lastCompletedAtMs
+      ? escapeHtml(new Date(bridge.operation.lastCompletedAtMs).toLocaleTimeString())
+      : '--';
+    const lastImageCompletedLabel = bridge?.lastImageCompletedAtMs
+      ? escapeHtml(new Date(bridge.lastImageCompletedAtMs).toLocaleTimeString())
       : '--';
 
     const html = `
@@ -80,6 +102,29 @@ export class DebugPanel {
           <div>Predicted Speed (1D): ${formatSpeed(navState.velocityMps * 3.6)}</div>
           <div>Acceleration: ${navState.accelerationMps2.toFixed(3)} m/s²</div>
           <div>Overall Confidence: <strong>${(navState.confidence * 100).toFixed(0)}% (${navState.confidence.toFixed(2)})</strong></div>
+        </div>
+
+        <div class="debug-card" style="border-left: 4px solid #FFAA00;">
+          <h3>Even G2 Bridge Transport</h3>
+          <div>G2 Connection status: <strong>${escapeHtmlValue(bridge?.status, '--')}</strong></div>
+          <div>Page Ready: <strong>${bridge ? String(bridge.pageReady) : '--'}</strong></div>
+          <div>Session Epoch: <strong>${bridge ? String(bridge.sessionEpoch) : '--'}</strong></div>
+          <div>Current Native Operation: <strong>${escapeHtmlValue(bridge?.operation.currentOperation, '--')}</strong></div>
+          <div>Operation Started: <strong>${operationStartedLabel}</strong></div>
+          <div>Operation Age: <strong style="color: ${operationAgeColor};">${operationAgeLabel}${operationAgeMs === null ? '' : 's'}</strong></div>
+          <div>Last Completed Operation: <strong>${escapeHtmlValue(bridge?.operation.lastCompletedOperation, '--')}</strong></div>
+          <div>Last Completed: <strong>${lastCompletedAtLabel}</strong></div>
+          <div>Last Operation Duration: <strong>${bridge?.operation.lastElapsedMs !== null && bridge?.operation.lastElapsedMs !== undefined ? `${bridge.operation.lastElapsedMs} ms` : '--'}</strong></div>
+          <div>Last Image Result: <strong>${escapeHtmlValue(bridge?.lastImageResult, '--')}</strong></div>
+          <div>Last Image Completed: <strong>${lastImageCompletedLabel}</strong></div>
+          <div>Render Generation: <strong>${bridge ? String(bridge.renderGeneration) : '--'}</strong></div>
+          <div>Flushed Generation: <strong>${bridge ? String(bridge.flushedGeneration) : '--'}</strong></div>
+          <div>HUD Flush Scheduled: <strong>${bridge ? String(bridge.hudFlushScheduled) : '--'}</strong></div>
+          <div>HUD Flush In Flight: <strong>${bridge ? String(bridge.hudFlushInFlight) : '--'}</strong></div>
+          <div>HUD Dirty: <strong>${bridge ? String(bridge.hudDirty) : '--'}</strong></div>
+          <div>Recovery Count: <strong>${bridge ? String(bridge.recoveryCount) : '--'}</strong></div>
+          <div>Recovery Failures: <strong>${bridge ? String(bridge.stallRecoveryFailures) : '--'}</strong></div>
+          <div>Last Recovery Reason: <strong>${escapeHtmlValue(bridge?.lastRecoveryReason, '--')}</strong></div>
         </div>
 
         <div class="debug-card">

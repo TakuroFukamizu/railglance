@@ -19,6 +19,10 @@ export type EstimationLogEntry = {
   hudViewModel: HudViewModel;
   bridgeConnected?: boolean;
   lastImageResult?: string;
+  bridgeStalled?: boolean;
+  bridgeCurrentOperation?: string | null;
+  bridgeSessionEpoch?: number;
+  bridgeRecoveryCount?: number;
 };
 
 export class EstimationLogger {

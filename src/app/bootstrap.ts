@@ -49,7 +49,9 @@ export async function bootstrapApp(
 
   // AdaptiveLocationProvider tries Even App location first (for Prototype mode & native app), falling back to Browser Geolocation
   const locationProvider = customLocationProvider ?? new AdaptiveLocationProvider();
-  const evenG2Adapter = new HybridEvenG2Adapter(onHudRender);
+  const evenG2Adapter = new HybridEvenG2Adapter(onHudRender, {
+    telemetry: { sink: telemetryManager, identity: telemetryIdentity },
+  });
   const logger = new EstimationLogger(
     telemetryIdentity,
     telemetryManager,

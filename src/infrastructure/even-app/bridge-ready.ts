@@ -19,15 +19,50 @@ export const DEFAULT_BRIDGE_READY_TIMEOUT_MS = 10_000;
 const MAX_TIMER_DELAY_MS = 2_147_483_647;
 
 /**
- * Resolves a caller-supplied handshake bound to a delay `setTimeout` can honour.
+ * Resolves a caller-supplied delay to a value `setTimeout` can honour.
  *
  * `setTimeout` never rejects a bad delay, it quietly substitutes 1ms:
  * `Infinity`, `NaN` and negatives all fire on the next tick. Passing one
- * through would not restore the unbounded wait this bound exists to prevent —
- * it causes the opposite failure, a handshake that expires before the bridge
- * can ever answer, leaving the caller permanently unable to connect. Values
- * over {@link MAX_TIMER_DELAY_MS} overflow into the same instant-fire
- * behaviour, so they are clamped rather than rejected.
+ * through would not restore the unbounded wait a timeout exists to prevent —
+ * it causes the opposite failure, a timer that expires before the work can
+ * ever finish. Values over {@link MAX_TIMER_DELAY_MS} overflow into the same
+ * instant-fire behaviour, so they are clamped rather than rejected.
+ *
+ * @param optionName Field name used in the warning, e.g. `bridgeReadyTimeoutMs`.
+ * @param logPrefix Owner tag for the warning, e.g. `[EvenG2Adapter]`.
+ */
+export function resolvePositiveTimeoutMs(
+  value: number | undefined,
+  fallbackMs: number,
+  optionName: string,
+  logPrefix: string
+): number {
+  if (value === undefined) return fallbackMs;
+
+  if (!Number.isFinite(value) || value <= 0) {
+    console.warn(
+      `${logPrefix} Ignoring invalid ${optionName} (${value}); ` +
+        `falling back to ${fallbackMs}ms.`
+    );
+    return fallbackMs;
+  }
+
+  if (value > MAX_TIMER_DELAY_MS) {
+    console.warn(
+      `${logPrefix} Clamping ${optionName} (${value}) to ` +
+        `${MAX_TIMER_DELAY_MS}ms, the longest delay setTimeout can hold.`
+    );
+    return MAX_TIMER_DELAY_MS;
+  }
+
+  return value;
+}
+
+/**
+ * Resolves a caller-supplied handshake bound to a delay `setTimeout` can honour.
+ *
+ * See {@link resolvePositiveTimeoutMs} for why invalid values must not reach
+ * `setTimeout` unchanged.
  *
  * @param logPrefix Owner tag for the warning, e.g. `[EvenG2Adapter]`.
  */
@@ -35,25 +70,12 @@ export function resolveBridgeReadyTimeoutMs(
   value: number | undefined,
   logPrefix: string
 ): number {
-  if (value === undefined) return DEFAULT_BRIDGE_READY_TIMEOUT_MS;
-
-  if (!Number.isFinite(value) || value <= 0) {
-    console.warn(
-      `${logPrefix} Ignoring invalid bridgeReadyTimeoutMs (${value}); ` +
-        `falling back to ${DEFAULT_BRIDGE_READY_TIMEOUT_MS}ms.`
-    );
-    return DEFAULT_BRIDGE_READY_TIMEOUT_MS;
-  }
-
-  if (value > MAX_TIMER_DELAY_MS) {
-    console.warn(
-      `${logPrefix} Clamping bridgeReadyTimeoutMs (${value}) to ` +
-        `${MAX_TIMER_DELAY_MS}ms, the longest delay setTimeout can hold.`
-    );
-    return MAX_TIMER_DELAY_MS;
-  }
-
-  return value;
+  return resolvePositiveTimeoutMs(
+    value,
+    DEFAULT_BRIDGE_READY_TIMEOUT_MS,
+    'bridgeReadyTimeoutMs',
+    logPrefix
+  );
 }
 
 let pendingHandshake: Promise<EvenAppBridge> | null = null;
