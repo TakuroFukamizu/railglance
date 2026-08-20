@@ -79,7 +79,25 @@ export type EstimationTelemetryEvent = TelemetryEventBase & {
   bridge: {
     connected: boolean;
     lastImageResult: string;
+    stalled?: boolean;
+    currentOperation?: string | null;
+    sessionEpoch?: number;
+    recoveryCount?: number;
   };
+};
+
+export type BridgeOperationTelemetryEvent = TelemetryEventBase & {
+  type: 'bridge-operation';
+  operation: string;
+  sequence: number;
+  sessionEpoch: number;
+  startedAtMs: number;
+  completedAtMs?: number;
+  elapsedMs?: number;
+  result?: string;
+  stalled?: boolean;
+  slow?: boolean;
+  error?: string;
 };
 
 export type StateTransitionTelemetryEvent = TelemetryEventBase & {
@@ -92,7 +110,8 @@ export type StateTransitionTelemetryEvent = TelemetryEventBase & {
 export type TelemetryEvent =
   | GpsTelemetryEvent
   | EstimationTelemetryEvent
-  | StateTransitionTelemetryEvent;
+  | StateTransitionTelemetryEvent
+  | BridgeOperationTelemetryEvent;
 
 export type TelemetryIdentity = {
   sessionId: string;
@@ -205,8 +224,35 @@ export function createEstimationTelemetryEvent(
     bridge: {
       connected: entry.bridgeConnected ?? false,
       lastImageResult: entry.lastImageResult ?? 'unknown',
+      ...(entry.bridgeStalled !== undefined ? { stalled: entry.bridgeStalled } : {}),
+      ...(entry.bridgeCurrentOperation !== undefined
+        ? { currentOperation: entry.bridgeCurrentOperation }
+        : {}),
+      ...(entry.bridgeSessionEpoch !== undefined ? { sessionEpoch: entry.bridgeSessionEpoch } : {}),
+      ...(entry.bridgeRecoveryCount !== undefined ? { recoveryCount: entry.bridgeRecoveryCount } : {}),
     },
   };
+}
+
+export type BridgeOperationTelemetryPayload = {
+  operation: string;
+  sequence: number;
+  sessionEpoch: number;
+  startedAtMs: number;
+  completedAtMs?: number;
+  elapsedMs?: number;
+  result?: string;
+  stalled?: boolean;
+  slow?: boolean;
+  error?: string;
+};
+
+export function createBridgeOperationTelemetryEvent(
+  identity: TelemetryIdentity,
+  timestampMs: number,
+  payload: BridgeOperationTelemetryPayload
+): BridgeOperationTelemetryEvent {
+  return { ...base(identity, timestampMs), type: 'bridge-operation', ...payload };
 }
 
 export function createStateTransitionTelemetryEvent(

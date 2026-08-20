@@ -586,6 +586,7 @@ export class AppController {
       captureRuntimeError(error, 'even-g2-render');
     });
 
+    const bridge = this.evenG2Adapter.getBridgeDiagnostics?.();
     const logEntry: EstimationLogEntry = {
       timestampMs: now,
       rawLocation: this.latestSample,
@@ -595,6 +596,10 @@ export class AppController {
       hudViewModel: this.currentViewModel,
       bridgeConnected: this.evenG2Adapter.isBridgeConnected?.() ?? false,
       lastImageResult: this.evenG2Adapter.getLastImageResult(),
+      bridgeStalled: bridge?.operation.stalled,
+      bridgeCurrentOperation: bridge?.operation.currentOperation,
+      bridgeSessionEpoch: bridge?.sessionEpoch,
+      bridgeRecoveryCount: bridge?.recoveryCount,
     };
     this.logger.log(logEntry);
   }

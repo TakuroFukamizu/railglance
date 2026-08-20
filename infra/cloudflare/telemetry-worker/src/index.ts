@@ -206,6 +206,11 @@ function optionalStringField(source: JsonObject, key: string): JsonObject {
   return value === undefined ? {} : { [key]: value };
 }
 
+function optionalBooleanField(source: JsonObject, key: string): JsonObject {
+  if (!(key in source)) return {};
+  return typeof source[key] === 'boolean' ? { [key]: source[key] } : {};
+}
+
 function sanitizeBase(value: JsonObject): JsonObject | null {
   const timestampMs = finiteNumber(value.timestampMs);
   const datasetVersion = value.datasetVersion === undefined ? null : nullableString(value.datasetVersion);
@@ -338,7 +343,42 @@ function sanitizeEstimation(value: JsonObject, base: JsonObject): JsonObject | n
       ...optionalStringField(match, 'switchReason'),
     },
     journey: { previousStationId, nextStationId, ...journeyNumbers },
-    bridge: { connected: bridge.connected, lastImageResult: bridge.lastImageResult.slice(0, 500) },
+    bridge: {
+      connected: bridge.connected,
+      lastImageResult: bridge.lastImageResult.slice(0, 500),
+      ...optionalBooleanField(bridge, 'stalled'),
+      ...optionalStringField(bridge, 'currentOperation'),
+      ...optionalNumberField(bridge, 'sessionEpoch'),
+      ...optionalNumberField(bridge, 'recoveryCount'),
+    },
+  };
+}
+
+function sanitizeBridgeOperation(value: JsonObject, base: JsonObject): JsonObject | null {
+  if (typeof value.operation !== 'string' || value.operation.length === 0 || value.operation.length > 80) {
+    return null;
+  }
+  const sequence = finiteNumber(value.sequence);
+  const sessionEpoch = finiteNumber(value.sessionEpoch);
+  const startedAtMs = finiteNumber(value.startedAtMs);
+  if (sequence === null || sessionEpoch === null || startedAtMs === null) return null;
+  const result = value.result === undefined ? undefined : nullableString(value.result, 500);
+  const error = value.error === undefined ? undefined : nullableString(value.error, 500);
+  if (value.result !== undefined && result === undefined) return null;
+  if (value.error !== undefined && error === undefined) return null;
+  return {
+    ...base,
+    type: 'bridge-operation',
+    operation: value.operation,
+    sequence,
+    sessionEpoch,
+    startedAtMs,
+    ...optionalNumberField(value, 'completedAtMs'),
+    ...optionalNumberField(value, 'elapsedMs'),
+    ...(result !== undefined ? { result } : {}),
+    ...optionalBooleanField(value, 'stalled'),
+    ...optionalBooleanField(value, 'slow'),
+    ...(error !== undefined ? { error } : {}),
   };
 }
 
@@ -369,6 +409,7 @@ export function sanitizeEvent(value: unknown): JsonObject | null {
   if (source.type === 'gps-observation') return sanitizeGps(source, base);
   if (source.type === 'estimation') return sanitizeEstimation(source, base);
   if (source.type === 'state-transition') return sanitizeTransition(source, base);
+  if (source.type === 'bridge-operation') return sanitizeBridgeOperation(source, base);
   return null;
 }
 
