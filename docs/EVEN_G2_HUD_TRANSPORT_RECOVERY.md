@@ -63,7 +63,7 @@ stall 扱いになり、不要なページ再構築が増える。
    以後は AppController の再接続ループ（1s → 10s）が `connect()` をやり直す。
    `connect()` の `createStartUpPageContainer` も watchdog 付きなので、
    アダプタ自身が再構築を無限に回し続けない。
-4. 連続失敗カウンタは、HUD flush が 60 秒間健全に完了した時点でリセットする。
+4. 連続失敗カウンタは、回復の成功そのものではリセットせず、HUD flush が 60 秒間健全に完了した時点でリセットする。
 
 `FOREGROUND_ENTER` の既存回復は残す。初回失敗で即 disconnect するのは
 フォアグラウンド復帰経路だけ。transport-stall 経路は上記バックオフが担当する。

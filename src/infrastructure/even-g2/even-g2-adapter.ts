@@ -309,6 +309,13 @@ export class HybridEvenG2Adapter implements EvenG2Adapter {
     this.pageReady = false;
     this.transportStatus = 'DISCONNECTED';
     this.healthyStreakStartedAtMs = null;
+    // An unsettled native promise may still exist, but it is no longer
+    // attributable to any live session. The epoch-guarded late continuation
+    // still reports it when/if it settles.
+    this.operationState.currentOperation = null;
+    this.operationState.currentStartedAtMs = null;
+    this.operationState.stalled = false;
+    this.stalledEpoch = null;
     if (wasConnected) {
       console.warn(`[EvenG2Adapter] Disconnected: ${reason}`);
       addRuntimeBreadcrumb('railglance.bridge', 'Even G2 disconnected', { reason }, 'warning');
@@ -1127,7 +1134,6 @@ export class HybridEvenG2Adapter implements EvenG2Adapter {
           this.operationState.stalled = false;
           this.stalledEpoch = null;
           this.transportStatus = 'CONNECTED';
-          this.stallRecoveryFailures = 0;
           this.emitBridgeLifecycle('bridge-recovery-success', {
             reason: 'transport-stall',
             sessionEpoch: this.sessionEpoch,

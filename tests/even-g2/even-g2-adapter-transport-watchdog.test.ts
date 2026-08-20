@@ -353,6 +353,42 @@ describe('HybridEvenG2Adapter transport watchdog', () => {
     expect(adapter.getBridgeDiagnostics().status).toBe('DISCONNECTED');
     expect(adapter.getBridgeDiagnostics().recoveryCount).toBe(3);
     expect(sdk.bridge.rebuildPageContainer.mock.calls.length).toBe(3);
+    expect(adapter.getBridgeDiagnostics().operation.currentOperation).toBeNull();
+    expect(adapter.getBridgeDiagnostics().operation.currentStartedAtMs).toBeNull();
+    expect(adapter.getBridgeDiagnostics().operation.stalled).toBe(false);
+    expect(adapter.getBridgeDiagnostics().operationAgeMs).toBeNull();
+  }, 10_000);
+
+  it('keeps stallRecoveryFailures after a successful recovery until a healthy flush streak', async () => {
+    const adapter = await connectedAdapter();
+    await adapter.render(viewModel('80'));
+    await flushBridge();
+
+    sdk.bridge.updateImageRawData.mockReturnValue(neverSettling());
+    sdk.bridge.rebuildPageContainer
+      .mockRejectedValueOnce(new Error('rebuild failed'))
+      .mockResolvedValue(true);
+
+    now += 1_000;
+    await adapter.render(viewModel('90'));
+    await flushBridge();
+
+    await waitFor(() => adapter.getBridgeDiagnostics().operation.stalled);
+    sdk.bridge.updateImageRawData.mockResolvedValue('success');
+    await waitFor(() => adapter.getBridgeDiagnostics().status === 'CONNECTED');
+    await flushBridge();
+
+    expect(adapter.getBridgeDiagnostics().stallRecoveryFailures).toBe(1);
+    expect(adapter.getBridgeDiagnostics().operation.stalled).toBe(false);
+
+    await adapter.render(viewModel('91'));
+    await flushBridge();
+    expect(adapter.getBridgeDiagnostics().stallRecoveryFailures).toBe(1);
+
+    now += RECOVERY_HEALTH_RESET_MS;
+    await adapter.render(viewModel('92'));
+    await flushBridge();
+    expect(adapter.getBridgeDiagnostics().stallRecoveryFailures).toBe(0);
   }, 10_000);
 
   it('resets stallRecoveryFailures after a sustained healthy flush streak', async () => {
