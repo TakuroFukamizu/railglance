@@ -60,6 +60,7 @@ export class MlitRailwayAdapter implements RailwaySourceAdapter {
 
     const lineByKey = new Map<string, RailwayLine>();
     const stationsByLine = new Map<string, Station[]>();
+    const stationCodeById = new Map<string, string>();
     for (const feature of stationFeatures) {
       const coordinates = this.lineCoordinates(feature);
       if (!coordinates || !coordinates.some(([lat, lon]) => this.inKanto(lat, lon))) continue;
@@ -78,6 +79,7 @@ export class MlitRailwayAdapter implements RailwaySourceAdapter {
         longitude: midpoint[1],
         provenance: [provenance],
       };
+      stationCodeById.set(station.id, stationCode);
       const list = stationsByLine.get(line.id) ?? [];
       if (!list.some((candidate) => candidate.id === station.id)) list.push(station);
       stationsByLine.set(line.id, list);
@@ -117,14 +119,46 @@ export class MlitRailwayAdapter implements RailwaySourceAdapter {
     const lines: RailwayLine[] = [];
     const stations: Station[] = [];
     const segments: TrackSegment[] = [];
-    for (const line of lineByKey.values()) {
+    for (const [key, line] of lineByKey) {
       const lineStations = stationsByLine.get(line.id) ?? [];
       const lineSegments = rawSegmentsByLine.get(line.id) ?? [];
       const orderedStations = this.orderSimpleConnectedLine(lineStations, lineSegments);
-      if (!orderedStations) continue;
-      lines.push(line);
-      stations.push(...orderedStations.map((station, index) => ({ ...station, sequence: index + 1 })));
-      segments.push(...lineSegments);
+      if (orderedStations) {
+        lines.push(line);
+        stations.push(...orderedStations.map((station, index) => ({ ...station, sequence: index + 1 })));
+        segments.push(...lineSegments);
+        continue;
+      }
+      for (const chain of this.decomposeIntoLinearChains(lineStations, lineSegments)) {
+        if (chain.stations.length < 2 || chain.segments.length < 1) continue;
+        const discriminator = chain.stations.map((station) => station.id).join(':');
+        const newLineId = `mlit-line-${this.hash(`${key}:${discriminator}`)}`;
+        const remappedIds = new Map<string, string>();
+        const remappedStations = chain.stations.map((station, index) => {
+          const stationCode = stationCodeById.get(station.id) ?? station.id;
+          const newStationId = `mlit-station-${this.hash(`${key}:${discriminator}:${stationCode}`)}`;
+          remappedIds.set(station.id, newStationId);
+          return { ...station, id: newStationId, lineId: newLineId, sequence: index + 1 };
+        });
+        lines.push({
+          ...line,
+          id: newLineId,
+          name: `${line.name}（${chain.stations[0].name}〜${chain.stations[chain.stations.length - 1].name}）`,
+        });
+        stations.push(...remappedStations);
+        segments.push(...chain.segments.map((segment) => {
+          const fromStationId = remappedIds.get(segment.fromStationId) ?? segment.fromStationId;
+          const toStationId = remappedIds.get(segment.toStationId) ?? segment.toStationId;
+          const endpointKey = [fromStationId, toStationId].sort().join(':');
+          return {
+            ...segment,
+            id: `mlit-segment-${this.hash(`${newLineId}:${endpointKey}`)}`,
+            lineId: newLineId,
+            fromStationId,
+            toStationId,
+          };
+        }));
+      }
     }
 
     return { lines, stations, segments };
@@ -206,6 +240,146 @@ export class MlitRailwayAdapter implements RailwaySourceAdapter {
       current = (adjacency.get(current) ?? []).find((id) => !visited.has(id)) ?? '';
     }
     return visited.size === connectedIds.length ? ordered : null;
+  }
+
+  private decomposeIntoLinearChains(
+    stations: Station[],
+    segments: TrackSegment[],
+  ): Array<{ stations: Station[]; segments: TrackSegment[] }> {
+    const stationById = new Map(stations.map((station) => [station.id, station]));
+    const adjacency = new Map<string, Set<string>>();
+    const segmentByEdge = new Map<string, TrackSegment>();
+    for (const segment of segments) {
+      if (!stationById.has(segment.fromStationId) || !stationById.has(segment.toStationId)) continue;
+      if (segment.fromStationId === segment.toStationId) continue;
+      adjacency.set(segment.fromStationId, (adjacency.get(segment.fromStationId) ?? new Set()).add(segment.toStationId));
+      adjacency.set(segment.toStationId, (adjacency.get(segment.toStationId) ?? new Set()).add(segment.fromStationId));
+      segmentByEdge.set(this.undirectedEdgeKey(segment.fromStationId, segment.toStationId), segment);
+    }
+    const neighborsOf = (id: string): string[] => [...(adjacency.get(id) ?? [])].sort((a, b) => a.localeCompare(b));
+    const chains = this.connectedComponents([...adjacency.keys()], neighborsOf)
+      .flatMap((component) => this.chainsInComponent(component, neighborsOf))
+      .map((chain) => this.materializeChain(chain, stationById, segmentByEdge))
+      .filter((chain) => chain.stations.length >= 2 && chain.segments.length >= 1);
+    chains.sort((a, b) => {
+      const left = a.stations.map((station) => station.id).join('\0');
+      const right = b.stations.map((station) => station.id).join('\0');
+      return left.localeCompare(right);
+    });
+    return chains;
+  }
+
+  private connectedComponents(nodes: string[], neighborsOf: (id: string) => string[]): string[][] {
+    const visited = new Set<string>();
+    const components: string[][] = [];
+    for (const start of [...nodes].sort((a, b) => a.localeCompare(b))) {
+      if (visited.has(start)) continue;
+      const component: string[] = [];
+      const queue = [start];
+      visited.add(start);
+      while (queue.length > 0) {
+        const node = queue.shift()!;
+        component.push(node);
+        for (const neighbor of neighborsOf(node)) {
+          if (visited.has(neighbor)) continue;
+          visited.add(neighbor);
+          queue.push(neighbor);
+        }
+      }
+      component.sort((a, b) => a.localeCompare(b));
+      components.push(component);
+    }
+    components.sort((a, b) => a.join('\0').localeCompare(b.join('\0')));
+    return components;
+  }
+
+  private chainsInComponent(
+    component: string[],
+    neighborsOf: (id: string) => string[],
+  ): Array<{ stationIds: string[]; isCycle: boolean }> {
+    const degree = (id: string) => neighborsOf(id).length;
+    const used = new Set<string>();
+    const walk = (start: string, first: string): { stationIds: string[]; isCycle: boolean } => {
+      used.add(this.undirectedEdgeKey(start, first));
+      const stationIds = [start];
+      let prev = start;
+      let curr = first;
+      while (curr !== start) {
+        stationIds.push(curr);
+        if (degree(curr) !== 2) return { stationIds, isCycle: false };
+        const next = neighborsOf(curr).find((id) => id !== prev);
+        if (!next) return { stationIds, isCycle: false };
+        const edge = this.undirectedEdgeKey(curr, next);
+        if (used.has(edge)) return { stationIds, isCycle: next === start };
+        used.add(edge);
+        prev = curr;
+        curr = next;
+      }
+      return { stationIds, isCycle: true };
+    };
+
+    const chains: Array<{ stationIds: string[]; isCycle: boolean }> = [];
+    const terminals = component.filter((id) => degree(id) !== 2).sort((a, b) => a.localeCompare(b));
+    for (const terminal of terminals) {
+      for (const neighbor of neighborsOf(terminal)) {
+        if (used.has(this.undirectedEdgeKey(terminal, neighbor))) continue;
+        chains.push(walk(terminal, neighbor));
+      }
+    }
+    while (true) {
+      const start = component
+        .filter((id) => neighborsOf(id).some((neighbor) => !used.has(this.undirectedEdgeKey(id, neighbor))))
+        .sort((a, b) => a.localeCompare(b))[0];
+      if (!start) break;
+      const first = neighborsOf(start).find((neighbor) => !used.has(this.undirectedEdgeKey(start, neighbor)));
+      if (!first) break;
+      chains.push(walk(start, first));
+    }
+    return chains.map((chain) => this.canonicalizeChain(chain));
+  }
+
+  private canonicalizeChain(chain: { stationIds: string[]; isCycle: boolean }): { stationIds: string[]; isCycle: boolean } {
+    const { stationIds, isCycle } = chain;
+    if (stationIds.length < 2) return chain;
+    if (!isCycle) {
+      return stationIds[0].localeCompare(stationIds[stationIds.length - 1]) > 0
+        ? { stationIds: [...stationIds].reverse(), isCycle: false }
+        : chain;
+    }
+    const minId = [...stationIds].sort((a, b) => a.localeCompare(b))[0];
+    const minIndex = stationIds.indexOf(minId);
+    const rotated = [...stationIds.slice(minIndex), ...stationIds.slice(0, minIndex)];
+    if (rotated.length >= 3 && rotated[1].localeCompare(rotated[rotated.length - 1]) > 0) {
+      return { stationIds: [rotated[0], ...rotated.slice(1).reverse()], isCycle: true };
+    }
+    return { stationIds: rotated, isCycle: true };
+  }
+
+  private materializeChain(
+    chain: { stationIds: string[]; isCycle: boolean },
+    stationById: Map<string, Station>,
+    segmentByEdge: Map<string, TrackSegment>,
+  ): { stations: Station[]; segments: TrackSegment[] } {
+    const stations = chain.stationIds.flatMap((id) => {
+      const station = stationById.get(id);
+      return station ? [station] : [];
+    });
+    const pairs: Array<[string, string]> = [];
+    for (let index = 0; index < chain.stationIds.length - 1; index++) {
+      pairs.push([chain.stationIds[index], chain.stationIds[index + 1]]);
+    }
+    if (chain.isCycle && chain.stationIds.length >= 2) {
+      pairs.push([chain.stationIds[chain.stationIds.length - 1], chain.stationIds[0]]);
+    }
+    const segments = pairs.flatMap(([from, to]) => {
+      const segment = segmentByEdge.get(this.undirectedEdgeKey(from, to));
+      return segment ? [segment] : [];
+    });
+    return { stations, segments };
+  }
+
+  private undirectedEdgeKey(a: string, b: string): string {
+    return a.localeCompare(b) < 0 ? `${a}:${b}` : `${b}:${a}`;
   }
 
   private inKanto(lat: number, lon: number): boolean {
