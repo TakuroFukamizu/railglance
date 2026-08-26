@@ -241,6 +241,14 @@ describe('Cloudflare telemetry Worker', () => {
     expect(await reject('http://127.0.0.1:56984@evil.com')).toBe(403);
   });
 
+  it('fails closed on a bare wildcard origin entry instead of allowing every origin', async () => {
+    const env = environment();
+    env.TELEMETRY_ALLOWED_ORIGINS = '*';
+    const response = await worker.fetch(uploadRequest(await validToken(), batch(), 'https://evil.example'), env);
+    expect(response.status).toBe(403);
+    expect(response.headers.get('access-control-allow-origin')).toBeNull();
+  });
+
   it('rejects invalid tokens, coordinate ranges, session consistency, and event count', async () => {
     const env = environment();
     expect((await worker.fetch(uploadRequest('wrong'), env)).status).toBe(401);
