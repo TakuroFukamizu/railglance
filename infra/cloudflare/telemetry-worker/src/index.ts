@@ -86,6 +86,14 @@ function jsonResponse(status: number, body: JsonObject, origin: string | null): 
   return new Response(JSON.stringify(body), { status, headers });
 }
 
+function originMatchesAllowlistEntry(origin: string, entry: string): boolean {
+  if (!entry.endsWith(':*')) return origin === entry;
+  // Prefix includes the final ':' so `http://127.0.0.1:*` cannot match `http://127.0.0.10:80`.
+  const prefix = entry.slice(0, entry.lastIndexOf(':') + 1);
+  if (!origin.startsWith(prefix)) return false;
+  return /^\d+$/.test(origin.slice(prefix.length));
+}
+
 function allowedOrigin(request: Request, env: WorkerEnvironment): string | null | false {
   const origin = request.headers.get('origin');
   if (!origin) return null;
@@ -93,7 +101,7 @@ function allowedOrigin(request: Request, env: WorkerEnvironment): string | null 
     .split(',')
     .map((item) => item.trim())
     .filter(Boolean);
-  return allowed.includes(origin) ? origin : false;
+  return allowed.some((entry) => originMatchesAllowlistEntry(origin, entry)) ? origin : false;
 }
 
 function matchesSecret(actual: string, expected: string): boolean {

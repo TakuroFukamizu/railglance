@@ -43,7 +43,7 @@ Cloudflare Worker はparticipant単位のDurable Objectを資格台帳に使う�
 - release制限: `TELEMETRY_ALLOWED_RELEASES` の完全一致。アプリ更新後はオンライン検証が完了するまで新規収集しない。
 - 即時失効: 管理endpointでparticipantを失効させ、以後のtoken更新とuploadを拒否する。
 - レート制限: enrollmentはcampaign単位30回/分、token更新とuploadはparticipant単位240回/分を既定とする。
-- 入力制限: exact Origin、120 KB、200 events、schema、値域を検証する。
+- 入力制限: Origin allowlist、120 KB、200 events、schema、値域を検証する。allowlist の各エントリは通常は完全一致。末尾が `:*` のエントリだけは当該 `scheme://host` の任意の数値ポートを許可し、Even App WebView の loopback Origin（`http://127.0.0.1:<エフェメラルポート>`）に使う。裸の `*` は `:*` で終わらないためリテラル `Origin: *` への完全一致になり、ブラウザはそれを送れないので fail closed する。
 
 Cloudflare Rate Limiting bindingのカウンタはCloudflare拠点単位であるため、これを唯一の不正利用対策とはしない。
 資格照合と併用する。設定根拠は
@@ -63,7 +63,7 @@ GitHubの`Settings` → `Secrets and variables` → `Actions`で次を設定す�
 | Repository Secret | `R2_ACCESS_KEY_ID` | Terraform stateとR2 CORSを操作するS3互換Access Key ID |
 | Repository Secret | `R2_SECRET_ACCESS_KEY` | 上記Access KeyのSecret |
 | Repository Variable | `R2_BUCKET_NAME` | Dataset bucket名。既定値は`railglance-dataset-bucket` |
-| Repository Variable | `R2_CORS_ALLOWED_ORIGINS` | 完全一致Originをカンマ区切りで指定する |
+| Repository Variable | `R2_CORS_ALLOWED_ORIGINS` | 完全一致Originをカンマ区切りで指定する。例外として単独の `*` だけを許可する（公開データセット bucket と Even App WebView のエフェメラルポート Origin のため。`*` と完全一致 Origin の混在は拒否） |
 | Repository Variable（任意） | `TF_STATE_BUCKET_NAME` | Terraform state bucket名。未設定時は`railglance-terraform-state` |
 | Repository Variable（ドメイン導入後） | `CLOUDFLARE_ZONE_ID` | Cloudflare Zone ID。ドメイン未導入中は設定しない |
 
@@ -129,7 +129,9 @@ TELEMETRY_ADMIN_TOKEN="development-only-admin-token"
 現在の `wrangler.toml` にはnamed environmentを定義していない。将来 `[env.staging]` などを追加した場合、
 Secretは環境間で共有されないため、各コマンドに `--env staging` を付けて環境ごとに登録する。
 
-`wrangler.toml` でcampaign ID、資格日数、対象release、token TTL、exact Originを設定する。release更新前に
+`wrangler.toml` でcampaign ID、資格日数、対象release、token TTL、Origin allowlistを設定する。allowlistは
+通常完全一致だが、末尾が `:*` のエントリは当該 `scheme://host` の任意の数値ポートを許可する（Even App
+WebView の loopback Origin用）。release更新前に
 新旧releaseをallowlistへ追加し、移行後に旧releaseを外す。資格失効は管理tokenを外部へ露出しない管理環境から行う。
 
 Cloudflareに登録したSecret値は読み戻せないため、失効操作を行う管理端末では、パスワード管理ツールに保管した

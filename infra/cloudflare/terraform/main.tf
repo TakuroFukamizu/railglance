@@ -86,11 +86,16 @@ variable "dataset_bucket_name" {
 
 variable "cors_allowed_origins" {
   type        = list(string)
-  description = "Exact web application origins allowed to read public dataset objects"
+  description = "Web application origins allowed to read public dataset objects. Exact origins, or a sole '*' when the Even App WebView's ephemeral-port loopback origin cannot be enumerated."
 
+  # Sole '*' is allowed because the dataset bucket is already public (pub-*.r2.dev),
+  # the Even App WebView origin is http://127.0.0.1:<ephemeral port> and cannot be
+  # enumerated, and R2 rejects port-wildcard origin strings (API error 10040).
   validation {
-    condition     = length(var.cors_allowed_origins) > 0 && !contains(var.cors_allowed_origins, "*")
-    error_message = "At least one exact CORS origin is required; wildcard is not allowed."
+    condition = length(var.cors_allowed_origins) > 0 && (
+      !contains(var.cors_allowed_origins, "*") || length(var.cors_allowed_origins) == 1
+    )
+    error_message = "At least one exact CORS origin is required, except a sole '*'; mixing '*' with exact origins is not allowed."
   }
 }
 

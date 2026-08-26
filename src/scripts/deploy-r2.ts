@@ -172,8 +172,21 @@ export async function deployToR2(options: R2DeployOptions = {}): Promise<void> {
   if (allowedOrigins.length === 0) {
     throw new Error('R2_CORS_ALLOWED_ORIGINS is required in .env or environment (comma-separated application origins).');
   }
-  if (allowedOrigins.includes('*')) {
-    throw new Error('R2_CORS_ALLOWED_ORIGINS must contain exact origins; wildcard is not allowed.');
+  // Exact origins cannot cover the Even App WebView: it is served from
+  // http://127.0.0.1:<ephemeral port>, and R2 rejects port-wildcard origin strings.
+  // A bare '*' is accepted by R2 and is safe here because the dataset bucket is already
+  // public (pub-*.r2.dev). Require it as the sole entry so a mixed list cannot look
+  // like a tightened allowlist while actually allowing every origin.
+  const wildcardOnly = allowedOrigins.length === 1 && allowedOrigins[0] === '*';
+  if (allowedOrigins.includes('*') && !wildcardOnly) {
+    throw new Error(
+      'R2_CORS_ALLOWED_ORIGINS may use "*" only as the sole entry; mixing it with exact origins is a configuration mistake.'
+    );
+  }
+  if (wildcardOnly) {
+    console.warn(
+      '[R2 Deploy] Using CORS origin "*". Intentional: the dataset bucket is public (pub-*.r2.dev) so CORS is not a security boundary, and the Even App WebView serves from an ephemeral-port loopback origin that cannot be enumerated.'
+    );
   }
 
   const endpoint = `https://${accountId}.r2.cloudflarestorage.com`;

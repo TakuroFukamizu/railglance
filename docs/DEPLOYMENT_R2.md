@@ -45,7 +45,7 @@ export R2_ACCOUNT_ID="your_cloudflare_account_id"
 export R2_ACCESS_KEY_ID="your_r2_access_key_id"
 export R2_SECRET_ACCESS_KEY="your_r2_secret_access_key"
 export R2_BUCKET_NAME="railglance-dataset-bucket" # 省略時はデフォルト
-export R2_CORS_ALLOWED_ORIGINS="https://app.example,https://preview.example"
+export R2_CORS_ALLOWED_ORIGINS="*"
 export DATASET_VERSION="1.4.0" # 必須。公開済みでないSemVerを毎回明示
 export MLIT_N02_DIR="/path/to/N02-23/UTF-8" # 必須
 ```
@@ -108,9 +108,12 @@ pnpm build:data:sample
 `dist/railway-dataset/kanto-coverage-report.sample.md` へ書き出します。このデータセットは上記 2.3 の
 MLIT 出典ゲートで必ず拒否されるため、R2 へ配備することはできません。
 
-デプロイ時には `R2_CORS_ALLOWED_ORIGINS` を使って bucket CORS も更新します。ブラウザの Origin と完全一致する
-値を列挙し、`*` は本番では使用しません。反映後はブラウザから `latest.json` と任意の H3 tile を取得し、
-レスポンスの `Access-Control-Allow-Origin` を確認します。
+デプロイ時には `R2_CORS_ALLOWED_ORIGINS` を使って bucket CORS も更新します。値は完全一致 Origin の列挙、
+または単独の `*` のいずれかです。Even App の WebView は `http://127.0.0.1:<OS が割り当てるエフェメラルポート>`
+からバンドルを配信するため Origin を列挙できず、R2 は `http://127.0.0.1:*` のようなポートワイルドカード
+Origin 文字列を拒否します（API error 10040）。データセット bucket はすでに `pub-*.r2.dev` で公開されているため、
+本番では単独の `*` を使います。`*` と完全一致 Origin を混在させると設定ミスとして拒否されます。反映後は
+ブラウザから `latest.json` と任意の H3 tile を取得し、レスポンスの `Access-Control-Allow-Origin` を確認します。
 
 ---
 

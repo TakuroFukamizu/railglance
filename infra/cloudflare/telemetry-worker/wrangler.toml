@@ -42,8 +42,9 @@ max_retries = 5
 dead_letter_queue = "railglance-telemetry-dlq"
 
 [vars]
-# Override with an exact comma-separated allowlist per environment.
-TELEMETRY_ALLOWED_ORIGINS = "http://localhost:5173"
+# Local Vite plus Even App WebView origins. The WebView is served by a loopback
+# HTTP server on an OS-assigned ephemeral port, so host is stable but the port is not.
+TELEMETRY_ALLOWED_ORIGINS = "http://localhost:5173,http://127.0.0.1:*,http://localhost:*"
 TELEMETRY_CAMPAIGN_ID = "railglance-beta-2026"
 TELEMETRY_QUALIFICATION_DAYS = "14"
 TELEMETRY_ALLOWED_RELEASES = "railglance@0.1.0,railglance@0.1.1,railglance@0.1.2"
