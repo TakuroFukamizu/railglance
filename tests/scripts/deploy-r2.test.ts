@@ -155,6 +155,43 @@ describe('deployToR2', () => {
     expectNoUploads();
   });
 
+  describe('CORS origin allowlist', () => {
+    it('accepts a sole wildcard because the public dataset bucket cannot enumerate Even App loopback ports', async () => {
+      setCredentials();
+      process.env.R2_CORS_ALLOWED_ORIGINS = '*';
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      aws.send.mockRejectedValueOnce(Object.assign(new Error('Not Found'), {
+        name: 'NotFound', $metadata: { httpStatusCode: 404 },
+      })).mockResolvedValue({});
+
+      try {
+        await deploy();
+        const corsCommand = aws.send.mock.calls.find(([command]) => command.constructor.name === 'PutBucketCorsCommand')?.[0];
+        expect(corsCommand?.input).toMatchObject({
+          CORSConfiguration: { CORSRules: [{ AllowedOrigins: ['*'] }] },
+        });
+        expect(warn).toHaveBeenCalledWith(expect.stringMatching(/pub-\*\.r2\.dev/));
+        expect(warn).toHaveBeenCalledWith(expect.stringMatching(/ephemeral-port|ephemeral port/i));
+      } finally {
+        warn.mockRestore();
+      }
+    });
+
+    it('rejects a mixed CORS list that includes a wildcard', async () => {
+      setCredentials();
+      process.env.R2_CORS_ALLOWED_ORIGINS = '*,https://foo.example';
+      await expect(deploy()).rejects.toThrow(/sole entry/);
+      expectNoUploads();
+    });
+
+    it('still rejects an empty CORS origin list', async () => {
+      setCredentials();
+      delete process.env.R2_CORS_ALLOWED_ORIGINS;
+      await expect(deploy()).rejects.toThrow(/R2_CORS_ALLOWED_ORIGINS is required/);
+      expectNoUploads();
+    });
+  });
+
   describe('fail-closed dataset gates (no object may be uploaded)', () => {
     beforeEach(() => {
       setCredentials();

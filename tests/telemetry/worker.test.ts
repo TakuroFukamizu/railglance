@@ -207,6 +207,40 @@ describe('Cloudflare telemetry Worker', () => {
     expect((await worker.fetch(uploadRequest(await validToken()), env)).status).toBe(429);
   });
 
+  it('echoes an ephemeral-port loopback origin when the allowlist uses a port wildcard', async () => {
+    const env = environment();
+    env.TELEMETRY_ALLOWED_ORIGINS = 'http://localhost:5173,http://127.0.0.1:*';
+    const token = await validToken();
+
+    const ephemeral = await worker.fetch(uploadRequest(token, batch(), 'http://127.0.0.1:56984'), env);
+    expect(ephemeral.status).toBe(202);
+    expect(ephemeral.headers.get('access-control-allow-origin')).toBe('http://127.0.0.1:56984');
+
+    const lowPort = await worker.fetch(uploadRequest(token, batch(), 'http://127.0.0.1:1'), env);
+    expect(lowPort.status).toBe(202);
+    expect(lowPort.headers.get('access-control-allow-origin')).toBe('http://127.0.0.1:1');
+
+    const exactDev = await worker.fetch(uploadRequest(token, batch(), 'http://localhost:5173'), env);
+    expect(exactDev.status).toBe(202);
+    expect(exactDev.headers.get('access-control-allow-origin')).toBe('http://localhost:5173');
+  });
+
+  it('rejects scheme-mismatched and malformed suffixes against a port-wildcard allowlist', async () => {
+    const env = environment();
+    env.TELEMETRY_ALLOWED_ORIGINS = 'http://127.0.0.1:*';
+    const token = await validToken();
+    const reject = async (origin: string) => {
+      const response = await worker.fetch(uploadRequest(token, batch(), origin), env);
+      expect(response.headers.get('access-control-allow-origin')).toBeNull();
+      return response.status;
+    };
+
+    expect(await reject('https://127.0.0.1:56984')).toBe(403);
+    expect(await reject('http://127.0.0.1:56984.evil.com')).toBe(403);
+    expect(await reject('http://127.0.0.1:56984/path')).toBe(403);
+    expect(await reject('http://127.0.0.1:56984@evil.com')).toBe(403);
+  });
+
   it('rejects invalid tokens, coordinate ranges, session consistency, and event count', async () => {
     const env = environment();
     expect((await worker.fetch(uploadRequest('wrong'), env)).status).toBe(401);
