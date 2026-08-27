@@ -129,21 +129,25 @@ export class MlitRailwayAdapter implements RailwaySourceAdapter {
         segments.push(...lineSegments);
         continue;
       }
-      for (const chain of this.decomposeIntoLinearChains(lineStations, lineSegments)) {
-        if (chain.stations.length < 2 || chain.segments.length < 1) continue;
+      const emittedChains = this.decomposeIntoLinearChains(lineStations, lineSegments)
+        .filter((chain) => chain.stations.length >= 2 && chain.segments.length >= 1);
+      const names = this.disambiguateDuplicateNames(
+        emittedChains.map((chain) => this.chainDisplayName(line.name, chain)),
+      );
+      for (const [index, chain] of emittedChains.entries()) {
         const discriminator = chain.stations.map((station) => station.id).join(':');
         const newLineId = `mlit-line-${this.hash(`${key}:${discriminator}`)}`;
         const remappedIds = new Map<string, string>();
-        const remappedStations = chain.stations.map((station, index) => {
+        const remappedStations = chain.stations.map((station, stationIndex) => {
           const stationCode = stationCodeById.get(station.id) ?? station.id;
           const newStationId = `mlit-station-${this.hash(`${key}:${discriminator}:${stationCode}`)}`;
           remappedIds.set(station.id, newStationId);
-          return { ...station, id: newStationId, lineId: newLineId, sequence: index + 1 };
+          return { ...station, id: newStationId, lineId: newLineId, sequence: stationIndex + 1 };
         });
         lines.push({
           ...line,
           id: newLineId,
-          name: `${line.name}（${chain.stations[0].name}〜${chain.stations[chain.stations.length - 1].name}）`,
+          name: names[index],
         });
         stations.push(...remappedStations);
         segments.push(...chain.segments.map((segment) => {
@@ -242,10 +246,40 @@ export class MlitRailwayAdapter implements RailwaySourceAdapter {
     return visited.size === connectedIds.length ? ordered : null;
   }
 
+  private chainDisplayName(
+    lineName: string,
+    chain: { stations: Station[]; isCycle: boolean },
+  ): string {
+    const first = chain.stations[0]?.name ?? '';
+    const last = chain.stations[chain.stations.length - 1]?.name ?? '';
+    const inner = chain.isCycle ? `${first}・循環` : `${first}〜${last}`;
+    return `${lineName}（${inner}）`;
+  }
+
+  // Duplicate names within one MLIT line key get a 1-based ordinal on every
+  // colliding member (`・1`, `・2`, …) in the already-deterministic chain
+  // emission order. Non-colliding names are left unsuffixed. Every member of
+  // a colliding group is suffixed so no chain is silently privileged; the
+  // suffix is a pure function of that emission order and does not depend on
+  // how many siblings a chain "would have" under a different grouping.
+  private disambiguateDuplicateNames(names: string[]): string[] {
+    const counts = new Map<string, number>();
+    for (const name of names) {
+      counts.set(name, (counts.get(name) ?? 0) + 1);
+    }
+    const seen = new Map<string, number>();
+    return names.map((name) => {
+      if ((counts.get(name) ?? 0) < 2) return name;
+      const ordinal = (seen.get(name) ?? 0) + 1;
+      seen.set(name, ordinal);
+      return `${name.slice(0, -1)}・${ordinal}）`;
+    });
+  }
+
   private decomposeIntoLinearChains(
     stations: Station[],
     segments: TrackSegment[],
-  ): Array<{ stations: Station[]; segments: TrackSegment[] }> {
+  ): Array<{ stations: Station[]; segments: TrackSegment[]; isCycle: boolean }> {
     const stationById = new Map(stations.map((station) => [station.id, station]));
     const adjacency = new Map<string, Set<string>>();
     const segmentByEdge = new Map<string, TrackSegment>();
@@ -359,7 +393,7 @@ export class MlitRailwayAdapter implements RailwaySourceAdapter {
     chain: { stationIds: string[]; isCycle: boolean },
     stationById: Map<string, Station>,
     segmentByEdge: Map<string, TrackSegment>,
-  ): { stations: Station[]; segments: TrackSegment[] } {
+  ): { stations: Station[]; segments: TrackSegment[]; isCycle: boolean } {
     const stations = chain.stationIds.flatMap((id) => {
       const station = stationById.get(id);
       return station ? [station] : [];
@@ -375,7 +409,7 @@ export class MlitRailwayAdapter implements RailwaySourceAdapter {
       const segment = segmentByEdge.get(this.undirectedEdgeKey(from, to));
       return segment ? [segment] : [];
     });
-    return { stations, segments };
+    return { stations, segments, isCycle: chain.isCycle };
   }
 
   private undirectedEdgeKey(a: string, b: string): string {

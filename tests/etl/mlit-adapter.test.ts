@@ -263,7 +263,114 @@ describe('MlitRailwayAdapter', () => {
     expect(() => new TopologyBuilder().buildTopology(result.lines, result.stations, result.segments)).not.toThrow();
   });
 
-  it('produces identical ids and ordering across two loads of the same branching input', async () => {
+  it('names a cycle chain with ・循環 instead of adjacent endpoints', async () => {
+    const result = await loadFixture(
+      [
+        stationFeature('分岐', '001', 139, 35),
+        stationFeature('環一', '002', 139, 35.01),
+        stationFeature('環二', '003', 139.01, 35.005),
+        stationFeature('支線端', '004', 139.02, 35),
+      ],
+      [
+        sectionFeature([[139, 35], [139, 35.01]]),
+        sectionFeature([[139, 35.01], [139.01, 35.005]]),
+        sectionFeature([[139.01, 35.005], [139, 35]]),
+        sectionFeature([[139, 35], [139.02, 35]]),
+      ],
+    );
+
+    expect(result.lines).toHaveLength(2);
+    const ring = result.lines.find((line) => {
+      const lineStations = result.stations.filter((station) => station.lineId === line.id);
+      const lineSegments = result.segments.filter((segment) => segment.lineId === line.id);
+      return lineStations.length === lineSegments.length;
+    });
+    const tail = result.lines.find((line) => line.id !== ring?.id);
+    expect(ring).toBeDefined();
+    expect(tail).toBeDefined();
+
+    const ringStations = result.stations.filter((station) => station.lineId === ring!.id);
+    const ringSegments = result.segments.filter((segment) => segment.lineId === ring!.id);
+    expect(ringStations).toHaveLength(3);
+    expect(ringSegments).toHaveLength(3);
+    expect(ring!.name).toMatch(/^試験線（.+・循環）$/);
+    expect(ring!.name).not.toMatch(/〜/);
+    expect(tail!.name).toMatch(/^試験線（.+〜.+）$/);
+    expect(tail!.name).not.toMatch(/循環/);
+    expect(() => new TopologyBuilder().buildTopology(result.lines, result.stations, result.segments)).not.toThrow();
+  });
+
+  it('suffixes every member of a colliding name group within one line key', async () => {
+    const result = await loadFixture(
+      [
+        stationFeature('西端', '001', 139, 35),
+        stationFeature('大宮', '002', 139, 35.01),
+        stationFeature('武蔵浦和', '003', 139, 35.02),
+        stationFeature('与野', '004', 139, 35.03),
+        stationFeature('赤羽', '005', 139, 35.04),
+        stationFeature('東端', '006', 139, 35.05),
+        stationFeature('浦和', '007', 139.01, 35.02),
+        stationFeature('北浦和', '008', 139.01, 35.03),
+      ],
+      [
+        sectionFeature([[139, 35], [139, 35.01]]),
+        sectionFeature([[139, 35.01], [139, 35.02]]),
+        sectionFeature([[139, 35.02], [139, 35.03]]),
+        sectionFeature([[139, 35.03], [139, 35.04]]),
+        sectionFeature([[139, 35.04], [139, 35.05]]),
+        sectionFeature([[139, 35.01], [139.01, 35.02]]),
+        sectionFeature([[139.01, 35.02], [139.01, 35.03]]),
+        sectionFeature([[139.01, 35.03], [139, 35.04]]),
+      ],
+    );
+
+    const colliding = result.lines.filter((line) => {
+      const names = result.stations.filter((station) => station.lineId === line.id).map((station) => station.name);
+      return names.includes('武蔵浦和') || names.includes('浦和');
+    });
+    expect(colliding).toHaveLength(2);
+    const unsuffixed = colliding.map((line) => line.name.replace(/・\d+）$/, '）'));
+    expect(unsuffixed[0]).toBe(unsuffixed[1]);
+    expect(unsuffixed[0]).toMatch(/^試験線（.+〜.+）$/);
+    expect(new Set(colliding.map((line) => line.name))).toEqual(
+      new Set([`${unsuffixed[0].slice(0, -1)}・1）`, `${unsuffixed[0].slice(0, -1)}・2）`]),
+    );
+    const uniqueNames = new Set(result.lines.map((line) => line.name));
+    expect(uniqueNames.size).toBe(result.lines.length);
+    const others = result.lines.filter((line) => !colliding.includes(line));
+    expect(others.every((line) => !/・\d+）$/.test(line.name))).toBe(true);
+    expect(() => new TopologyBuilder().buildTopology(result.lines, result.stations, result.segments)).not.toThrow();
+  });
+
+  it('disambiguates colliding cycle names with the same ・ordinal scheme', async () => {
+    const result = await loadFixture(
+      [
+        stationFeature('環駅', '001', 139, 35),
+        stationFeature('環駅', '002', 139, 35.01),
+        stationFeature('環駅', '003', 139.01, 35.005),
+        stationFeature('環駅', '004', 139.3, 35),
+        stationFeature('環駅', '005', 139.3, 35.01),
+        stationFeature('環駅', '006', 139.31, 35.005),
+      ],
+      [
+        sectionFeature([[139, 35], [139, 35.01]]),
+        sectionFeature([[139, 35.01], [139.01, 35.005]]),
+        sectionFeature([[139.01, 35.005], [139, 35]]),
+        sectionFeature([[139.3, 35], [139.3, 35.01]]),
+        sectionFeature([[139.3, 35.01], [139.31, 35.005]]),
+        sectionFeature([[139.31, 35.005], [139.3, 35]]),
+      ],
+    );
+
+    expect(result.lines).toHaveLength(2);
+    expect(result.lines.every((line) => line.name === '試験線（環駅・循環・1）' || line.name === '試験線（環駅・循環・2）')).toBe(true);
+    expect(new Set(result.lines.map((line) => line.name))).toEqual(
+      new Set(['試験線（環駅・循環・1）', '試験線（環駅・循環・2）']),
+    );
+    expect(() => new TopologyBuilder().buildTopology(result.lines, result.stations, result.segments)).not.toThrow();
+  });
+
+  it('produces identical ids, names and ordering when input features are permuted', async () => {
     const stations = [
       stationFeature('始点', '001', 139, 35),
       stationFeature('分岐', '002', 139, 35.01),
@@ -275,8 +382,14 @@ describe('MlitRailwayAdapter', () => {
       sectionFeature([[139, 35.01], [139, 35.02]]),
       sectionFeature([[139, 35.01], [139.01, 35.01]]),
     ];
+    // Hard-coded derangement of feature order so Map/Set insertion order
+    // differs between the two loads. Writing the same array twice would
+    // still pass if every .sort() in the decomposer were deleted, because
+    // V8 iteration follows insertion order.
+    const permutedStations = [stations[3], stations[1], stations[0], stations[2]];
+    const permutedSections = [sections[2], sections[0], sections[1]];
     const first = await loadFixture(stations, sections);
-    const second = await loadFixture(stations, sections);
+    const second = await loadFixture(permutedStations, permutedSections);
     expect(identitySnapshot(first)).toEqual(identitySnapshot(second));
     expect(first.lines.length).toBeGreaterThan(1);
   });
