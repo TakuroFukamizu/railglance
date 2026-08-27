@@ -41,11 +41,11 @@ describe('TopologyBuilder', () => {
     expect(result.segments[0].toStationId).toBe('b');
   });
 
-  it('rejects ambiguous branches instead of publishing invalid offsets', () => {
+  it('splits branches into routes instead of discarding the line', () => {
     const branchStation: Station = {
       id: 'd', lineId: 'line', name: 'D', sequence: 3, latitude: 35.02, longitude: 139.01,
     };
-    expect(() => new TopologyBuilder().buildTopology(
+    const result = new TopologyBuilder().buildTopology(
       [line],
       [...stations, branchStation],
       [
@@ -53,7 +53,11 @@ describe('TopologyBuilder', () => {
         segment('bc', 'b', 'c', 35.01),
         { ...segment('bd', 'b', 'd', 35.01), coordinates: [[35.01, 139], [35.02, 139.01]] },
       ]
-    )).toThrow(/branches/);
+    );
+
+    expect(result.routes).toHaveLength(2);
+    expect(result.segments).toHaveLength(3);
+    expect(result.segments.every((item) => item.routeId)).toBe(true);
   });
 
   it('detects a ring and links its first and last segments', () => {

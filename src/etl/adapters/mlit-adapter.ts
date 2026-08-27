@@ -185,6 +185,7 @@ export class MlitRailwayAdapter implements RailwaySourceAdapter {
 
   private orderSimpleConnectedLine(stations: Station[], segments: TrackSegment[]): Station[] | null {
     if (stations.length < 2 || segments.length < 1) return null;
+    const stableOrder = () => [...stations].sort((a, b) => a.id.localeCompare(b.id));
     const stationById = new Map(stations.map((station) => [station.id, station]));
     const adjacency = new Map<string, string[]>();
     for (const segment of segments) {
@@ -192,11 +193,17 @@ export class MlitRailwayAdapter implements RailwaySourceAdapter {
       adjacency.set(segment.fromStationId, [...(adjacency.get(segment.fromStationId) ?? []), segment.toStationId]);
       adjacency.set(segment.toStationId, [...(adjacency.get(segment.toStationId) ?? []), segment.fromStationId]);
     }
-    if ([...adjacency.values()].some((neighbors) => new Set(neighbors).size > 2)) return null;
+    // MLIT uses one line identity for services with branches (for example JR Central and
+    // Sobu). The topology builder splits those branches into routes later, so retaining
+    // their stations and segments here is essential. A stable order is enough for that
+    // split; only a simple path needs its graph traversal order.
+    if ([...adjacency.values()].some((neighbors) => new Set(neighbors).size > 2)) {
+      return stableOrder();
+    }
 
     const connectedIds = [...adjacency.keys()];
     const endpoints = connectedIds.filter((id) => new Set(adjacency.get(id)).size === 1).sort();
-    if (endpoints.length !== 0 && endpoints.length !== 2) return null;
+    if (endpoints.length !== 0 && endpoints.length !== 2) return stableOrder();
     let current = endpoints[0] ?? connectedIds.sort()[0];
     const ordered: Station[] = [];
     const visited = new Set<string>();
@@ -205,7 +212,7 @@ export class MlitRailwayAdapter implements RailwaySourceAdapter {
       ordered.push(stationById.get(current)!);
       current = (adjacency.get(current) ?? []).find((id) => !visited.has(id)) ?? '';
     }
-    return visited.size === connectedIds.length ? ordered : null;
+    return visited.size === connectedIds.length ? ordered : stableOrder();
   }
 
   private inKanto(lat: number, lon: number): boolean {

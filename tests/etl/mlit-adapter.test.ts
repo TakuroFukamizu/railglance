@@ -52,4 +52,70 @@ describe('MlitRailwayAdapter', () => {
   it('requires an explicit source for a publishable build', async () => {
     await expect(new MlitRailwayAdapter({ sourceDirectory: '', strict: true }).load()).rejects.toThrow(/MLIT_N02_DIR/);
   });
+
+  it('keeps a branched MLIT line instead of dropping every segment', async () => {
+    const branchDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'railglance-mlit-branch-test-'));
+    const properties = { N02_003: '分岐試験線', N02_004: '試験鉄道' };
+    const station = (name: string, code: string, longitude: number, latitude: number) => ({
+      type: 'Feature',
+      properties: { ...properties, N02_005: name, N02_005c: code },
+      geometry: { type: 'LineString', coordinates: [[longitude, latitude], [longitude, latitude]] },
+    });
+    try {
+      fs.writeFileSync(path.join(branchDirectory, 'N02-23_Station.geojson'), JSON.stringify({
+        type: 'FeatureCollection',
+        features: [
+          station('A', '001', 139.0, 35.0),
+          station('J', '002', 139.01, 35.0),
+          station('B', '003', 139.02, 35.0),
+          station('C', '004', 139.01, 35.01),
+        ],
+      }));
+      fs.writeFileSync(path.join(branchDirectory, 'N02-23_RailroadSection.geojson'), JSON.stringify({
+        type: 'FeatureCollection',
+        features: [
+          [[139.0, 35.0], [139.01, 35.0]],
+          [[139.01, 35.0], [139.02, 35.0]],
+          [[139.01, 35.0], [139.01, 35.01]],
+        ].map((coordinates) => ({ type: 'Feature', properties, geometry: { type: 'LineString', coordinates } })),
+      }));
+
+      const result = await new MlitRailwayAdapter({ sourceDirectory: branchDirectory, strict: true }).load();
+      expect(result.lines).toHaveLength(1);
+      expect(result.stations).toHaveLength(4);
+      expect(result.segments).toHaveLength(3);
+    } finally {
+      fs.rmSync(branchDirectory, { recursive: true, force: true });
+    }
+  });
+
+  it('keeps disconnected components that MLIT assigns to one line', async () => {
+    const componentDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'railglance-mlit-component-test-'));
+    const properties = { N02_003: '成分試験線', N02_004: '試験鉄道' };
+    const station = (name: string, code: string, longitude: number) => ({
+      type: 'Feature',
+      properties: { ...properties, N02_005: name, N02_005c: code },
+      geometry: { type: 'LineString', coordinates: [[longitude, 35], [longitude, 35]] },
+    });
+    try {
+      fs.writeFileSync(path.join(componentDirectory, 'N02-23_Station.geojson'), JSON.stringify({
+        type: 'FeatureCollection',
+        features: [station('A', '001', 139.0), station('B', '002', 139.01), station('C', '003', 139.03), station('D', '004', 139.04)],
+      }));
+      fs.writeFileSync(path.join(componentDirectory, 'N02-23_RailroadSection.geojson'), JSON.stringify({
+        type: 'FeatureCollection',
+        features: [
+          [[139.0, 35], [139.01, 35]],
+          [[139.03, 35], [139.04, 35]],
+        ].map((coordinates) => ({ type: 'Feature', properties, geometry: { type: 'LineString', coordinates } })),
+      }));
+
+      const result = await new MlitRailwayAdapter({ sourceDirectory: componentDirectory, strict: true }).load();
+      expect(result.lines).toHaveLength(1);
+      expect(result.stations).toHaveLength(4);
+      expect(result.segments).toHaveLength(2);
+    } finally {
+      fs.rmSync(componentDirectory, { recursive: true, force: true });
+    }
+  });
 });

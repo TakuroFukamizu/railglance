@@ -36,14 +36,6 @@ export class TopologyBuilder {
         incident.set(segment.fromStationId, [...(incident.get(segment.fromStationId) ?? []), segment]);
         incident.set(segment.toStationId, [...(incident.get(segment.toStationId) ?? []), segment]);
       }
-      for (const [stationId, stationSegments] of incident) {
-        if (new Set(stationSegments.map((segment) => segment.id)).size > 2) {
-          throw new Error(
-            `Line ${lineId} branches at station ${stationId}; split branches into explicit routes before publishing`
-          );
-        }
-      }
-
       const remaining = new Map(lineSegments.map((segment) => [segment.id, segment]));
       const paths: TrackSegment[][] = [];
       while (remaining.size > 0) {
