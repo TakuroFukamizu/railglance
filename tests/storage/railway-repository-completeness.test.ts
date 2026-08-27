@@ -36,6 +36,8 @@ function manifest() {
     totalStations: 4,
     totalSegments: 0,
     totalTiles: 1,
+    sources: ['mlit-n02-23'],
+    mlitSourced: true,
   };
 }
 

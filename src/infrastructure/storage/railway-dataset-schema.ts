@@ -19,7 +19,11 @@ export type RailwayDatasetManifest = {
   totalStations: number;
   totalSegments: number;
   totalTiles: number;
+  sources: string[];
+  mlitSourced: true;
 };
+
+const MLIT_SOURCE_ID = 'mlit-n02-23';
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -39,6 +43,19 @@ function requireNumber(record: Record<string, unknown>, key: string): number {
     throw new Error(`Dataset field "${key}" must be a finite number`);
   }
   return value;
+}
+
+function requireMlitProvenance(record: Record<string, unknown>): { sources: string[]; mlitSourced: true } {
+  if (record.mlitSourced !== true) {
+    throw new Error('Dataset manifest must declare official MLIT provenance');
+  }
+  if (!Array.isArray(record.sources) || !record.sources.every((source) => typeof source === 'string')) {
+    throw new Error('Dataset manifest sources must be an array of strings');
+  }
+  if (!record.sources.includes(MLIT_SOURCE_ID)) {
+    throw new Error('Dataset manifest must include the official MLIT source');
+  }
+  return { sources: record.sources, mlitSourced: true };
 }
 
 function assertSupportedSchema(schemaVersion: string): void {
@@ -70,6 +87,7 @@ export function parseRailwayDatasetManifest(value: unknown): RailwayDatasetManif
   if (!isRecord(value)) throw new Error('manifest.json must contain an object');
   const schemaVersion = requireString(value, 'schemaVersion');
   assertSupportedSchema(schemaVersion);
+  const provenance = requireMlitProvenance(value);
   return {
     version: requireString(value, 'version'),
     schemaVersion,
@@ -80,6 +98,7 @@ export function parseRailwayDatasetManifest(value: unknown): RailwayDatasetManif
     totalStations: requireNumber(value, 'totalStations'),
     totalSegments: requireNumber(value, 'totalSegments'),
     totalTiles: requireNumber(value, 'totalTiles'),
+    ...provenance,
   };
 }
 
