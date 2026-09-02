@@ -70,6 +70,44 @@ describe('railway dataset remote sync', () => {
     expect(db.getDataState()).toBe('bundled');
   });
 
+  it('rejects a remote dataset whose sources are not an array of strings', async () => {
+    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.endsWith('/datasets/latest.json')) return jsonResponse(latest('2.0.0'));
+      if (url.endsWith('/datasets/v2.0.0/manifest.json')) {
+        return jsonResponse({
+          ...manifest('2.0.0'),
+          sources: ['mlit-n02-23', 42],
+        });
+      }
+      return jsonResponse({}, 404);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(db.connectRemoteManifest(baseUrl)).rejects.toThrow(/sources must be an array of strings/);
+    expect(db.getDataState()).toBe('bundled');
+    expect(await db.getLine('odakyu-odawara')).toBeDefined();
+  });
+
+  it('rejects a remote dataset that claims MLIT provenance without the official source id', async () => {
+    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.endsWith('/datasets/latest.json')) return jsonResponse(latest('2.0.0'));
+      if (url.endsWith('/datasets/v2.0.0/manifest.json')) {
+        return jsonResponse({
+          ...manifest('2.0.0'),
+          sources: ['railglance-existing-sample'],
+        });
+      }
+      return jsonResponse({}, 404);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(db.connectRemoteManifest(baseUrl)).rejects.toThrow(/must include the official MLIT source/);
+    expect(db.getDataState()).toBe('bundled');
+    expect(await db.getLine('odakyu-odawara')).toBeDefined();
+  });
+
   it('rejects an unsupported or omitted schema and keeps bundled data active', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(jsonResponse({
       ...latest('2.0.0'),
