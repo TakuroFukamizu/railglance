@@ -1,5 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import { MLIT_SOURCE_ID } from '../domain/models/provenance';
 import {
   HeadObjectCommand,
   PutBucketCorsCommand,
@@ -29,8 +30,6 @@ function loadEnvFile(): void {
 
 const EXPLICIT_SEMVER = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;
 
-/** Source id recorded by the MLIT adapter. Kept local so the deploy script has no ETL dependency. */
-const MLIT_SOURCE_ID = 'mlit-n02-23';
 
 /**
  * Minimum publishable dataset size.
