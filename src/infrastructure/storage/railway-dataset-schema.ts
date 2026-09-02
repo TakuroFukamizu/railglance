@@ -1,4 +1,5 @@
 import { H3TileData } from '../../etl/h3-tiler';
+import { MLIT_SOURCE_ID } from '../../domain/models/provenance';
 
 export const RAILWAY_DATASET_SCHEMA_VERSION = '1.1.0';
 
@@ -22,8 +23,6 @@ export type RailwayDatasetManifest = {
   sources: string[];
   mlitSourced: true;
 };
-
-const MLIT_SOURCE_ID = 'mlit-n02-23';
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -53,7 +52,7 @@ function requireMlitProvenance(record: Record<string, unknown>): { sources: stri
     throw new Error('Dataset manifest sources must be an array of strings');
   }
   if (!record.sources.includes(MLIT_SOURCE_ID)) {
-    throw new Error('Dataset manifest must include the official MLIT source');
+    throw new Error(`Dataset manifest must include the official MLIT source (${MLIT_SOURCE_ID})`);
   }
   return { sources: record.sources, mlitSourced: true };
 }

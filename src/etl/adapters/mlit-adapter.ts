@@ -2,7 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { createHash } from 'crypto';
 import { RailwaySourceAdapter, RawRailwayDataset } from './source-adapter';
-import { SourceLicenseMetadata, DataProvenance } from '../../domain/models/provenance';
+import { SourceLicenseMetadata, DataProvenance, MLIT_SOURCE_ID } from '../../domain/models/provenance';
 import { RailwayLine, Station, TrackSegment } from '../../domain/models/railway';
 import { haversineDistance } from '../../domain/geo/distance';
 
@@ -20,7 +20,7 @@ export type MlitRailwayAdapterOptions = {
 const KANTO_BUFFER = { minLat: 34.5, maxLat: 37.75, minLon: 138.0, maxLon: 141.5 };
 
 export class MlitRailwayAdapter implements RailwaySourceAdapter {
-  public sourceId = 'mlit-n02-23';
+  public sourceId = MLIT_SOURCE_ID;
 
   constructor(private options: MlitRailwayAdapterOptions = {}) {}
 

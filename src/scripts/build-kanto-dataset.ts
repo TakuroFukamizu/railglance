@@ -7,6 +7,7 @@ import { TopologyBuilder } from '../etl/topology-builder';
 import { H3Tiler } from '../etl/h3-tiler';
 import { CoverageReporter } from '../etl/coverage-reporter';
 import { RAILWAY_DATASET_SCHEMA_VERSION } from '../infrastructure/storage/railway-dataset-schema';
+import { MLIT_SOURCE_ID } from '../domain/models/provenance';
 
 export type DatasetBuildOptions = {
   outputRoot?: string;
@@ -16,7 +17,7 @@ export type DatasetBuildOptions = {
 };
 
 /** Source id reported by MlitRailwayAdapter; recorded in the manifest so deploys can require it. */
-export const MLIT_SOURCE_ID = 'mlit-n02-23';
+export { MLIT_SOURCE_ID };
 
 /** Version used for sample-only local builds so they can never be mistaken for a release. */
 export const SAMPLE_DATASET_VERSION = '0.0.0-sample';
