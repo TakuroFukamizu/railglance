@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { checkRelease } from '../../src/scripts/check-release';
+import { checkRelease } from '../../src/scripts/release-check';
 
 const files = (overrides: Partial<Record<'packageJson' | 'appJson' | 'wranglerToml' | 'envExample', string>> = {}) => ({
   packageJson: '{"name":"railglance","version":"0.1.4"}',
