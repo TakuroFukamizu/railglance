@@ -40,7 +40,7 @@ Cloudflare Worker はparticipant単位のDurable Objectを資格台帳に使う�
 - enrollment: 同意、初回参加コード、対象releaseを検証する。
 - qualification: 7〜30日、既定14日。participant ID、campaign ID、credential hash、許可release、失効日時を保持する。
 - upload token: HMAC署名、5〜60分、既定15分。campaign、participant、environment、許可releaseをscopeに含める。
-- release制限: `TELEMETRY_ALLOWED_RELEASES` の完全一致。アプリ更新後はオンライン検証が完了するまで新規収集しない。
+- release制限: `TELEMETRY_ALLOWED_RELEASES` の各エントリは完全一致（`railglance@0.1.3`）またはパッチワイルドカード（`railglance@0.1.*`）。ワイルドカードは同じ major.minor の数字パッチだけに一致し、prerelease 接尾辞や別 minor には一致しない。それ以外の位置の `*` はリテラル扱いで fail closed する。アプリ更新後はオンライン検証が完了するまで新規収集しない。
 - 即時失効: 管理endpointでparticipantを失効させ、以後のtoken更新とuploadを拒否する。
 - レート制限: enrollmentはcampaign単位30回/分、token更新とuploadはparticipant単位240回/分を既定とする。
 - 入力制限: Origin allowlist、120 KB、200 events、schema、値域を検証する。allowlist の各エントリは通常は完全一致。末尾が `:*` のエントリだけは当該 `scheme://host` の任意の数値ポートを許可し、Even App WebView の loopback Origin（`http://127.0.0.1:<エフェメラルポート>`）に使う。裸の `*` は `:*` で終わらないためリテラル `Origin: *` への完全一致になり、ブラウザはそれを送れないので fail closed する。
@@ -129,6 +129,27 @@ TELEMETRY_ADMIN_TOKEN="development-only-admin-token"
 現在の `wrangler.toml` にはnamed environmentを定義していない。将来 `[env.staging]` などを追加した場合、
 Secretは環境間で共有されないため、各コマンドに `--env staging` を付けて環境ごとに登録する。
 
+### 許可releaseの運用
+
+`TELEMETRY_ALLOWED_RELEASES` はパッチワイルドカードで minor 系列ごとに1エントリにまとめる。パッチ版の
+リリースでは `wrangler.toml` を編集せず、許可releaseを理由とした Worker の再デプロイも不要になる。minor
+または major を上げたときだけ新しいワイルドカードエントリを追加して `pnpm dlx wrangler deploy` を実行する。
+Worker のコード自体が前回デプロイ以降に変わっている場合は、パッチ版でも再デプロイが必要になる。判定の
+手順は `.claude/skills/bumping-app-version/SKILL.md` を参照する。古い系列の収集を終える
+ときはそのエントリを削除する。特定のパッチ版だけを除外したい場合は、その系列のワイルドカードを完全一致
+エントリの列挙へ戻す。
+
+照合ロジックは `src/infrastructure/telemetry/release-allowlist.ts` にあり、アプリとWorkerが同じ関数を
+import する。アプリ側も enroll/refresh 応答の `allowedReleases` を自分の release と照合する。
+ワイルドカードを解釈できないクライアント（0.1.3以前）は自分の release 文字列が配列に完全一致で
+含まれるかだけを見るので、ワイルドカードエントリが混ざっていても影響を受けない。したがって
+`railglance@0.1.3,railglance@0.1.*` のように旧クライアント用の完全一致とワイルドカードを併記した
+リストを、ワイルドカード対応版のアプリを配布する**前に** Worker へデプロイしておく。Worker のコードも
+同時に更新されるため、デプロイは対応版がマージされた `main` から行う。旧クライアントが残っていない
+ことを確認してから完全一致エントリを削除する。
+
+バージョンアップ作業の手順は `.claude/skills/bumping-app-version/SKILL.md` にまとめている。
+
 `wrangler.toml` でcampaign ID、資格日数、対象release、token TTL、Origin allowlistを設定する。allowlistは
 通常完全一致だが、末尾が `:*` のエントリは当該 `scheme://host` の任意の数値ポートを許可する（Even App
 WebView の loopback Origin用）。release更新前に
@@ -177,7 +198,6 @@ GitHubの `Settings` → `Environments` → `New environment` で `evenhub-beta`
 | `VITE_SENTRY_TRACES_SAMPLE_RATE` | `0.1` | performance traceの送信率 |
 | `SENTRY_ORG` | Sentry organization slug | Sentry Project Settings URLのorganization部分 |
 | `SENTRY_PROJECT` | Sentry project slug | Sentry Project Settings URLのproject部分 |
-| `VITE_APP_RELEASE` | `railglance@0.1.0`など | `railglance@` + `package.json`のversion。Workerの許可releaseとも完全一致させる |
 | `VITE_APP_ENVIRONMENT` | `beta` | SentryとTelemetry上の環境名 |
 | `VITE_TELEMETRY_ENDPOINT` | Telemetry WorkerのHTTPS URL | 独自ドメイン導入前はデプロイ結果の`workers.dev` URL |
 | `VITE_EVEN_SDK_VERSION` | `0.0.12`など | 使用中のEven Hub SDK version |
@@ -205,7 +225,9 @@ GitHubの `Settings` → `Environments` → `New environment` で `evenhub-beta`
 `SENTRY_AUTH_TOKEN`だけをSecretへ置き、Repository Variable、`.env`、ログ、`.ehpk`には保存しない。
 
 workflowは手動実行専用で、`main`以外からの配布、必須設定の不足、`app.json`と`package.json`のversion不一致、
-`VITE_APP_RELEASE`の不一致、Sentry upload後にsource mapが`dist`へ残っている状態を拒否する。Node.js 26で
+Sentry upload後にsource mapが`dist`へ残っている状態を拒否する。`VITE_APP_RELEASE` は workflow が
+`package.json` の version から `railglance@<version>` として導出するため、Environment variable には置かない。
+Workerの `TELEMETRY_ALLOWED_RELEASES` がこの値に一致することを確認する。Node.js 26で
 `pnpm ehpack`を実行し、成功時はWorkflow SummaryとArtifactsに未圧縮の`out.ehpk`を14日間保存する。
 
 実行はGitHubの `Actions` → `Build Even Hub Beta Package` → `Run workflow` からbranchに`main`を選ぶ。

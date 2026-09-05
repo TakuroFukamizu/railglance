@@ -236,6 +236,43 @@ describe('RuntimeTelemetryManager', () => {
     await restarted.shutdown();
   });
 
+  it('accepts enrollment and token refresh responses whose allowedReleases use a patch wildcard', async () => {
+    const qualificationStore = new MemoryQualificationStore();
+    const qualificationExpiresAt = new Date(Date.now() + 14 * 86_400_000).toISOString();
+    const uploadTokenExpiresAt = new Date(Date.now() + 15 * 60_000).toISOString();
+    const fetchFn = vi.fn<typeof fetch>().mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.endsWith('/campaign/enroll')) return new Response(JSON.stringify({
+        participantId: 'p_test', campaignId: 'campaign-test', campaignCredential: 'p_test.credential',
+        qualificationExpiresAt, allowedReleases: ['railglance@0.1.*'], uploadToken: 'initial-token',
+        uploadTokenExpiresAt,
+      }), { status: 201 });
+      if (url.endsWith('/session')) return new Response(JSON.stringify({
+        token: 'refreshed-token', expiresAt: uploadTokenExpiresAt,
+        qualificationExpiresAt, allowedReleases: ['railglance@0.1.*'],
+      }), { status: 201 });
+      return new Response('{}', { status: 202 });
+    });
+    const manager = new RuntimeTelemetryManager(
+      new MemorySink(), readTelemetryConfig({ VITE_TELEMETRY_ENDPOINT: 'https://telemetry.example' }),
+      { sessionId: 'session-1', release: 'railglance@0.1.4', environment: 'test' }, fetchFn, qualificationStore
+    );
+    await manager.initialize();
+    await manager.startDiagnostic('tester-code');
+    expect(manager.isDiagnosticEnabled()).toBe(true);
+    expect(qualificationStore.value?.allowedReleases).toEqual(['railglance@0.1.*']);
+    await manager.shutdown();
+
+    const patched = new RuntimeTelemetryManager(
+      new MemorySink(), readTelemetryConfig({ VITE_TELEMETRY_ENDPOINT: 'https://telemetry.example' }),
+      { sessionId: 'session-2', release: 'railglance@0.1.5', environment: 'test' }, fetchFn, qualificationStore
+    );
+    await patched.initialize();
+    expect(patched.isDiagnosticEnabled()).toBe(true);
+    expect(qualificationStore.value?.lastValidatedRelease).toBe('railglance@0.1.5');
+    await patched.shutdown();
+  });
+
   it('stops collection immediately when a persisted qualification is revoked', async () => {
     const qualificationStore = new MemoryQualificationStore();
     qualificationStore.value = {

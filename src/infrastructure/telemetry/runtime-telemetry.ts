@@ -11,6 +11,7 @@ import {
   TelemetryHttpError,
   type TelemetrySink,
 } from './sinks';
+import { isReleaseAllowed } from './release-allowlist';
 import type { TelemetryEvent, TelemetryIdentity } from './types';
 
 const TOKEN_REFRESH_SKEW_MS = 5 * 60_000;
@@ -330,7 +331,7 @@ export class RuntimeTelemetryManager implements TelemetrySink {
       qualificationExpiresAtMs <= Date.now() ||
       !Array.isArray(result.allowedReleases) ||
       !result.allowedReleases.every((release) => typeof release === 'string') ||
-      !result.allowedReleases.includes(this.identity.release)
+      !isReleaseAllowed(this.identity.release, result.allowedReleases)
     ) {
       throw new Error('送信tokenの応答が不正です。');
     }
@@ -413,7 +414,7 @@ export class RuntimeTelemetryManager implements TelemetrySink {
       qualificationExpiresAtMs <= Date.now() ||
       !Array.isArray(result.allowedReleases) ||
       !result.allowedReleases.every((release) => typeof release === 'string') ||
-      !result.allowedReleases.includes(this.identity.release) ||
+      !isReleaseAllowed(this.identity.release, result.allowedReleases) ||
       typeof result.uploadToken !== 'string' || !result.uploadToken ||
       typeof result.uploadTokenExpiresAt !== 'string'
     ) throw new Error('キャンペーン参加応答が不正です。');
