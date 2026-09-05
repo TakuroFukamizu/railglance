@@ -1,3 +1,5 @@
+import { isReleaseAllowed, parseAllowedReleases } from '../../../../src/infrastructure/telemetry/release-allowlist';
+
 // Cloudflare Queues accepts at most 128 KB per message. Keep room for serialization metadata.
 const MAX_BODY_BYTES = 120_000;
 const MAX_SESSION_BODY_BYTES = 4_096;
@@ -503,10 +505,7 @@ function campaignId(env: WorkerEnvironment): string {
 }
 
 function allowedReleases(env: WorkerEnvironment): string[] {
-  return (env.TELEMETRY_ALLOWED_RELEASES ?? '')
-    .split(',')
-    .map((release) => release.trim())
-    .filter((release) => release.length > 0 && release.length <= 200);
+  return parseAllowedReleases(env.TELEMETRY_ALLOWED_RELEASES);
 }
 
 function qualificationStub(env: WorkerEnvironment, participantId: string): DurableObjectStub {
@@ -583,7 +582,7 @@ async function enrollCampaign(
   }
   const releases = allowedReleases(env);
   if (releases.length === 0) return jsonResponse(503, { error: 'allowed_releases_not_configured' }, origin);
-  if (!releases.includes(source.release)) return jsonResponse(403, { error: 'release_not_allowed' }, origin);
+  if (!isReleaseAllowed(source.release, releases)) return jsonResponse(403, { error: 'release_not_allowed' }, origin);
 
   const participantId = `p_${randomCredentialPart(18)}`;
   const credentialSecret = randomCredentialPart();
@@ -645,7 +644,7 @@ async function refreshDiagnosticSession(
   if (record.qualificationExpiresAt <= nowSeconds) return jsonResponse(410, { error: 'qualification_expired' }, origin);
   if (record.campaignId !== campaignId(env)) return jsonResponse(410, { error: 'campaign_ended' }, origin);
   const releases = allowedReleases(env);
-  if (!releases.includes(source.release)) return jsonResponse(403, { error: 'release_not_allowed' }, origin);
+  if (!isReleaseAllowed(source.release, releases)) return jsonResponse(403, { error: 'release_not_allowed' }, origin);
   if (JSON.stringify(record.allowedReleases) !== JSON.stringify(releases)) {
     record.allowedReleases = releases;
     await storeQualification(env, record);
@@ -709,9 +708,9 @@ async function acceptTelemetryBatch(
   if (
     batch.events.some((event) => (
       typeof event.release !== 'string' ||
-      !tokenPayload.allowedReleases.includes(event.release) ||
-      !qualification.allowedReleases.includes(event.release) ||
-      !allowedReleases(env).includes(event.release) ||
+      !isReleaseAllowed(event.release, tokenPayload.allowedReleases) ||
+      !isReleaseAllowed(event.release, qualification.allowedReleases) ||
+      !isReleaseAllowed(event.release, allowedReleases(env)) ||
       event.environment !== tokenPayload.environment
     ))
   ) return jsonResponse(403, { error: 'token_scope_mismatch' }, origin);
