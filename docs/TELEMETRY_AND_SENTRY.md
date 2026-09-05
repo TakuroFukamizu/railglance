@@ -138,14 +138,15 @@ Secretは環境間で共有されないため、各コマンドに `--env stagin
 エントリの列挙へ戻す。
 
 照合ロジックは `src/infrastructure/telemetry/release-allowlist.ts` にあり、アプリとWorkerが同じ関数を
-import する。アプリ側も enroll/refresh 応答の `allowedReleases` を自分の release と照合するため、
-ワイルドカードを解釈できないクライアント（0.1.3以前）が残っている間は、そのクライアントの完全一致
-エントリをリストに残す。切り替え手順は次の通り。
+import する。アプリ側も enroll/refresh 応答の `allowedReleases` を自分の release と照合する。
+ワイルドカードを解釈できないクライアント（0.1.3以前）は自分の release 文字列が配列に完全一致で
+含まれるかだけを見るので、ワイルドカードエントリが混ざっていても影響を受けない。したがって
+`railglance@0.1.3,railglance@0.1.*` のように旧クライアント用の完全一致とワイルドカードを併記した
+リストを、ワイルドカード対応版のアプリを配布する**前に** Worker へデプロイしておく。Worker のコードも
+同時に更新されるため、デプロイは対応版がマージされた `main` から行う。旧クライアントが残っていない
+ことを確認してから完全一致エントリを削除する。
 
-1. ワイルドカード対応版のアプリを配布する。この時点では `wrangler.toml` を変えない。
-2. 対応版が端末に載った後、`railglance@0.1.3,railglance@0.1.*` のように旧クライアント用の完全一致と
-   ワイルドカードを併記して Worker を再デプロイする。
-3. 旧クライアントが残っていないことを確認してから完全一致エントリを削除する。
+バージョンアップ作業の手順は `.claude/skills/bumping-app-version/SKILL.md` にまとめている。
 
 `wrangler.toml` でcampaign ID、資格日数、対象release、token TTL、Origin allowlistを設定する。allowlistは
 通常完全一致だが、末尾が `:*` のエントリは当該 `scheme://host` の任意の数値ポートを許可する（Even App
