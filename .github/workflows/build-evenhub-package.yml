@@ -90,6 +90,9 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
+      - name: Check release consistency
+        run: pnpm release:check
+
       - name: Build package and upload source maps
         env:
           SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
