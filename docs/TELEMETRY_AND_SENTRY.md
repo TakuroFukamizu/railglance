@@ -132,8 +132,10 @@ Secretは環境間で共有されないため、各コマンドに `--env stagin
 ### 許可releaseの運用
 
 `TELEMETRY_ALLOWED_RELEASES` はパッチワイルドカードで minor 系列ごとに1エントリにまとめる。パッチ版の
-リリースでは `wrangler.toml` を編集せず、Workerも再デプロイしない。minor または major を上げたときだけ
-新しいワイルドカードエントリを追加して `pnpm dlx wrangler deploy` を実行する。古い系列の収集を終える
+リリースでは `wrangler.toml` を編集せず、許可releaseを理由とした Worker の再デプロイも不要になる。minor
+または major を上げたときだけ新しいワイルドカードエントリを追加して `pnpm dlx wrangler deploy` を実行する。
+Worker のコード自体が前回デプロイ以降に変わっている場合は、パッチ版でも再デプロイが必要になる。判定の
+手順は `.claude/skills/bumping-app-version/SKILL.md` を参照する。古い系列の収集を終える
 ときはそのエントリを削除する。特定のパッチ版だけを除外したい場合は、その系列のワイルドカードを完全一致
 エントリの列挙へ戻す。
 
