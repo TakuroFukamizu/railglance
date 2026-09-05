@@ -207,6 +207,51 @@ describe('Cloudflare telemetry Worker', () => {
     expect((await worker.fetch(uploadRequest(await validToken()), env)).status).toBe(429);
   });
 
+  it('accepts a patch-wildcard release entry across enrollment, refresh, and upload', async () => {
+    const env = environment();
+    env.TELEMETRY_ALLOWED_RELEASES = 'railglance@0.1.*';
+    const enrollment = await worker.fetch(new Request('https://worker.example/v1/telemetry/campaign/enroll', {
+      method: 'POST',
+      body: JSON.stringify({
+        schemaVersion: 1, sessionId: 'session-1', release: 'railglance@0.1.7',
+        environment: 'prototype', consent: true, accessCode: 'tester-code',
+      }),
+    }), env);
+    expect(enrollment.status).toBe(201);
+    const enrolled = await enrollment.json() as { campaignCredential: string; allowedReleases: string[]; uploadToken: string };
+    expect(enrolled.allowedReleases).toEqual(['railglance@0.1.*']);
+
+    const refresh = await worker.fetch(new Request('https://worker.example/v1/telemetry/session', {
+      method: 'POST',
+      body: JSON.stringify({
+        schemaVersion: 1, campaignCredential: enrolled.campaignCredential,
+        release: 'railglance@0.1.8', environment: 'prototype',
+      }),
+    }), env);
+    expect(refresh.status).toBe(201);
+
+    const payload = batch();
+    payload.events[0].release = 'railglance@0.1.8';
+    expect((await worker.fetch(uploadRequest(enrolled.uploadToken, payload), env)).status).toBe(202);
+
+    const nextMinor = batch();
+    nextMinor.events[0].release = 'railglance@0.2.0';
+    expect((await worker.fetch(uploadRequest(enrolled.uploadToken, nextMinor), env)).status).toBe(403);
+  });
+
+  it('rejects enrollment from a release outside the patch wildcard', async () => {
+    const env = environment();
+    env.TELEMETRY_ALLOWED_RELEASES = 'railglance@0.1.*';
+    const response = await worker.fetch(new Request('https://worker.example/v1/telemetry/campaign/enroll', {
+      method: 'POST',
+      body: JSON.stringify({
+        schemaVersion: 1, sessionId: 'session-1', release: 'railglance@0.2.0',
+        environment: 'prototype', consent: true, accessCode: 'tester-code',
+      }),
+    }), env);
+    expect(response.status).toBe(403);
+  });
+
   it('echoes an ephemeral-port loopback origin when the allowlist uses a port wildcard', async () => {
     const env = environment();
     env.TELEMETRY_ALLOWED_ORIGINS = 'http://localhost:5173,http://127.0.0.1:*';
