@@ -32,6 +32,8 @@ export type DiagnosticStatus = {
   qualificationExpiresAt: string | null;
   uploadTokenExpiresAt: string | null;
   campaignId: string | null;
+  enrolled: boolean;
+  consentedAt: string | null;
   message: string;
 };
 
@@ -72,6 +74,8 @@ export class RuntimeTelemetryManager implements TelemetrySink {
     qualificationExpiresAt: null,
     uploadTokenExpiresAt: null,
     campaignId: null,
+    enrolled: false,
+    consentedAt: null,
     message: '診断収集は停止しています。',
   };
 
@@ -395,6 +399,8 @@ export class RuntimeTelemetryManager implements TelemetrySink {
         ? new Date(this.uploadTokenExpiresAtMs).toISOString()
         : null,
       campaignId: this.qualification?.campaignId ?? null,
+      enrolled: this.hasQualification(),
+      consentedAt: this.qualification?.consentedAt ?? null,
       message,
     };
     for (const listener of this.listeners) listener(this.status);

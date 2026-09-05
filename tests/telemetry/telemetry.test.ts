@@ -236,6 +236,51 @@ describe('RuntimeTelemetryManager', () => {
     await restarted.shutdown();
   });
 
+  it('reports the persisted enrollment and consent in the status after a restart', async () => {
+    const consentedAt = new Date(Date.now() - 86_400_000).toISOString();
+    const qualificationStore = new MemoryQualificationStore();
+    qualificationStore.value = {
+      key: 'active', schemaVersion: 1, participantId: 'p_test', campaignId: 'campaign-test',
+      credential: 'p_test.credential', qualificationExpiresAt: new Date(Date.now() + 86_400_000).toISOString(),
+      allowedReleases: ['test'], consentedAt, collectionEnabled: false, lastValidatedRelease: 'test',
+    };
+    const manager = new RuntimeTelemetryManager(
+      new MemorySink(), readTelemetryConfig({ VITE_TELEMETRY_ENDPOINT: 'https://telemetry.example' }),
+      { sessionId: 'session-1', release: 'test', environment: 'test' },
+      vi.fn<typeof fetch>(), qualificationStore
+    );
+
+    const status = await manager.initialize();
+
+    expect(status.state).toBe('paused');
+    expect(status.enrolled).toBe(true);
+    expect(status.consentedAt).toBe(consentedAt);
+    expect(status.campaignId).toBe('campaign-test');
+    await manager.shutdown();
+  });
+
+  it('reports no enrollment once the persisted qualification expired', async () => {
+    const qualificationStore = new MemoryQualificationStore();
+    qualificationStore.value = {
+      key: 'active', schemaVersion: 1, participantId: 'p_test', campaignId: 'campaign-test',
+      credential: 'p_test.credential', qualificationExpiresAt: new Date(Date.now() - 1_000).toISOString(),
+      allowedReleases: ['test'], consentedAt: new Date(Date.now() - 86_400_000).toISOString(),
+      collectionEnabled: true, lastValidatedRelease: 'test',
+    };
+    const manager = new RuntimeTelemetryManager(
+      new MemorySink(), readTelemetryConfig({ VITE_TELEMETRY_ENDPOINT: 'https://telemetry.example' }),
+      { sessionId: 'session-1', release: 'test', environment: 'test' },
+      vi.fn<typeof fetch>(), qualificationStore
+    );
+
+    const status = await manager.initialize();
+
+    expect(status.state).toBe('expired');
+    expect(status.enrolled).toBe(false);
+    expect(status.consentedAt).toBeNull();
+    await manager.shutdown();
+  });
+
   it('stops collection immediately when a persisted qualification is revoked', async () => {
     const qualificationStore = new MemoryQualificationStore();
     qualificationStore.value = {
