@@ -5,7 +5,8 @@ export type DiagnosticPanelView = {
   detailText: string;
   collecting: boolean;
   errored: boolean;
-  consentChecked: boolean;
+  /** true/false force the box; null leaves the tester's own tick untouched. */
+  consentChecked: boolean | null;
   consentDisabled: boolean;
   accessCodeDisabled: boolean;
   accessCodePlaceholder: string;
@@ -17,9 +18,16 @@ export type DiagnosticPanelView = {
 const COLLECTING_STATES = ['active', 'refreshing', 'offline-buffering'];
 const ERROR_STATES = ['expired', 'revoked', 'release-blocked'];
 const START_BLOCKED_STATES = ['joining', 'revoked', 'release-blocked'];
+/** States a tester can sit in before any qualification exists, where their own tick must survive. */
+const PRE_ENROLLMENT_STATES = ['errors-only', 'joining'];
 
 export function formatLocalDateTime(isoTimestamp: string): string {
   return new Date(isoTimestamp).toLocaleString();
+}
+
+function consentCheckedOf(status: DiagnosticStatus): boolean | null {
+  if (status.enrolled) return true;
+  return PRE_ENROLLMENT_STATES.includes(status.state) ? null : false;
 }
 
 function statusLabelOf(status: DiagnosticStatus, collecting: boolean): string {
@@ -53,7 +61,7 @@ export function buildDiagnosticPanelView(
     detailText: detailTextOf(status, formatDateTime),
     collecting,
     errored: ERROR_STATES.includes(status.state),
-    consentChecked: status.enrolled,
+    consentChecked: consentCheckedOf(status),
     consentDisabled: status.enrolled,
     accessCodeDisabled: status.enrolled,
     accessCodePlaceholder: status.enrolled ? '参加済み・再入力不要' : 'キャンペーン参加時のみ',

@@ -31,7 +31,7 @@ describe('buildDiagnosticPanelView', () => {
   it('asks an unenrolled tester for consent and the access code', () => {
     const view = buildDiagnosticPanelView(status(), formatDateTime);
 
-    expect(view.consentChecked).toBe(false);
+    expect(view.consentChecked).toBeNull();
     expect(view.consentDisabled).toBe(false);
     expect(view.accessCodeDisabled).toBe(false);
     expect(view.accessCodePlaceholder).toBe('キャンペーン参加時のみ');
@@ -107,6 +107,25 @@ describe('buildDiagnosticPanelView', () => {
     expect(view.consentDisabled).toBe(false);
     expect(view.accessCodeDisabled).toBe(false);
     expect(view.startDisabled).toBe(false);
+  });
+
+  it('clears a stale consent tick once the qualification lapsed mid-session', () => {
+    const view = buildDiagnosticPanelView(
+      status({ state: 'offline-buffering', campaignId: 'campaign-1', message: 'オフラインです。' }),
+      formatDateTime
+    );
+
+    expect(view.consentChecked).toBe(false);
+    expect(view.consentDisabled).toBe(false);
+  });
+
+  it('leaves a consent tick the tester made while a first enrollment is in flight', () => {
+    const view = buildDiagnosticPanelView(
+      status({ state: 'joining', message: 'キャンペーン参加資格を登録しています。' }),
+      formatDateTime
+    );
+
+    expect(view.consentChecked).toBeNull();
   });
 
   it('blocks restarting after the qualification was revoked', () => {

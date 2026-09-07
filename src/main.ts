@@ -239,7 +239,7 @@ async function init() {
     }
     if (diagnosticConsent) {
       diagnosticConsent.disabled = view.consentDisabled;
-      diagnosticConsent.checked = view.consentChecked || diagnosticConsent.checked;
+      if (view.consentChecked !== null) diagnosticConsent.checked = view.consentChecked;
     }
   };
 
