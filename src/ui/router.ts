@@ -87,7 +87,12 @@ export function createRouter(deps: RouterDeps): Router {
       apply(route);
       return;
     }
-    deps.history.replaceState(null, '', HASHES.home);
+    try {
+      deps.history.replaceState(null, '', HASHES.home);
+    } catch (error) {
+      // Every view starts hidden, so a failed canonicalisation must not leave a blank page.
+      console.warn('[Router] replaceState failed; showing home anyway:', error);
+    }
     apply('home');
   };
 

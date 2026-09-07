@@ -148,6 +148,17 @@ describe('createRouter', () => {
     expect(onRouteApplied).toHaveBeenLastCalledWith('diagnostics');
   });
 
+  it('still shows home when replaceState throws', () => {
+    const { router, views, history } = setup('#/bogus');
+    history.replaceState.mockImplementation(() => {
+      throw new Error('SecurityError');
+    });
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    expect(() => router.start()).not.toThrow();
+    expect(views.home.hidden).toBe(false);
+    warn.mockRestore();
+  });
+
   it('navigate() sets the hash', () => {
     const { router, location } = setup('#/');
     router.start();
