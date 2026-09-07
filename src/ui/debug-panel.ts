@@ -25,17 +25,42 @@ export function renderSyncBadge(status?: RailwayDataState): string {
   }
 }
 
-export class DebugPanel {
-  private container: HTMLElement;
+export type DebugPanelContainer = { innerHTML: string };
 
-  constructor(containerId: string) {
-    const el = document.getElementById(containerId);
+type DebugPanelArgs = [
+  entry: EstimationLogEntry,
+  lastImageResult?: string,
+  datasetSyncStatus?: DatasetSyncStatus,
+  bridge?: BridgeDiagnosticsSnapshot,
+];
+
+export class DebugPanel {
+  private container: DebugPanelContainer;
+  private visible = false;
+  private dirty = false;
+  private latestArgs: DebugPanelArgs | null = null;
+
+  constructor(target: string | DebugPanelContainer) {
+    if (typeof target !== 'string') {
+      this.container = target;
+      return;
+    }
+    const el = document.getElementById(target);
     if (!el) {
-      this.container = document.createElement('div');
-      this.container.id = containerId;
-      document.body.appendChild(this.container);
+      const created = document.createElement('div');
+      created.id = target;
+      document.body.appendChild(created);
+      this.container = created;
     } else {
       this.container = el;
+    }
+  }
+
+  /** Rendering is deferred while hidden; showing flushes the latest update once. */
+  public setVisible(visible: boolean): void {
+    this.visible = visible;
+    if (visible && this.dirty && this.latestArgs) {
+      this.render(...this.latestArgs);
     }
   }
 
@@ -45,6 +70,21 @@ export class DebugPanel {
     datasetSyncStatus?: DatasetSyncStatus,
     bridge?: BridgeDiagnosticsSnapshot
   ): void {
+    this.latestArgs = [entry, lastImageResult, datasetSyncStatus, bridge];
+    if (!this.visible) {
+      this.dirty = true;
+      return;
+    }
+    this.render(entry, lastImageResult, datasetSyncStatus, bridge);
+  }
+
+  private render(
+    entry: EstimationLogEntry,
+    lastImageResult?: string,
+    datasetSyncStatus?: DatasetSyncStatus,
+    bridge?: BridgeDiagnosticsSnapshot
+  ): void {
+    this.dirty = false;
     const { rawLocation, speedState, match, journey, timestampMs } = entry;
     const { selectedEstimate, smoothedSpeedKmh, isStopped, isValid, candidates, navState } = speedState;
 

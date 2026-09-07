@@ -10,6 +10,13 @@ import type { DiagnosticStatus } from './infrastructure/telemetry/runtime-teleme
 import { buildDiagnosticPanelView } from './ui/diagnostic-panel';
 import { DEFAULT_TRACKING_CONFIG } from './config/tracking-config';
 import { formatBuildInfo, readBuildInfo } from './config/build-info';
+import type { DatasetSyncStatus } from './infrastructure/storage/dexie-railway-database';
+import { createRouter, VIEW_NAMES, type ViewElement, type ViewName } from './ui/router';
+import { buildHomeStatusView, type StatusTone } from './ui/home-status-card';
+import { buildRouteCandidateItems, shouldShowRouteCandidates } from './ui/route-candidates';
+import { createMotionBannerController } from './ui/motion-banner';
+import { attachPreviewScaler } from './ui/hud-preview-scale';
+import { createDebugViewCoordinator } from './ui/debug-view';
 
 class DemoGpsReplayerProvider implements LocationProvider {
   private listener: ((sample: LocationSample) => void) | null = null;
@@ -106,6 +113,23 @@ function updateViewportDOM(model: HudViewModel): void {
   if (footerRightEl) footerRightEl.textContent = model.footer.statusRight;
 }
 
+const STATUS_TONES: StatusTone[] = ['ok', 'warn', 'alert'];
+
+function renderHomeStatus(model: HudViewModel | null, sync?: DatasetSyncStatus): void {
+  const view = buildHomeStatusView(model, sync);
+  const lineName = document.getElementById('status-line-name');
+  const direction = document.getElementById('status-direction');
+  const speed = document.getElementById('status-speed');
+  const right = document.getElementById('status-right');
+  if (lineName) lineName.textContent = view.lineName;
+  if (direction) direction.textContent = view.direction;
+  if (speed) speed.textContent = view.speedText;
+  if (right) {
+    right.textContent = view.statusText;
+    for (const tone of STATUS_TONES) right.classList.toggle(`status-${tone}`, tone === view.tone);
+  }
+}
+
 function renderBuildInfo(): void {
   const el = document.getElementById('build-info');
   if (el) el.textContent = formatBuildInfo(readBuildInfo());
@@ -118,12 +142,86 @@ async function init() {
   const debugPanel = new DebugPanel('debug-panel');
   const motionSensorProvider = new DeviceMotionSensorFusionProvider();
 
+  let latestModel: HudViewModel | null = null;
   const { controller, db, evenG2Adapter, logger, telemetryManager } = await bootstrapApp(undefined, (_formattedText, model) => {
     if (model) {
+      latestModel = model;
       updateViewportDOM(model);
+      renderHomeStatus(model, db.getSyncStatus?.());
     }
   });
 
+  // --- Views & routing ---
+  const views = Object.fromEntries(
+    VIEW_NAMES.map((name) => {
+      const section = document.querySelector<HTMLElement>(`[data-view="${name}"]`);
+      if (!section) throw new Error(`[main] Missing view section: ${name}`);
+      const heading = section.querySelector<HTMLElement>('h2');
+      const element: ViewElement = {
+        get hidden() {
+          return section.hidden;
+        },
+        set hidden(value: boolean) {
+          section.hidden = value;
+        },
+        heading: heading ? { focus: () => heading.focus({ preventScroll: true }) } : null,
+      };
+      return [name, element];
+    })
+  ) as Record<ViewName, ViewElement>;
+
+  const backButton = document.getElementById('btn-back') as HTMLButtonElement;
+  const hudRoot = document.getElementById('hud-root') as HTMLElement;
+  const previewWrapper = document.getElementById('hud-preview-wrapper') as HTMLElement;
+  const scaler = attachPreviewScaler({
+    measureWidth: () => previewWrapper.clientWidth,
+    root: hudRoot,
+    requestFrame: (cb) => requestAnimationFrame(cb),
+    observe:
+      typeof ResizeObserver === 'function'
+        ? (cb) => {
+            const observer = new ResizeObserver(() => cb());
+            observer.observe(previewWrapper);
+            return () => observer.disconnect();
+          }
+        : undefined,
+  });
+  const debugView = createDebugViewCoordinator({ panel: debugPanel, scaler });
+
+  const router = createRouter({
+    location: window.location,
+    history: window.history,
+    window,
+    views,
+    chrome: {
+      backButton,
+      setTitle: (title) => {
+        document.title = title;
+      },
+      scrollToTop: () => window.scrollTo(0, 0),
+    },
+    onRouteApplied: (route) => debugView.onRouteApplied(route),
+  });
+  backButton.addEventListener('click', () => router.navigate('home'));
+  router.start();
+
+  // The fixed diagnostic chip grows with its detail text; keep the page padding
+  // large enough that the last control on every view stays reachable above it.
+  const diagnosticChip = document.getElementById('diagnostic-indicator');
+  diagnosticChip?.addEventListener('click', () => router.navigate('diagnostics'));
+  const reserveChipSpace = () => {
+    if (!diagnosticChip) return;
+    const height = diagnosticChip.offsetHeight;
+    if (height > 0) document.body.style.setProperty('--chip-reserve', `${height + 24}px`);
+  };
+  if (typeof ResizeObserver === 'function' && diagnosticChip) {
+    new ResizeObserver(reserveChipSpace).observe(diagnosticChip);
+  } else {
+    window.addEventListener('resize', reserveChipSpace);
+  }
+  reserveChipSpace();
+
+  // --- Route re-detection ---
   const routeCandidateList = document.getElementById('route-candidate-list');
   const routeCandidates = document.getElementById('route-candidates');
   const unlockRouteButton = document.getElementById('btn-unlock-route') as HTMLButtonElement | null;
@@ -135,30 +233,23 @@ async function init() {
     if (unlockRouteButton) unlockRouteButton.hidden = lockState !== 'MANUAL_LOCK';
     if (routeLockWarning) routeLockWarning.hidden = !(lockState === 'MANUAL_LOCK' && match?.manualLockAway);
 
-    const candidates = match?.candidates ?? [];
-    const showCandidates =
-      lockState === 'REACQUIRING' ||
-      lockState === 'UNRESOLVED' ||
-      (typeof match?.scoreMargin === 'number' &&
-        match.scoreMargin < DEFAULT_TRACKING_CONFIG.routeCandidateTieMargin &&
-        candidates.length > 1);
-    if (routeCandidates) routeCandidates.hidden = !showCandidates || candidates.length === 0;
+    const show = shouldShowRouteCandidates(match, DEFAULT_TRACKING_CONFIG.routeCandidateTieMargin);
+    if (routeCandidates) routeCandidates.hidden = !show;
     if (routeCandidateList) {
       routeCandidateList.replaceChildren();
-      for (const candidate of candidates) {
-        const percent = Math.max(0, Math.min(100, Math.round(candidate.totalScore)));
-        const item = document.createElement('li');
+      for (const item of buildRouteCandidateItems(match)) {
+        const li = document.createElement('li');
         const button = document.createElement('button');
         button.type = 'button';
         button.className = 'route-candidate-button';
-        button.dataset.segmentId = candidate.segment.id;
+        button.dataset.segmentId = item.segmentId;
         const name = document.createElement('strong');
-        name.textContent = candidate.line.name;
+        name.textContent = item.lineName;
         const detail = document.createElement('small');
-        detail.textContent = `${percent}% · ${candidate.distanceMeters}m · ${candidate.segment.id}`;
+        detail.textContent = item.detail;
         button.append(name, detail);
-        item.append(button);
-        routeCandidateList.append(item);
+        li.append(button);
+        routeCandidateList.append(li);
       }
     }
   };
@@ -169,6 +260,7 @@ async function init() {
     const bridge = evenG2Adapter.getBridgeDiagnostics?.();
     debugPanel.update(entry, lastImageResult, syncStatus, bridge);
     renderRouteControls();
+    renderHomeStatus(latestModel, syncStatus);
   });
 
   document.getElementById('btn-reacquire-route')?.addEventListener('click', () => {
@@ -194,15 +286,24 @@ async function init() {
     controller.stop();
   });
 
-  document.getElementById('btn-request-motion')?.addEventListener('click', async () => {
-    const isGranted = await motionSensorProvider.requestPermission();
-    if (isGranted) {
-      alert('✓ モーションセンサー有効化完了！（加速度データを受信中）');
-    } else {
-      const status = motionSensorProvider.getPermissionStatus();
-      alert(`モーションセンサー有効化状態: ${status}\n（一度OKを押された場合、バックグラウンドで自動的にセンサーデータを受信している可能性があります）`);
+  // --- Motion sensor banner ---
+  const motionBanner = document.getElementById('motion-banner') as HTMLElement | null;
+  const motionBannerMessage = document.getElementById('motion-banner-message');
+  const motionBannerButton = document.getElementById('btn-motion-banner') as HTMLButtonElement | null;
+  const motionController = createMotionBannerController({ provider: motionSensorProvider });
+  const renderMotionBanner = () => {
+    const view = motionController.getView();
+    if (motionBanner) motionBanner.hidden = !view.visible;
+    if (motionBannerMessage) motionBannerMessage.textContent = view.message;
+    if (motionBannerButton) {
+      motionBannerButton.hidden = view.buttonLabel === null;
+      motionBannerButton.textContent = view.buttonLabel ?? '';
+      motionBannerButton.disabled = view.buttonDisabled;
     }
-  });
+  };
+  motionController.subscribe(renderMotionBanner);
+  motionBannerButton?.addEventListener('click', () => void motionController.request());
+  renderMotionBanner();
 
   document.getElementById('btn-replay-odakyu')?.addEventListener('click', () => {
     void controller.switchLocationProvider(new DemoGpsReplayerProvider(ODAKYU_DEMO_POINTS));
@@ -243,7 +344,10 @@ async function init() {
     }
   };
 
-  telemetryManager.subscribe(renderDiagnosticStatus);
+  telemetryManager.subscribe((status) => {
+    renderDiagnosticStatus(status);
+    reserveChipSpace();
+  });
 
   diagnosticStart?.addEventListener('click', async () => {
     if (!telemetryManager.hasQualification() && !diagnosticConsent?.checked) {

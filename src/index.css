@@ -9,6 +9,10 @@
   --brightness-secondary: #00BB00; /* Level 11: Line Name, Previous Station, Progress Fill */
   --brightness-tertiary: #007700;  /* Level 7: Units, Distances, Status Marks */
   --brightness-disabled: #003300;  /* Level 4: Inactive / Track */
+
+  /* Space kept clear for the fixed diagnostic chip: the longest enrolled detail
+     (campaign / consent / expiry) wraps to three lines at 320px. */
+  --chip-reserve: 112px;
 }
 
 * {
@@ -22,16 +26,54 @@ body {
   background-color: var(--bg-color);
   color: var(--text-color);
   padding: 20px;
-  padding-bottom: 88px;
+  padding-bottom: calc(var(--chip-reserve) + env(safe-area-inset-bottom));
+}
+
+/* Views are toggled with the hidden attribute; keep later display rules from undoing it. */
+[hidden] {
+  display: none !important;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.view > h2 {
+  font-size: 20px;
+  margin-bottom: 16px;
+}
+
+.view > h2:focus {
+  outline: none;
 }
 
 .app-header {
   display: flex;
-  justify-content: space-between;
   align-items: center;
+  gap: 12px;
   margin-bottom: 20px;
   border-bottom: 1px solid var(--border-color);
   padding-bottom: 12px;
+}
+
+.app-header h1 {
+  font-size: 20px;
+}
+
+.btn-back {
+  background: none;
+  border: 1px solid var(--border-color);
+  color: var(--text-color);
+  border-radius: 6px;
+  padding: 8px 12px;
+  font-size: 15px;
+  cursor: pointer;
+  flex-shrink: 0;
 }
 
 .app-identity {
@@ -85,6 +127,119 @@ body {
   opacity: 0.55;
 }
 
+/* Home cards */
+.card {
+  margin-top: 16px;
+  background-color: var(--panel-bg);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  padding: 18px 20px;
+}
+
+.status-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+}
+
+.status-line-name {
+  font-size: 22px;
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.status-direction {
+  font-size: 18px;
+  font-weight: 600;
+  color: #8b949e;
+  flex-shrink: 0;
+}
+
+.status-row-secondary {
+  margin-top: 10px;
+}
+
+.status-speed {
+  font-size: 34px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.status-right {
+  font-size: 15px;
+  font-weight: 600;
+  text-align: right;
+}
+
+.status-ok {
+  color: #3fb950;
+}
+
+.status-warn {
+  color: #d29922;
+}
+
+.status-alert {
+  color: #f85149;
+}
+
+.card-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+}
+
+.card-heading h3 {
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.card-link {
+  color: #58a6ff;
+  text-decoration: none;
+  font-size: 15px;
+}
+
+.card-empty {
+  margin-top: 10px;
+  color: #8b949e;
+  line-height: 1.6;
+}
+
+.secondary-links {
+  display: grid;
+  gap: 6px;
+  margin-top: 20px;
+}
+
+.secondary-links a {
+  color: #8b949e;
+  text-decoration: none;
+  padding: 8px 4px;
+  font-size: 15px;
+}
+
+.motion-banner {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  border: 1px solid #9e6a03;
+  background: rgba(210, 153, 34, 0.12);
+  color: #e3b341;
+  border-radius: 8px;
+  line-height: 1.5;
+}
+
+.motion-banner .btn {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
 .diagnostic-section {
   margin-top: 20px;
   background-color: var(--panel-bg);
@@ -129,19 +284,22 @@ body {
 .diagnostic-indicator {
   position: fixed;
   right: 16px;
-  bottom: 16px;
+  bottom: calc(16px + env(safe-area-inset-bottom));
+  left: 16px;
   z-index: 10;
   display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 12px;
-  margin-top: 14px;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
   padding: 10px 12px;
+  text-align: left;
+  font: inherit;
   color: #8c959f;
   background: rgba(13, 17, 23, 0.96);
   border: 1px solid var(--border-color);
   border-radius: 6px;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  cursor: pointer;
 }
 
 .diagnostic-indicator.is-active {
@@ -157,47 +315,50 @@ body {
 @media (max-width: 720px) {
   body {
     padding: 12px;
-  }
-
-  .app-header {
-    align-items: flex-start;
-    flex-direction: column;
-    gap: 12px;
+    padding-bottom: calc(var(--chip-reserve) + env(safe-area-inset-bottom));
   }
 
   .diagnostic-indicator {
     right: 8px;
-    bottom: 8px;
+    bottom: calc(8px + env(safe-area-inset-bottom));
     left: 8px;
-    align-items: flex-start;
-    flex-direction: column;
-  }
-
-  .preview-section {
-    overflow-x: auto;
   }
 }
 
+.preview-section h3 {
+  font-size: 14px;
+  margin-bottom: 10px;
+  color: #8b949e;
+}
+
+/* Fluid wrapper owns the layout box; the 576x288 root inside is scaled to fit. */
 .glasses-viewport {
-  width: 576px;
-  height: 288px;
+  position: relative;
+  width: min(100%, 576px);
+  aspect-ratio: 2 / 1;
+  margin: 0 auto 16px;
   background-color: #000000;
   border: 2px solid #333;
   border-radius: 8px;
-  position: relative;
   overflow: hidden;
   box-shadow: 0 0 20px rgba(0, 255, 0, 0.15);
-  margin-bottom: 30px;
 }
 
 /* Even G2 Fixed 576x288px Hybrid Layout */
 .hud-root {
-  position: relative;
+  position: absolute;
+  top: 0;
+  left: 0;
   width: 576px;
   height: 288px;
+  transform-origin: top left;
   background-color: #000000;
   overflow: hidden;
   font-family: 'SF Pro Display', -apple-system, BlinkMacSystemFont, monospace;
+}
+
+.hud-preview-controls {
+  min-height: 0;
 }
 
 /* 1. HEADER TextContainer (Y: 0~44) */
@@ -330,6 +491,12 @@ body {
 }
 
 /* Debug Section */
+.debug-section h3 {
+  font-size: 14px;
+  margin-bottom: 10px;
+  color: #8b949e;
+}
+
 .debug-section {
   margin-top: 20px;
   background-color: var(--panel-bg);
@@ -403,20 +570,6 @@ body {
 .badge.REACQUIRING {
   background-color: #db6d28;
   color: white;
-}
-
-.route-control-section {
-  margin-top: 20px;
-  background-color: var(--panel-bg);
-  border: 1px solid var(--border-color);
-  border-radius: 8px;
-  padding: 16px;
-  line-height: 1.6;
-}
-
-.route-control-section > p {
-  margin-top: 8px;
-  color: #8c959f;
 }
 
 .route-control-actions {

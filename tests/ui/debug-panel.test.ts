@@ -126,6 +126,7 @@ describe('DebugPanel Even G2 Bridge Transport card', () => {
   it('renders placeholders when bridge diagnostics are absent', () => {
     const container = installDocumentMock();
     const panel = new DebugPanel('debug-panel');
+    panel.setVisible(true);
     panel.update(estimationEntry(), 'success');
 
     expect(container.innerHTML).toContain('Even G2 Bridge Transport');
@@ -142,6 +143,7 @@ describe('DebugPanel Even G2 Bridge Transport card', () => {
   it('renders escaped diagnostics and highlights an overdue operation age', () => {
     const container = installDocumentMock();
     const panel = new DebugPanel('debug-panel');
+    panel.setVisible(true);
     const bridge: BridgeDiagnosticsSnapshot = {
       status: 'STALLED',
       pageReady: false,
@@ -190,5 +192,68 @@ describe('DebugPanel Even G2 Bridge Transport card', () => {
     expect(container.innerHTML).toContain(
       new Date(1_700_000_000_000).toLocaleTimeString()
     );
+  });
+});
+
+describe('DebugPanel deferred rendering', () => {
+  function countingContainer(): { innerHTML: string; writes: number } {
+    const state = { html: '', writes: 0 };
+    return {
+      get innerHTML() {
+        return state.html;
+      },
+      set innerHTML(value: string) {
+        state.html = value;
+        state.writes += 1;
+      },
+      get writes() {
+        return state.writes;
+      },
+    };
+  }
+
+  it('does not write while hidden and renders the latest args once when shown', () => {
+    const container = countingContainer();
+    const panel = new DebugPanel(container);
+
+    panel.update(estimationEntry(), 'first');
+    panel.update(estimationEntry(), 'second');
+    expect(container.writes).toBe(0);
+
+    panel.setVisible(true);
+    expect(container.writes).toBe(1);
+    expect(container.innerHTML).toContain('second');
+    expect(container.innerHTML).not.toContain('first');
+  });
+
+  it('does not re-render on a repeated setVisible(true) without new data', () => {
+    const container = countingContainer();
+    const panel = new DebugPanel(container);
+    panel.update(estimationEntry(), 'x');
+    panel.setVisible(true);
+    panel.setVisible(true);
+    expect(container.writes).toBe(1);
+  });
+
+  it('renders immediately while visible', () => {
+    const container = countingContainer();
+    const panel = new DebugPanel(container);
+    panel.setVisible(true);
+    expect(container.writes).toBe(0);
+    panel.update(estimationEntry(), 'live');
+    expect(container.writes).toBe(1);
+  });
+
+  it('hiding never writes; showing again after new data writes once', () => {
+    const container = countingContainer();
+    const panel = new DebugPanel(container);
+    panel.setVisible(true);
+    panel.update(estimationEntry(), 'a');
+    panel.setVisible(false);
+    expect(container.writes).toBe(1);
+    panel.update(estimationEntry(), 'b');
+    panel.setVisible(true);
+    expect(container.writes).toBe(2);
+    expect(container.innerHTML).toContain('b');
   });
 });
