@@ -7,6 +7,7 @@ import { DeviceMotionSensorFusionProvider } from './infrastructure/sensors/devic
 import { HudViewModel } from './domain/models/hud';
 import { captureRuntimeError } from './infrastructure/observability/sentry';
 import type { DiagnosticStatus } from './infrastructure/telemetry/runtime-telemetry';
+import { buildDiagnosticPanelView } from './ui/diagnostic-panel';
 import { DEFAULT_TRACKING_CONFIG } from './config/tracking-config';
 import { formatBuildInfo, readBuildInfo } from './config/build-info';
 
@@ -221,30 +222,25 @@ async function init() {
   const diagnosticDetail = document.getElementById('diagnostic-detail');
 
   const renderDiagnosticStatus = (status: DiagnosticStatus) => {
-    const collecting = ['active', 'refreshing', 'offline-buffering'].includes(status.state);
-    const canResume = status.state === 'paused';
-    diagnosticIndicator?.classList.toggle('is-active', collecting);
-    diagnosticIndicator?.classList.toggle(
-      'is-error', ['expired', 'revoked', 'release-blocked'].includes(status.state)
-    );
-    if (diagnosticStatus) {
-      diagnosticStatus.textContent = collecting
-        ? status.state === 'offline-buffering' ? '診断収集: 端末保存中' : '診断収集: 有効'
-        : status.state === 'paused' ? '診断収集: 一時停止' : '診断収集: 停止';
-    }
-    if (diagnosticDetail) {
-      const qualification = status.qualificationExpiresAt
-        ? ` 資格期限: ${new Date(status.qualificationExpiresAt).toLocaleString()}`
-        : '';
-      diagnosticDetail.textContent = `${status.message}${qualification}`;
-    }
+    const view = buildDiagnosticPanelView(status);
+    diagnosticIndicator?.classList.toggle('is-active', view.collecting);
+    diagnosticIndicator?.classList.toggle('is-error', view.errored);
+    if (diagnosticStatus) diagnosticStatus.textContent = view.statusLabel;
+    if (diagnosticDetail) diagnosticDetail.textContent = view.detailText;
     if (diagnosticStart) {
-      diagnosticStart.disabled = collecting || ['joining', 'revoked', 'release-blocked'].includes(status.state);
-      diagnosticStart.textContent = canResume ? '診断収集を再開' : '参加して診断収集を開始';
+      diagnosticStart.disabled = view.startDisabled;
+      diagnosticStart.textContent = view.startLabel;
     }
-    if (diagnosticStop) diagnosticStop.disabled = !collecting;
-    if (diagnosticAccessCode) diagnosticAccessCode.disabled = telemetryManager.hasQualification();
-    if (diagnosticConsent) diagnosticConsent.disabled = telemetryManager.hasQualification();
+    if (diagnosticStop) diagnosticStop.disabled = view.stopDisabled;
+    if (diagnosticAccessCode) {
+      diagnosticAccessCode.disabled = view.accessCodeDisabled;
+      diagnosticAccessCode.placeholder = view.accessCodePlaceholder;
+      if (view.accessCodeDisabled) diagnosticAccessCode.value = '';
+    }
+    if (diagnosticConsent) {
+      diagnosticConsent.disabled = view.consentDisabled;
+      if (view.consentChecked !== null) diagnosticConsent.checked = view.consentChecked;
+    }
   };
 
   telemetryManager.subscribe(renderDiagnosticStatus);
@@ -258,7 +254,6 @@ async function init() {
     diagnosticStart.disabled = true;
     try {
       await telemetryManager.startDiagnostic(diagnosticAccessCode?.value ?? '');
-      if (diagnosticAccessCode) diagnosticAccessCode.value = '';
     } catch (error) {
       diagnosticStart.disabled = false;
       diagnosticIndicator?.classList.add('is-error');
