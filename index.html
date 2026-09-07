@@ -2,77 +2,73 @@
 <html lang="ja">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>RailGlance - Even G2 Train HUD</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>RailGlance</title>
   </head>
   <body>
     <div id="app">
       <header class="app-header">
+        <button id="btn-back" class="btn-back" type="button" hidden aria-label="ホームに戻る">‹ 戻る</button>
         <div class="app-identity">
-          <h1>RailGlance - Even G2 HUD</h1>
+          <h1>RailGlance</h1>
           <p id="build-info" class="build-info">バージョン情報を読み込み中…</p>
-        </div>
-        <div class="controls">
-          <button id="btn-start" class="btn btn-primary">実機GPS開始</button>
-          <button id="btn-stop" class="btn">停止</button>
-          <button id="btn-request-motion" class="btn btn-secondary">モーションセンサー有効化</button>
-          <button id="btn-replay-odakyu" class="btn btn-secondary">小田急線デモ</button>
-          <button id="btn-replay-shinkansen" class="btn btn-secondary">新幹線デモ</button>
         </div>
       </header>
 
       <main class="app-main">
-        <section class="preview-section">
-          <h2>Even G2 グラス視界プレビュー (576×288px ハイブリッド表示 / PNG画像速度＋ネイティブTextContainer)</h2>
-          <div class="glasses-viewport">
-            <div id="hud-root" class="hud-root">
-              <!-- Y: 0~44 -> HEADER TextContainer (ID 1) -->
-              <div class="hud-header">
-                <span id="hud-line-name" class="hud-line-name brightness-secondary">小田急小田原線</span>
-                <span id="hud-service" class="hud-service brightness-secondary">上り</span>
-              </div>
+        <!-- ホーム -->
+        <section data-view="home" class="view" hidden>
+          <h2 class="visually-hidden" tabindex="-1">ホーム</h2>
 
-              <!-- Y: 48~192 -> SPEED ImageContainer (ID 2, X: 144, W: 288, H: 144) -->
-              <div class="hud-speed-container">
-                <span id="hud-speed-val" class="speed-value brightness-primary">--</span>
-                <span class="speed-unit brightness-tertiary">km/h</span>
-                <span id="hud-speed-est" class="speed-estimated brightness-tertiary">~</span>
-              </div>
+          <aside id="motion-banner" class="motion-banner" hidden>
+            <span id="motion-banner-message"></span>
+            <button id="btn-motion-banner" class="btn btn-secondary" type="button">有効化</button>
+          </aside>
 
-              <!-- Y: 196~244 -> SEGMENT TextContainer (ID 3) -->
-              <div class="hud-segment-container">
-                <div class="hud-station-row">
-                  <span id="hud-prev-station" class="station-prev brightness-secondary">海老名</span>
-                  <span id="hud-progress-text" class="progress-text brightness-secondary">━━━●━━━━━</span>
-                  <span id="hud-next-station" class="station-next brightness-primary">座間</span>
-                </div>
-              </div>
-
-              <!-- Y: 248~288 -> FOOTER TextContainer (ID 4) -->
-              <div class="hud-footer">
-                <span id="hud-dist-next" class="footer-left brightness-tertiary">次まで 4.2km</span>
-                <span id="hud-footer-right" class="footer-right brightness-tertiary">GPS</span>
-              </div>
+          <section class="card status-card" aria-label="現在の乗車">
+            <div class="status-row status-row-primary">
+              <span id="status-line-name" class="status-line-name">路線判定中</span>
+              <span id="status-direction" class="status-direction"></span>
             </div>
-          </div>
-        </section>
+            <div class="status-row status-row-secondary">
+              <span id="status-speed" class="status-speed">-- km/h</span>
+              <span id="status-right" class="status-right status-alert">測位中</span>
+            </div>
+          </section>
 
-        <section class="route-control-section" aria-labelledby="route-control-title">
-          <h2 id="route-control-title">路線再検出</h2>
-          <p>誤った路線が表示されている場合は再検出できます。速度表示は止まりません。</p>
           <div class="route-control-actions">
-            <button id="btn-reacquire-route" class="btn btn-secondary">路線を再検出</button>
-            <button id="btn-unlock-route" class="btn" hidden>自動判定に戻す</button>
+            <button id="btn-reacquire-route" class="btn btn-secondary" type="button">路線を再検出</button>
+            <button id="btn-unlock-route" class="btn" type="button" hidden>自動判定に戻す</button>
           </div>
           <p id="route-lock-warning" class="route-lock-warning" hidden>選択した路線から離れています</p>
           <div id="route-candidates" class="route-candidates" hidden>
             <h3>路線候補</h3>
             <ul id="route-candidate-list"></ul>
           </div>
+
+          <section class="card history-card" aria-labelledby="history-card-title">
+            <div class="card-heading">
+              <h3 id="history-card-title">乗車履歴</h3>
+              <a href="#/history" class="card-link">すべて ›</a>
+            </div>
+            <div id="history-card-body" class="card-empty">乗車履歴はまもなく利用できるようになります</div>
+          </section>
+
+          <nav class="secondary-links" aria-label="その他">
+            <a href="#/diagnostics">テスター向け診断記録 ›</a>
+            <a href="#/debug">推定状態の詳細 ›</a>
+          </nav>
         </section>
 
-        <section class="diagnostic-section" aria-labelledby="diagnostic-title">
-          <h2 id="diagnostic-title">テスター向け診断記録</h2>
+        <!-- 乗車履歴 -->
+        <section data-view="history" class="view" hidden>
+          <h2 tabindex="-1">乗車履歴</h2>
+          <p class="card-empty">乗車履歴はまもなく利用できるようになります</p>
+        </section>
+
+        <!-- テスター向け診断記録 -->
+        <section data-view="diagnostics" class="view diagnostic-section" hidden>
+          <h2 tabindex="-1">テスター向け診断記録</h2>
           <p>
             通常はエラーと、位置座標を除いた状態変化だけを Sentry に送信します。
             キャンペーン参加中は正確な GPS 座標、速度、路線・区間・駅の判定、デッドレコニング状態を
@@ -92,21 +88,75 @@
               spellcheck="false"
               placeholder="キャンペーン参加時のみ"
             />
-            <button id="btn-diagnostic-start" class="btn btn-secondary">参加して診断収集を開始</button>
-            <button id="btn-diagnostic-stop" class="btn" disabled>診断収集を停止</button>
-            <button id="btn-diagnostic-delete" class="btn btn-danger">端末内ログを削除</button>
+            <button id="btn-diagnostic-start" class="btn btn-secondary" type="button">参加して診断収集を開始</button>
+            <button id="btn-diagnostic-stop" class="btn" type="button" disabled>診断収集を停止</button>
+            <button id="btn-diagnostic-delete" class="btn btn-danger" type="button">端末内ログを削除</button>
           </div>
-          <aside id="diagnostic-indicator" class="diagnostic-indicator" aria-live="polite">
-            <strong id="diagnostic-status">診断収集: 停止</strong>
-            <span id="diagnostic-detail">通常のエラー収集のみ有効です。</span>
-          </aside>
         </section>
 
-        <section class="debug-section">
-          <h2>マルチソース速度推定 & NavigationState デバッグパネル</h2>
-          <div id="debug-panel"></div>
+        <!-- 推定状態の詳細 -->
+        <section data-view="debug" class="view" hidden>
+          <h2 tabindex="-1">推定状態の詳細</h2>
+
+          <section class="preview-section">
+            <h3>Even G2 HUD プレビュー（576×288 を縮小表示）</h3>
+            <div id="hud-preview-wrapper" class="glasses-viewport">
+              <div id="hud-root" class="hud-root">
+                <!-- Y: 0~44 -> HEADER TextContainer (ID 1) -->
+                <div class="hud-header">
+                  <span id="hud-line-name" class="hud-line-name brightness-secondary"></span>
+                  <span id="hud-service" class="hud-service brightness-secondary"></span>
+                </div>
+
+                <!-- Y: 48~192 -> SPEED ImageContainer (ID 2, X: 144, W: 288, H: 144) -->
+                <div class="hud-speed-container">
+                  <span id="hud-speed-val" class="speed-value brightness-primary">--</span>
+                  <span class="speed-unit brightness-tertiary">km/h</span>
+                  <span id="hud-speed-est" class="speed-estimated brightness-tertiary">~</span>
+                </div>
+
+                <!-- Y: 196~244 -> SEGMENT TextContainer (ID 3) -->
+                <div class="hud-segment-container">
+                  <div class="hud-station-row">
+                    <span id="hud-prev-station" class="station-prev brightness-secondary"></span>
+                    <span id="hud-progress-text" class="progress-text brightness-secondary">━━━━━━━━━</span>
+                    <span id="hud-next-station" class="station-next brightness-primary"></span>
+                  </div>
+                </div>
+
+                <!-- Y: 248~288 -> FOOTER TextContainer (ID 4) -->
+                <div class="hud-footer">
+                  <span id="hud-dist-next" class="footer-left brightness-tertiary"></span>
+                  <span id="hud-footer-right" class="footer-right brightness-tertiary"></span>
+                </div>
+              </div>
+            </div>
+            <!-- Reserved for HUD_UI_UX_REQUIREMENTS §21 state switching and §22 visibility modes. -->
+            <div id="hud-preview-controls" class="hud-preview-controls"></div>
+          </section>
+
+          <section class="debug-section">
+            <h3>位置ソース</h3>
+            <div class="controls">
+              <button id="btn-start" class="btn btn-primary" type="button">実機GPS開始</button>
+              <button id="btn-stop" class="btn" type="button">停止</button>
+              <button id="btn-replay-odakyu" class="btn btn-secondary" type="button">小田急線デモ</button>
+              <button id="btn-replay-shinkansen" class="btn btn-secondary" type="button">新幹線デモ</button>
+            </div>
+          </section>
+
+          <section class="debug-section">
+            <h3>マルチソース速度推定 & NavigationState デバッグパネル</h3>
+            <div id="debug-panel"></div>
+          </section>
         </section>
       </main>
+
+      <!-- Always visible on every view (docs/TELEMETRY_AND_SENTRY.md). Tapping opens the diagnostics view. -->
+      <button id="diagnostic-indicator" class="diagnostic-indicator" type="button" aria-live="polite">
+        <strong id="diagnostic-status">診断収集: 停止</strong>
+        <span id="diagnostic-detail">通常のエラー収集のみ有効です。</span>
+      </button>
     </div>
 
     <script type="module" src="/src/main.ts"></script>
