@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { DeviceMotionSensorFusionProvider } from '../../src/infrastructure/sensors/device-motion-sensor-fusion-provider';
 
 const G = 9.80665;
@@ -69,5 +69,113 @@ describe('DeviceMotionSensorFusionProvider observations', () => {
     feed(provider, afterVibration, 1000, G, 0.005, true);
 
     expect(provider.getLatestObservation()!.isStillInferred).toBe(false);
+  });
+});
+
+type GlobalWithWindow = typeof globalThis & { window?: unknown; DeviceMotionEvent?: unknown };
+
+function installWindow(options: {
+  secure?: boolean;
+  requestPermission?: (() => Promise<string>) | 'absent' | 'missing-api';
+}): void {
+  const g = globalThis as GlobalWithWindow;
+  const win: Record<string, unknown> = {
+    isSecureContext: options.secure ?? true,
+    addEventListener: () => {},
+  };
+  if (options.requestPermission !== 'missing-api') {
+    const DeviceMotionEvent: Record<string, unknown> = {};
+    if (typeof options.requestPermission === 'function') {
+      DeviceMotionEvent.requestPermission = options.requestPermission;
+    }
+    win.DeviceMotionEvent = DeviceMotionEvent;
+    g.DeviceMotionEvent = DeviceMotionEvent;
+  }
+  g.window = win;
+}
+
+describe('DeviceMotionSensorFusionProvider permission state', () => {
+  afterEach(() => {
+    const g = globalThis as GlobalWithWindow;
+    delete g.window;
+    delete g.DeviceMotionEvent;
+    vi.useRealTimers();
+  });
+
+  it('starts unknown and notifies subscribers on change', async () => {
+    installWindow({ requestPermission: async () => 'granted' });
+    const provider = new DeviceMotionSensorFusionProvider();
+    const seen: string[] = [];
+    const unsubscribe = provider.onPermissionChange((s) => seen.push(s));
+
+    expect(provider.getPermissionStatus()).toBe('unknown');
+    await expect(provider.requestPermission()).resolves.toBe(true);
+    expect(provider.getPermissionStatus()).toBe('granted');
+    expect(seen).toEqual(['granted']);
+
+    unsubscribe();
+    provider.ingestAccelerationSample(0, 0, 9.8, true, 1000);
+    expect(seen).toEqual(['granted']);
+  });
+
+  it('reports unsupported when DeviceMotionEvent is missing', async () => {
+    installWindow({ requestPermission: 'missing-api' });
+    const provider = new DeviceMotionSensorFusionProvider();
+    await expect(provider.requestPermission()).resolves.toBe(false);
+    expect(provider.getPermissionStatus()).toBe('unsupported');
+  });
+
+  it('reports insecure-context before asking the OS', async () => {
+    const requestPermission = vi.fn(async () => 'granted');
+    installWindow({ secure: false, requestPermission });
+    const provider = new DeviceMotionSensorFusionProvider();
+    await expect(provider.requestPermission()).resolves.toBe(false);
+    expect(provider.getPermissionStatus()).toBe('insecure-context');
+    expect(requestPermission).not.toHaveBeenCalled();
+  });
+
+  it('is granted immediately when the platform has no requestPermission API', async () => {
+    installWindow({ requestPermission: 'absent' });
+    const provider = new DeviceMotionSensorFusionProvider();
+    await expect(provider.requestPermission()).resolves.toBe(true);
+    expect(provider.getPermissionStatus()).toBe('granted');
+  });
+
+  it('reports denied when the OS denies and no event arrives', async () => {
+    vi.useFakeTimers();
+    installWindow({ requestPermission: async () => 'denied' });
+    const provider = new DeviceMotionSensorFusionProvider();
+    const pending = provider.requestPermission();
+    await vi.advanceTimersByTimeAsync(300);
+    await expect(pending).resolves.toBe(false);
+    expect(provider.getPermissionStatus()).toBe('denied');
+  });
+
+  it('promotes to granted when an event arrives after a denial', async () => {
+    vi.useFakeTimers();
+    installWindow({ requestPermission: async () => 'denied' });
+    const provider = new DeviceMotionSensorFusionProvider();
+    const seen: string[] = [];
+    provider.onPermissionChange((s) => seen.push(s));
+    const pending = provider.requestPermission();
+    await vi.advanceTimersByTimeAsync(300);
+    await pending;
+    provider.ingestAccelerationSample(0, 0, 9.8, true, 1000);
+    expect(provider.getPermissionStatus()).toBe('granted');
+    expect(seen).toEqual(['denied', 'granted']);
+  });
+
+  it('reports denied when requestPermission throws and nothing arrives', async () => {
+    vi.useFakeTimers();
+    installWindow({
+      requestPermission: async () => {
+        throw new Error('boom');
+      },
+    });
+    const provider = new DeviceMotionSensorFusionProvider();
+    const pending = provider.requestPermission();
+    await vi.advanceTimersByTimeAsync(300);
+    await expect(pending).resolves.toBe(false);
+    expect(provider.getPermissionStatus()).toBe('denied');
   });
 });
