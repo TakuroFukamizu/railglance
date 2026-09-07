@@ -52,7 +52,10 @@ Even App の WebView に表示されるスマートフォン側画面（Control 
 - **診断状態チップ**: 現在の `#diagnostic-indicator`（`#diagnostic-status` と `#diagnostic-detail` を含む `aria-live`
   領域）を、診断セクションの外に出して画面下部固定のまま残す。`main.ts` が同意未チェックや停止失敗時の説明文を
   `#diagnostic-detail` に書く挙動、`is-active` / `is-error` のスタイルも維持する。チップ全体を `<button type="button">`
-  にし、タップで `#/diagnostics` へ移動する。`body` の下パディング（現在 88px）は残し、チップが内容に被らないようにする。
+  にし、タップで `#/diagnostics` へ移動する。`body` の `padding-bottom` は `calc(<チップ高さの上限> + env(safe-area-inset-bottom))`
+  とし、`@media (max-width: 720px)` の `padding: 12px` が下パディングを潰さないよう、モバイル側でも `padding-bottom` を
+  明示的に指定する。チップ高さの上限は、参加済み状態の最長の `#diagnostic-detail`（キャンペーン ID、同意日時、資格期限）
+  が 320px 幅で折り返した高さを基準に決める。
 
 ## ホーム
 
@@ -130,13 +133,26 @@ onPermissionChange(listener: (state: MotionPermissionState) => void): () => void
 内部のインスタンスが別物である点は変えない。DeviceMotion の許可はページ単位なので、片方で許可を得ればもう片方にも
 イベントが届く。
 
-バナー（`buildMotionBannerView(state, phase)`）の表示規則:
+`onPermissionChange` は購読時に現在の状態を再生しない（購読直後に `getPermissionStatus()` を読む）。
+
+バナーは `buildMotionBannerView(state: MotionPermissionState, phase: MotionBannerPhase)` で組み立てる。
+`MotionBannerPhase = 'idle' | 'requesting' | 'just-granted'` で、遷移は次のとおり。
+
+- 起動時は `idle`。このとき `state === 'granted'` ならバナーを出さない。
+- [有効化] / [再試行] タップで `requesting`。`requestPermission()` の解決後、結果が `granted` なら `just-granted`、
+  それ以外は `idle` に戻す。
+- `just-granted` は 3 秒のタイマーで `idle` に戻す（`granted` + `idle` なので非表示になる）。タイマー中に再度
+  `just-granted` へ入ったら前のタイマーを取り消して張り直す。`phase` の遷移とタイマーは `motion-banner.ts` の
+  小さな状態機械（`createMotionBannerController({ provider, setTimeout, clearTimeout })`）に閉じ込め、フェイクタイマーで検証する。
+
+バナーの表示規則:
 
 | 状態 | 表示 |
 | --- | --- |
 | `unknown` | 「モーションセンサーを有効にすると、トンネル内でも速度を推定できます」+ [有効化] |
-| 要求中 | 同文言、ボタンは無効 |
-| `granted` | 「有効化しました」を 3 秒表示してから非表示。起動時点で既に `granted` ならバナー自体を出さない |
+| `requesting`（状態は問わない） | 直前の文言のまま、ボタンは無効 |
+| `granted` + `just-granted` | 「有効化しました」。ボタンなし |
+| `granted` + `idle` | 非表示 |
 | `denied` | 「許可されませんでした。端末の設定で Even App のモーションアクセスを許可してください」+ [再試行] |
 | `unsupported` | 「この端末ではモーションセンサーを利用できません」。ボタンなし |
 | `insecure-context` | 「安全な接続（https）でないためモーションセンサーを利用できません」。ボタンなし |
@@ -164,7 +180,8 @@ onPermissionChange(listener: (state: MotionPermissionState) => void): () => void
 
 開発者・テスター向け。上から順に:
 
-1. **HUD プレビュー（576×288 論理サイズの縮小表示）。** 外側ラッパーは幅 100% で `aspect-ratio: 2 / 1`、内側の
+1. **HUD プレビュー（576×288 論理サイズの縮小表示）。** 外側ラッパーは `width: min(100%, 576px)` で中央寄せ、
+   `aspect-ratio: 2 / 1`、`overflow: hidden`（現在の `.preview-section { overflow-x: auto }` は削除する）。内側の
    `#hud-root` は 576×288 のまま `position: absolute; transform-origin: top left` にし、`scale = min(1, ラッパー幅 / 576)`
    を `ResizeObserver`（無ければ `resize` イベント）で計算して `transform: scale()` に入れる。レイアウト上の幅は
    ラッパーが持つので横スクロールは出ない。見出しは「Even G2 HUD プレビュー（576×288 を縮小表示）」とし、
@@ -193,6 +210,13 @@ onPermissionChange(listener: (state: MotionPermissionState) => void): () => void
 - 表示切替（`applyRoute`）は、対象ビューだけ `hidden` を外し、`window.scrollTo(0, 0)` してから、そのビューの `<h2>`
   （`tabindex="-1"`）にフォーカスを移す。ホームでは「‹ 戻る」を隠し、それ以外では出す。`document.title` は
   `RailGlance – <ビュー名>` にする。
+- ルート切替の調停役（`createRouter({ location, history, views, chrome, onRouteApplied })`）を `router.ts` に置く。
+  `location` / `history` / `views` は最小インターフェースで差し込み、起動時と `hashchange` の両経路を Node で検証する。
+  無効 hash のときは `replaceState` で URL を直した直後に、同期的に `applyRoute(home)` を呼ぶ（`replaceState` は
+  `hashchange` を発火しないため、別イベントを待たない）。
+- `onRouteApplied(route)` で `main.ts` が `debugPanel.setVisible(route === 'debug')` を呼び、`debug` に入るたびに
+  プレビューのスケールを再計算する。非表示中に測った幅が 0 のときは `requestAnimationFrame` で 1 フレーム遅らせて
+  測り直す。この連携はフェイクの `DebugPanel` とスケーラを差し込んで検証する。
 - 「‹ 戻る」は `location.hash = '#/'` にする（`history.back()` に依存しない）。
 - `src/index.css` に `[hidden] { display: none !important; }` を入れ、後続の CSS が `display` を上書きしても
   非表示が壊れないようにする。
@@ -223,19 +247,26 @@ onPermissionChange(listener: (state: MotionPermissionState) => void): () => void
 
 - `tests/ui/router.test.ts`: `resolveRoute` の 4 ルートと無効・空 hash。`applyRoute` をフェイク要素で呼び、
   対象だけ `hidden=false` になること、ホーム以外で戻るボタンが出ること、スクロールとフォーカスが呼ばれること。
+  `createRouter` をフェイクの `location` / `history` で起動し、有効 hash での起動、無効 hash での `replaceState` と
+  同期的なホーム表示、`hashchange` 後の切替、`onRouteApplied` の呼び出しを検証する。
+- `tests/ui/debug-view.test.ts`: ルート適用後に `setVisible` と `refreshScale` がフェイク経由で呼ばれること、幅 0 のとき
+  1 フレーム後に再測定すること。
 - `tests/ui/home-status-card.test.ts`: `null` モデルの初期表示、7 つの `statusMode` それぞれの色クラス、`isEstimated` の
   `~`、同期状態 6 値と `errorMessage` の組み合わせでの追記文言。`HudViewModel` の文言をそのまま通すこと。
 - `tests/ui/route-candidates.test.ts`: 表示可否条件 3 通りと非表示条件、距離の整形（999m / 1000m 境界、10 m 丸め）、
   同名路線グループ全員への ID 付与と単独路線への非付与、`segmentId` の保持。
-- `tests/ui/motion-banner.test.ts`: 5 状態 + 要求中の表示可否・文言・ボタン有無。
+- `tests/ui/motion-banner.test.ts`: 5 状態 × `phase` の表示可否・文言・ボタン有無。コントローラをフェイクタイマーで
+  動かし、`just-granted` から 3 秒後に非表示になること、タイマーの張り直し、起動時 `granted` で最初から非表示なこと。
 - `tests/ui/hud-preview-scale.test.ts`: 幅 320 / 375 / 576 / 800 でのスケール（上限 1）。
 - `tests/ui/debug-panel.test.ts`（既存に追加）: 非表示中の `update` が `innerHTML` を書かないこと、`setVisible(true)` で
   最新引数により 1 回だけ書くこと、`dirty` でない再表示で書かないこと、表示中の `update` が即書くこと。
-- `tests/sensors/device-motion-sensor-fusion-provider.test.ts`（新規）: `insecure-context` と例外時 `denied` の割り当て、
-  `onPermissionChange` の通知と解除。
+- `tests/sensors/device-motion-sensor-fusion-provider.test.ts`（既存に追加）: `unsupported`、API が `granted` / `denied` を
+  返す場合、`requestPermission` API がない環境での `granted`、`denied` 後にイベントが届いたときの `granted` への昇格、
+  `insecure-context`、例外時 `denied`、`onPermissionChange` の通知と解除。
 - 手動確認（`pnpm dev` の公式シミュレーターと実機 Even App）: 4 画面の遷移、コールドスタート・リロード・`#/debug`
   復元・不明 hash、診断チップが全画面で見えてタップで診断画面に移ること、幅 320px / 375px と横向きでプレビューが
-  横スクロールしないこと、路線再検出の候補展開と手動ロック解除、モーション許可の各結果。
+  横スクロールしないこと、参加済みで詳細文が最長のときも診断チップが最後のボタンに被らないこと、
+  路線再検出の候補展開と手動ロック解除、モーション許可の各結果。
 
 ## スコープ外
 
