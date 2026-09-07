@@ -72,13 +72,13 @@ describe('DeviceMotionSensorFusionProvider observations', () => {
   });
 });
 
-type GlobalWithWindow = typeof globalThis & { window?: unknown; DeviceMotionEvent?: unknown };
+type GlobalWithWindow = { window?: unknown; DeviceMotionEvent?: unknown };
 
 function installWindow(options: {
   secure?: boolean;
   requestPermission?: (() => Promise<string>) | 'absent' | 'missing-api';
 }): void {
-  const g = globalThis as GlobalWithWindow;
+  const g = globalThis as unknown as GlobalWithWindow;
   const win: Record<string, unknown> = {
     isSecureContext: options.secure ?? true,
     addEventListener: () => {},
@@ -96,7 +96,7 @@ function installWindow(options: {
 
 describe('DeviceMotionSensorFusionProvider permission state', () => {
   afterEach(() => {
-    const g = globalThis as GlobalWithWindow;
+    const g = globalThis as unknown as GlobalWithWindow;
     delete g.window;
     delete g.DeviceMotionEvent;
     vi.useRealTimers();
