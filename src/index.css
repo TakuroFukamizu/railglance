@@ -235,6 +235,11 @@ body {
   line-height: 1.5;
 }
 
+.motion-banner .btn {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
 .diagnostic-section {
   margin-top: 20px;
   background-color: var(--panel-bg);

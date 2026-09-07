@@ -54,8 +54,9 @@ Even App の WebView に表示されるスマートフォン側画面（Control 
   `#diagnostic-detail` に書く挙動、`is-active` / `is-error` のスタイルも維持する。チップ全体を `<button type="button">`
   にし、タップで `#/diagnostics` へ移動する。`body` の `padding-bottom` は `calc(<チップ高さの上限> + env(safe-area-inset-bottom))`
   とし、`@media (max-width: 720px)` の `padding: 12px` が下パディングを潰さないよう、モバイル側でも `padding-bottom` を
-  明示的に指定する。チップ高さの上限は、参加済み状態の最長の `#diagnostic-detail`（キャンペーン ID、同意日時、資格期限）
-  が 320px 幅で折り返した高さを基準に決める。
+  明示的に指定する。CSS の既定値は参加済み状態の最長の `#diagnostic-detail`（キャンペーン ID、同意日時、資格期限）が
+  320px 幅で折り返した高さを目安にするが、実際の高さは文言と幅で変わるため、`main.ts` がチップの `offsetHeight` を
+  `ResizeObserver`（無ければ `resize` と診断状態の再描画時）で測り、`--chip-reserve` を `高さ + 24px` に上書きする。
 
 ## ホーム
 
