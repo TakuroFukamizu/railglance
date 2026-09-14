@@ -1,0 +1,719 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`'ochanomizu-ryogoku-sobu-local': '中央・総武線各駅停車 水道橋→御茶ノ水→両国→亀戸: 御茶ノ水で中央線と分…' > matches the recorded baseline 1`] = `
+{
+  "displayedLines": [
+    "—",
+    "中央線（神田〜高尾）",
+    "4号線丸ノ内線",
+    "総武線（御茶ノ水〜両国）",
+    "総武線（両国〜東京）",
+    "総武線（両国〜銚子）",
+  ],
+  "finalLine": "総武線（両国〜銚子）",
+  "firstDisplayAtS": 3,
+  "fixes": 708,
+  "forbiddenLineS": 0,
+  "hiddenAfterFirstLockS": 0,
+  "lineChanges": 4,
+  "lockStates": [
+    "UNRESOLVED",
+    "LOCKED",
+    "SUSPICIOUS",
+    "REACQUIRING",
+    "LOCKED",
+    "SUSPICIOUS",
+    "REACQUIRING",
+    "LOCKED",
+    "SUSPICIOUS",
+    "LOCKED",
+    "SUSPICIOUS",
+    "REACQUIRING",
+    "LOCKED",
+    "SUSPICIOUS",
+    "REACQUIRING",
+    "LOCKED",
+    "SUSPICIOUS",
+    "REACQUIRING",
+    "LOCKED",
+  ],
+  "runs": [
+    "水道橋→御茶ノ水: 中央線（神田〜高尾） 99s, 4号線丸ノ内線 30s, — 3s",
+    "御茶ノ水→秋葉原: 総武線（御茶ノ水〜両国） 57s, 4号線丸ノ内線 28s",
+    "秋葉原→浅草橋: 総武線（御茶ノ水〜両国） 133s",
+    "浅草橋→両国: 総武線（御茶ノ水〜両国） 103s",
+    "両国→錦糸町: 総武線（両国〜銚子） 118s, 総武線（両国〜東京） 26s, 総武線（御茶ノ水〜両国） 14s",
+    "錦糸町→亀戸: 総武線（両国〜銚子） 97s",
+  ],
+  "wrongLineS": 84,
+}
+`;
+
+exports[`'ochanomizu-ryogoku-sobu-local-reverse': '中央・総武線各駅停車 水道橋→御茶ノ水→両国→亀戸: 御茶ノ水で中央線と分…' > matches the recorded baseline 1`] = `
+{
+  "displayedLines": [
+    "—",
+    "総武線（両国〜銚子）",
+    "総武線（両国〜東京）",
+    "総武線（御茶ノ水〜両国）",
+    "4号線丸ノ内線",
+    "中央線（神田〜高尾）",
+  ],
+  "finalLine": "中央線（神田〜高尾）",
+  "firstDisplayAtS": 3,
+  "fixes": 687,
+  "forbiddenLineS": 0,
+  "hiddenAfterFirstLockS": 0,
+  "lineChanges": 4,
+  "lockStates": [
+    "UNRESOLVED",
+    "LOCKED",
+    "SUSPICIOUS",
+    "LOCKED",
+    "SUSPICIOUS",
+    "REACQUIRING",
+    "LOCKED",
+    "SUSPICIOUS",
+    "REACQUIRING",
+    "LOCKED",
+    "SUSPICIOUS",
+    "LOCKED",
+    "SUSPICIOUS",
+    "LOCKED",
+    "SUSPICIOUS",
+    "REACQUIRING",
+    "LOCKED",
+    "SUSPICIOUS",
+    "REACQUIRING",
+    "LOCKED",
+  ],
+  "runs": [
+    "亀戸→錦糸町: 総武線（両国〜銚子） 111s, — 3s",
+    "錦糸町→両国: 総武線（両国〜銚子） 160s",
+    "両国→浅草橋: 総武線（両国〜東京） 48s, 総武線（御茶ノ水〜両国） 43s, 総武線（両国〜銚子） 12s",
+    "浅草橋→秋葉原: 総武線（御茶ノ水〜両国） 133s",
+    "秋葉原→御茶ノ水: 総武線（御茶ノ水〜両国） 63s, 4号線丸ノ内線 22s",
+    "御茶ノ水→水道橋: 中央線（神田〜高尾） 58s, 4号線丸ノ内線 34s",
+  ],
+  "wrongLineS": 104,
+}
+`;
+
+exports[`'ryogoku-sobu-rapid': '総武快速線 東京→馬喰町（地下・GPS劣化）→両国通過→錦糸町→亀戸' > matches the recorded baseline 1`] = `
+{
+  "displayedLines": [
+    "—",
+    "総武線（両国〜東京）",
+    "総武線（両国〜銚子）",
+  ],
+  "finalLine": "総武線（両国〜銚子）",
+  "firstDisplayAtS": 30,
+  "fixes": 520,
+  "forbiddenLineS": 0,
+  "hiddenAfterFirstLockS": 0,
+  "lineChanges": 1,
+  "lockStates": [
+    "UNRESOLVED",
+    "LOCKED",
+    "SUSPICIOUS",
+    "REACQUIRING",
+    "LOCKED",
+    "SUSPICIOUS",
+    "REACQUIRING",
+    "LOCKED",
+    "SUSPICIOUS",
+    "REACQUIRING",
+    "LOCKED",
+    "SUSPICIOUS",
+    "REACQUIRING",
+    "LOCKED",
+  ],
+  "runs": [
+    "東京→新日本橋: 総武線（両国〜東京） 108s, — 30s",
+    "新日本橋→馬喰町: 総武線（両国〜東京） 111s",
+    "馬喰町→両国（通過）: 総武線（両国〜東京） 82s",
+    "両国→錦糸町: 総武線（両国〜銚子） 107s, 総武線（両国〜東京） 11s",
+    "錦糸町→亀戸（通過）: 総武線（両国〜銚子） 71s",
+  ],
+  "wrongLineS": 0,
+}
+`;
+
+exports[`'ryogoku-sobu-rapid-reverse': '総武快速線 東京→馬喰町（地下・GPS劣化）→両国通過→錦糸町→亀戸（逆方…' > matches the recorded baseline 1`] = `
+{
+  "displayedLines": [
+    "—",
+    "総武線（両国〜銚子）",
+    "総武線（両国〜東京）",
+  ],
+  "finalLine": "総武線（両国〜東京）",
+  "firstDisplayAtS": 3,
+  "fixes": 514,
+  "forbiddenLineS": 0,
+  "hiddenAfterFirstLockS": 0,
+  "lineChanges": 1,
+  "lockStates": [
+    "UNRESOLVED",
+    "LOCKED",
+    "SUSPICIOUS",
+    "LOCKED",
+    "SUSPICIOUS",
+    "REACQUIRING",
+    "LOCKED",
+    "SUSPICIOUS",
+    "LOCKED",
+    "SUSPICIOUS",
+    "REACQUIRING",
+    "LOCKED",
+  ],
+  "runs": [
+    "亀戸（通過）→錦糸町: 総武線（両国〜銚子） 106s, — 3s",
+    "錦糸町→両国: 総武線（両国〜銚子） 93s",
+    "両国（通過）→馬喰町: 総武線（両国〜東京） 98s, 総武線（両国〜銚子） 12s",
+    "馬喰町→新日本橋: 総武線（両国〜東京） 111s",
+    "新日本橋→東京: 総武線（両国〜東京） 91s",
+  ],
+  "wrongLineS": 0,
+}
+`;
+
+exports[`'shinagawa-fork-keihin-tohoku': '京浜東北線 田町→品川→大井町方面: 山手線と分離し、東海道新幹線と並走' > matches the recorded baseline 1`] = `
+{
+  "displayedLines": [
+    "—",
+    "東海道線（田町〜品川・1）",
+    "JR山手線",
+    "東海道線（大井町〜品川）",
+  ],
+  "finalLine": "東海道線（大井町〜品川）",
+  "firstDisplayAtS": 85,
+  "fixes": 374,
+  "forbiddenLineS": 0,
+  "hiddenAfterFirstLockS": 0,
+  "lineChanges": 2,
+  "lockStates": [
+    "UNRESOLVED",
+    "LOCKED",
+    "SUSPICIOUS",
+    "REACQUIRING",
+    "LOCKED",
+    "SUSPICIOUS",
+    "REACQUIRING",
+    "LOCKED",
+  ],
+  "runs": [
+    "田町→高輪ゲートウェイ: — 85s, 東海道線（田町〜品川・1） 48s",
+    "高輪ゲートウェイ→品川: 東海道線（田町〜品川・1） 114s",
+    "品川→御殿山分岐: 東海道線（田町〜品川・1） 74s, JR山手線 8s",
+    "御殿山分岐→大井町方面: 東海道線（大井町〜品川） 26s, JR山手線 19s",
+  ],
+  "wrongLineS": 0,
+}
+`;
+
+exports[`'shinagawa-fork-keihin-tohoku-reverse': '京浜東北線 田町→品川→大井町方面: 山手線と分離し、東海道新幹線と並走（…' > matches the recorded baseline 1`] = `
+{
+  "displayedLines": [
+    "—",
+    "東海道線（大井町〜品川）",
+    "JR山手線",
+    "本線",
+    "東海道線（田町〜品川・1）",
+  ],
+  "finalLine": "東海道線（田町〜品川・1）",
+  "firstDisplayAtS": 107,
+  "fixes": 399,
+  "forbiddenLineS": 0,
+  "hiddenAfterFirstLockS": 0,
+  "lineChanges": 3,
+  "lockStates": [
+    "UNRESOLVED",
+    "LOCKED",
+    "SUSPICIOUS",
+    "REACQUIRING",
+    "LOCKED",
+    "SUSPICIOUS",
+    "REACQUIRING",
+    "LOCKED",
+    "SUSPICIOUS",
+    "REACQUIRING",
+    "LOCKED",
+  ],
+  "runs": [
+    "大井町方面→御殿山分岐: — 107s, 東海道線（大井町〜品川） 4s",
+    "御殿山分岐→品川: 本線 54s, JR山手線 42s, 東海道線（大井町〜品川） 23s",
+    "品川→高輪ゲートウェイ: 東海道線（田町〜品川・1） 66s, 本線 38s",
+    "高輪ゲートウェイ→田町: 東海道線（田町〜品川・1） 65s",
+  ],
+  "wrongLineS": 92,
+}
+`;
+
+exports[`'shinagawa-fork-yamanote': '山手線 田町→品川→五反田: 京浜東北線・東海道線と並走後、御殿山で西へ分離' > matches the recorded baseline 1`] = `
+{
+  "displayedLines": [
+    "—",
+    "東海道線（田町〜品川・1）",
+    "本線",
+    "JR山手線",
+  ],
+  "finalLine": "JR山手線",
+  "firstDisplayAtS": 84,
+  "fixes": 505,
+  "forbiddenLineS": 0,
+  "hiddenAfterFirstLockS": 0,
+  "lineChanges": 2,
+  "lockStates": [
+    "UNRESOLVED",
+    "LOCKED",
+    "SUSPICIOUS",
+    "REACQUIRING",
+    "LOCKED",
+    "SUSPICIOUS",
+    "REACQUIRING",
+    "LOCKED",
+    "SUSPICIOUS",
+    "REACQUIRING",
+    "LOCKED",
+  ],
+  "runs": [
+    "田町→高輪ゲートウェイ: — 84s, 東海道線（田町〜品川・1） 49s",
+    "高輪ゲートウェイ→品川: 東海道線（田町〜品川・1） 114s",
+    "品川→御殿山分岐: 本線 46s, 東海道線（田町〜品川・1） 33s, JR山手線 3s",
+    "御殿山分岐→大崎: JR山手線 98s",
+    "大崎→五反田: JR山手線 78s",
+  ],
+  "wrongLineS": 46,
+}
+`;
+
+exports[`'shinagawa-fork-yamanote-reverse': '山手線 田町→品川→五反田: 京浜東北線・東海道線と並走後、御殿山で西へ分…' > matches the recorded baseline 1`] = `
+{
+  "displayedLines": [
+    "—",
+    "JR山手線",
+    "本線",
+    "東海道線（田町〜品川・1）",
+  ],
+  "finalLine": "東海道線（田町〜品川・1）",
+  "firstDisplayAtS": 3,
+  "fixes": 457,
+  "forbiddenLineS": 0,
+  "hiddenAfterFirstLockS": 0,
+  "lineChanges": 2,
+  "lockStates": [
+    "UNRESOLVED",
+    "LOCKED",
+    "SUSPICIOUS",
+    "REACQUIRING",
+    "LOCKED",
+    "SUSPICIOUS",
+    "REACQUIRING",
+    "LOCKED",
+    "SUSPICIOUS",
+    "REACQUIRING",
+    "LOCKED",
+  ],
+  "runs": [
+    "五反田→大崎: JR山手線 95s, — 3s",
+    "大崎→御殿山分岐: JR山手線 71s",
+    "御殿山分岐→品川: JR山手線 64s, 本線 55s",
+    "品川→高輪ゲートウェイ: 東海道線（田町〜品川・1） 66s, 本線 38s",
+    "高輪ゲートウェイ→田町: 東海道線（田町〜品川・1） 65s",
+  ],
+  "wrongLineS": 93,
+}
+`;
+
+exports[`'tabata-fork-keihin-tohoku': '京浜東北線 日暮里→田端→王子: 山手線と並走後、田端で北へ分離（尾久経由…' > matches the recorded baseline 1`] = `
+{
+  "displayedLines": [
+    "—",
+    "東北線（田端〜日暮里・1）",
+    "東北新幹線（大宮〜東京）",
+  ],
+  "finalLine": "東北新幹線（大宮〜東京）",
+  "firstDisplayAtS": 49,
+  "fixes": 443,
+  "forbiddenLineS": 329,
+  "hiddenAfterFirstLockS": 0,
+  "lineChanges": 1,
+  "lockStates": [
+    "UNRESOLVED",
+    "LOCKED",
+    "SUSPICIOUS",
+    "REACQUIRING",
+    "LOCKED",
+  ],
+  "runs": [
+    "日暮里→西日暮里: 東北線（田端〜日暮里・1） 52s, — 49s",
+    "西日暮里→田端: 東北新幹線（大宮〜東京） 83s, 東北線（田端〜日暮里・1） 13s",
+    "田端→上中里: 東北新幹線（大宮〜東京） 147s",
+    "上中里→王子: 東北新幹線（大宮〜東京） 99s",
+  ],
+  "wrongLineS": 329,
+}
+`;
+
+exports[`'tabata-fork-keihin-tohoku-reverse': '京浜東北線 日暮里→田端→王子: 山手線と並走後、田端で北へ分離（尾久経由…' > matches the recorded baseline 1`] = `
+{
+  "displayedLines": [
+    "—",
+    "東北線（田端〜東十条・2）",
+    "東北新幹線（大宮〜東京）",
+  ],
+  "finalLine": "東北新幹線（大宮〜東京）",
+  "firstDisplayAtS": 46,
+  "fixes": 418,
+  "forbiddenLineS": 202,
+  "hiddenAfterFirstLockS": 0,
+  "lineChanges": 1,
+  "lockStates": [
+    "UNRESOLVED",
+    "LOCKED",
+    "SUSPICIOUS",
+    "REACQUIRING",
+    "LOCKED",
+    "SUSPICIOUS",
+    "REACQUIRING",
+    "LOCKED",
+  ],
+  "runs": [
+    "王子→上中里: 東北線（田端〜東十条・2） 70s, — 46s",
+    "上中里→田端: 東北線（田端〜東十条・2） 100s, 東北新幹線（大宮〜東京） 55s",
+    "田端→西日暮里: 東北新幹線（大宮〜東京） 91s",
+    "西日暮里→日暮里: 東北新幹線（大宮〜東京） 56s",
+  ],
+  "wrongLineS": 202,
+}
+`;
+
+exports[`'tabata-fork-yamanote': '山手線 日暮里→田端→巣鴨: 京浜東北線と並走後、田端で西へ分離' > matches the recorded baseline 1`] = `
+{
+  "displayedLines": [
+    "—",
+    "東北線（田端〜日暮里・1）",
+    "東北新幹線（大宮〜東京）",
+    "JR山手線",
+  ],
+  "finalLine": "JR山手線",
+  "firstDisplayAtS": 52,
+  "fixes": 443,
+  "forbiddenLineS": 141,
+  "hiddenAfterFirstLockS": 0,
+  "lineChanges": 2,
+  "lockStates": [
+    "UNRESOLVED",
+    "LOCKED",
+    "SUSPICIOUS",
+    "REACQUIRING",
+    "LOCKED",
+    "SUSPICIOUS",
+    "REACQUIRING",
+    "LOCKED",
+  ],
+  "runs": [
+    "日暮里→西日暮里: — 52s, 東北線（田端〜日暮里・1） 49s",
+    "西日暮里→田端: 東北新幹線（大宮〜東京） 82s, 東北線（田端〜日暮里・1） 14s",
+    "田端→駒込: JR山手線 81s, 東北新幹線（大宮〜東京） 59s",
+    "駒込→巣鴨: JR山手線 106s",
+  ],
+  "wrongLineS": 141,
+}
+`;
+
+exports[`'tabata-fork-yamanote-reverse': '山手線 日暮里→田端→巣鴨: 京浜東北線と並走後、田端で西へ分離（逆方向）' > matches the recorded baseline 1`] = `
+{
+  "displayedLines": [
+    "—",
+    "JR山手線",
+    "東北新幹線（大宮〜東京）",
+  ],
+  "finalLine": "東北新幹線（大宮〜東京）",
+  "firstDisplayAtS": 3,
+  "fixes": 418,
+  "forbiddenLineS": 204,
+  "hiddenAfterFirstLockS": 0,
+  "lineChanges": 1,
+  "lockStates": [
+    "UNRESOLVED",
+    "LOCKED",
+    "SUSPICIOUS",
+    "REACQUIRING",
+    "LOCKED",
+  ],
+  "runs": [
+    "巣鴨→駒込: JR山手線 123s, — 3s",
+    "駒込→田端: JR山手線 88s, 東北新幹線（大宮〜東京） 57s",
+    "田端→西日暮里: 東北新幹線（大宮〜東京） 91s",
+    "西日暮里→日暮里: 東北新幹線（大宮〜東京） 56s",
+  ],
+  "wrongLineS": 204,
+}
+`;
+
+exports[`'tokyo-shinagawa-keihin-tohoku': '京浜東北線 東京→品川（各駅）: 東海道新幹線と並走しても新幹線と判定しない' > matches the recorded baseline 1`] = `
+{
+  "displayedLines": [
+    "—",
+    "東海道線（新橋・循環）",
+    "8号線有楽町線",
+    "東海道線（新橋・循環）",
+    "東海道線（田町〜新橋）",
+    "東海道線（田町〜品川・1）",
+  ],
+  "finalLine": "東海道線（田町〜品川・1）",
+  "firstDisplayAtS": 36,
+  "fixes": 732,
+  "forbiddenLineS": 0,
+  "hiddenAfterFirstLockS": 0,
+  "lineChanges": 4,
+  "lockStates": [
+    "UNRESOLVED",
+    "LOCKED",
+    "SUSPICIOUS",
+    "REACQUIRING",
+    "LOCKED",
+    "SUSPICIOUS",
+    "REACQUIRING",
+    "LOCKED",
+    "SUSPICIOUS",
+    "REACQUIRING",
+    "LOCKED",
+    "SUSPICIOUS",
+    "REACQUIRING",
+    "LOCKED",
+  ],
+  "runs": [
+    "東京→有楽町: 東海道線（新橋・循環） 47s, — 36s, 8号線有楽町線 27s",
+    "有楽町→新橋: 東海道線（新橋・循環） 71s, 8号線有楽町線 29s, 東海道線（田町〜新橋） 29s",
+    "新橋→浜松町: 東海道線（田町〜新橋） 122s",
+    "浜松町→田町: 東海道線（田町〜新橋） 134s",
+    "田町→高輪ゲートウェイ: 東海道線（田町〜新橋） 63s, 東海道線（田町〜品川・1） 60s",
+    "高輪ゲートウェイ→品川: 東海道線（田町〜品川・1） 114s",
+  ],
+  "wrongLineS": 74,
+}
+`;
+
+exports[`'tokyo-shinagawa-keihin-tohoku-reverse': '京浜東北線 東京→品川（各駅）: 東海道新幹線と並走しても新幹線と判定しな…' > matches the recorded baseline 1`] = `
+{
+  "displayedLines": [
+    "—",
+    "東海道線（田町〜品川・1）",
+    "東海道線（田町〜新橋）",
+    "東海道線（新橋・循環）",
+    "8号線有楽町線",
+    "東海道線（新橋・循環）",
+  ],
+  "finalLine": "東海道線（新橋・循環）",
+  "firstDisplayAtS": 27,
+  "fixes": 676,
+  "forbiddenLineS": 0,
+  "hiddenAfterFirstLockS": 0,
+  "lineChanges": 4,
+  "lockStates": [
+    "UNRESOLVED",
+    "LOCKED",
+    "SUSPICIOUS",
+    "REACQUIRING",
+    "LOCKED",
+    "SUSPICIOUS",
+    "REACQUIRING",
+    "LOCKED",
+    "SUSPICIOUS",
+    "REACQUIRING",
+    "LOCKED",
+    "SUSPICIOUS",
+    "REACQUIRING",
+    "LOCKED",
+  ],
+  "runs": [
+    "品川→高輪ゲートウェイ: 東海道線（田町〜品川・1） 87s, — 27s",
+    "高輪ゲートウェイ→田町: 東海道線（田町〜品川・1） 123s",
+    "田町→浜松町: 東海道線（田町〜新橋） 114s, 東海道線（田町〜品川・1） 20s",
+    "浜松町→新橋: 東海道線（田町〜新橋） 122s",
+    "新橋→有楽町: 東海道線（新橋・循環） 74s, 東海道線（田町〜新橋） 29s, 8号線有楽町線 26s",
+    "有楽町→東京: 8号線有楽町線 31s, 東海道線（新橋・循環） 23s",
+  ],
+  "wrongLineS": 57,
+}
+`;
+
+exports[`'tokyo-shinagawa-tokaido-rapid': '東海道線 東京→品川（通過運転 90km/h）: 並走する東海道新幹線と判…' > matches the recorded baseline 1`] = `
+{
+  "displayedLines": [
+    "—",
+    "東海道線（新橋・循環）",
+    "東海道線（新橋〜品川）",
+  ],
+  "finalLine": "東海道線（新橋〜品川）",
+  "firstDisplayAtS": 49,
+  "fixes": 311,
+  "forbiddenLineS": 0,
+  "hiddenAfterFirstLockS": 0,
+  "lineChanges": 1,
+  "lockStates": [
+    "UNRESOLVED",
+    "LOCKED",
+    "SUSPICIOUS",
+    "REACQUIRING",
+    "LOCKED",
+  ],
+  "runs": [
+    "東京→新橋→品川: 東海道線（新橋〜品川） 186s, 東海道線（新橋・循環） 76s, — 49s",
+  ],
+  "wrongLineS": 0,
+}
+`;
+
+exports[`'tokyo-shinagawa-tokaido-rapid-reverse': '東海道線 東京→品川（通過運転 90km/h）: 並走する東海道新幹線と判…' > matches the recorded baseline 1`] = `
+{
+  "displayedLines": [
+    "—",
+    "東海道線（田町〜品川・2）",
+    "東海道線（新橋〜品川）",
+    "東海道線（新橋・循環）",
+  ],
+  "finalLine": "東海道線（新橋・循環）",
+  "firstDisplayAtS": 26,
+  "fixes": 308,
+  "forbiddenLineS": 0,
+  "hiddenAfterFirstLockS": 0,
+  "lineChanges": 2,
+  "lockStates": [
+    "UNRESOLVED",
+    "LOCKED",
+    "SUSPICIOUS",
+    "REACQUIRING",
+    "LOCKED",
+    "SUSPICIOUS",
+    "REACQUIRING",
+    "LOCKED",
+  ],
+  "runs": [
+    "品川→新橋→東京: 東海道線（新橋〜品川） 143s, 東海道線（新橋・循環） 72s, 東海道線（田町〜品川・2） 67s, — 26s",
+  ],
+  "wrongLineS": 0,
+}
+`;
+
+exports[`'tokyo-shinagawa-tokaido-shinkansen': '東海道新幹線 東京→品川→新横浜方面: 在来線と35m間隔で並走' > matches the recorded baseline 1`] = `
+{
+  "displayedLines": [
+    "—",
+    "東海道新幹線（東京〜品川・合成）",
+    "東海道新幹線（品川〜新横浜）",
+  ],
+  "finalLine": "東海道新幹線（品川〜新横浜）",
+  "firstDisplayAtS": 3,
+  "fixes": 839,
+  "forbiddenLineS": 0,
+  "hiddenAfterFirstLockS": 0,
+  "lineChanges": 1,
+  "lockStates": [
+    "UNRESOLVED",
+    "LOCKED",
+    "SUSPICIOUS",
+    "REACQUIRING",
+    "LOCKED",
+  ],
+  "runs": [
+    "東京→品川: 東海道新幹線（東京〜品川・合成） 331s, — 3s",
+    "品川→新横浜: 東海道新幹線（品川〜新横浜） 471s, 東海道新幹線（東京〜品川・合成） 34s",
+  ],
+  "wrongLineS": 0,
+}
+`;
+
+exports[`'tokyo-shinagawa-tokaido-shinkansen-re…': '東海道新幹線 東京→品川→新横浜方面: 在来線と35m間隔で並走（逆方向）' > matches the recorded baseline 1`] = `
+{
+  "displayedLines": [
+    "—",
+    "東海道新幹線（品川〜新横浜）",
+    "東海道新幹線（東京〜品川・合成）",
+  ],
+  "finalLine": "東海道新幹線（東京〜品川・合成）",
+  "firstDisplayAtS": 39,
+  "fixes": 846,
+  "forbiddenLineS": 0,
+  "hiddenAfterFirstLockS": 0,
+  "lineChanges": 1,
+  "lockStates": [
+    "UNRESOLVED",
+    "LOCKED",
+    "SUSPICIOUS",
+    "REACQUIRING",
+    "LOCKED",
+  ],
+  "runs": [
+    "新横浜→品川: 東海道新幹線（品川〜新横浜） 486s, 東海道新幹線（東京〜品川・合成） 57s, — 39s",
+    "品川→東京: 東海道新幹線（東京〜品川・合成） 264s",
+  ],
+  "wrongLineS": 0,
+}
+`;
+
+exports[`'tokyo-ueno-keihin-tohoku': '京浜東北線 東京→上野: 高架の東北新幹線（MLIT + 同梱サンプルの直…' > matches the recorded baseline 1`] = `
+{
+  "displayedLines": [
+    "—",
+    "東海道線（新橋・循環）",
+    "JR東北新幹線",
+    "東北線（上野〜秋葉原・1）",
+  ],
+  "finalLine": "東北線（上野〜秋葉原・1）",
+  "firstDisplayAtS": 3,
+  "fixes": 445,
+  "forbiddenLineS": 371,
+  "hiddenAfterFirstLockS": 0,
+  "lineChanges": 2,
+  "lockStates": [
+    "UNRESOLVED",
+    "LOCKED",
+    "SUSPICIOUS",
+    "REACQUIRING",
+    "LOCKED",
+    "SUSPICIOUS",
+    "REACQUIRING",
+    "LOCKED",
+  ],
+  "runs": [
+    "東京→神田: JR東北新幹線 113s, 東海道線（新橋・循環） 37s, — 3s",
+    "神田→秋葉原: JR東北新幹線 94s",
+    "秋葉原→御徒町: JR東北新幹線 126s",
+    "御徒町→上野: JR東北新幹線 38s, 東北線（上野〜秋葉原・1） 34s",
+  ],
+  "wrongLineS": 371,
+}
+`;
+
+exports[`'tokyo-ueno-keihin-tohoku-reverse': '京浜東北線 東京→上野: 高架の東北新幹線（MLIT + 同梱サンプルの直…' > matches the recorded baseline 1`] = `
+{
+  "displayedLines": [
+    "—",
+    "東北線（上野〜秋葉原・1）",
+    "JR東北新幹線",
+  ],
+  "finalLine": "JR東北新幹線",
+  "firstDisplayAtS": 3,
+  "fixes": 397,
+  "forbiddenLineS": 209,
+  "hiddenAfterFirstLockS": 0,
+  "lineChanges": 1,
+  "lockStates": [
+    "UNRESOLVED",
+    "LOCKED",
+    "SUSPICIOUS",
+    "REACQUIRING",
+    "LOCKED",
+  ],
+  "runs": [
+    "上野→御徒町: 東北線（上野〜秋葉原・1） 89s, — 3s",
+    "御徒町→秋葉原: 東北線（上野〜秋葉原・1） 96s, JR東北新幹線 30s",
+    "秋葉原→神田: JR東北新幹線 94s",
+    "神田→東京: JR東北新幹線 85s",
+  ],
+  "wrongLineS": 209,
+}
+`;
