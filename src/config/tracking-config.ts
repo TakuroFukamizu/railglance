@@ -78,6 +78,32 @@ export type TrackingConfig = {
    * from the end vertex. MLIT segments end at junctions rather than at platforms.
    */
   routeSegmentEndOverrunMeters: number;
+  /**
+   * Straight-line bridges across a station hole: the far-side segment end must be at least
+   * this far from the end vertex (closer ends are the same junction, not the far side of a
+   * hole).
+   */
+  routeSegmentGapMinBridgeMeters: number;
+  /** Maximum turn between a segment's end tangent, the bridge and the far-side segment. */
+  routeSegmentGapMaxTurnDegrees: number;
+  /**
+   * A segment covers a sample past another segment's end (so there is no hole to bridge)
+   * when it is within this many multiples of the sample's accuracy floor.
+   */
+  routeSegmentGapCoverAccuracyMultiple: number;
+  /**
+   * Another line's segment that carries the sample on its own geometry cancels a station-hole
+   * projection when it is closer than the projection by more than this many accuracy floors
+   * (a transfer at the station, or a biased trace defending a wrong lock).
+   */
+  routeSegmentGapOtherCoverMarginAccuracyMultiple: number;
+  /**
+   * Window distance falloff: the mean window distance at which the distance score halves,
+   * in multiples of the fixes' accuracy floor. The score is never more lenient than the
+   * linear falloff that reaches 0 at routeWindowLinearFalloffMeters.
+   */
+  routeWindowDistanceScalePerAccuracy: number;
+  routeWindowLinearFalloffMeters: number;
 };
 
 export const DEFAULT_TRACKING_CONFIG: TrackingConfig = {
@@ -135,4 +161,10 @@ export const DEFAULT_TRACKING_CONFIG: TrackingConfig = {
   routeCandidateTieMargin: 15,
   routeProgressJitterMeters: 15,
   routeSegmentEndOverrunMeters: 600,
+  routeSegmentGapMinBridgeMeters: 30,
+  routeSegmentGapMaxTurnDegrees: 45,
+  routeSegmentGapCoverAccuracyMultiple: 2,
+  routeSegmentGapOtherCoverMarginAccuracyMultiple: 1,
+  routeWindowDistanceScalePerAccuracy: 2,
+  routeWindowLinearFalloffMeters: 120,
 };

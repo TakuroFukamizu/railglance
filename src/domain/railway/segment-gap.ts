@@ -6,16 +6,30 @@ import { segmentsAreAdjacent } from './continuity';
 const METERS_PER_DEGREE_LAT = 111139;
 /** Baseline length used to estimate the direction a polyline leaves its end vertex. */
 const END_TANGENT_BASELINE_METERS = 50;
-/** Endpoints closer than this are the same junction, not the far side of a hole. */
-const MIN_BRIDGE_METERS = 30;
-/** Maximum turn between the end tangent, the bridge and the continuing segment. */
-const MAX_BRIDGE_TURN_DEGREES = 45;
 
 export type EndGapProjection = {
   /** Offset from the track as it plausibly continues through the hole. */
   distanceMeters: number;
   /** Track position extrapolated beyond the segment end. */
   trackPositionMeters: number;
+};
+
+export type EndGapOptions = {
+  /** Longest hole bridged past the segment end (TrackingConfig.routeSegmentEndOverrunMeters). */
+  maxOverrunMeters: number;
+  /** A segment within this distance of the sample covers it. */
+  coverToleranceMeters: number;
+  /**
+   * A covering segment that does not continue this track cancels the projection only when
+   * it is closer to the sample than the projection by more than this. Parallel lines 20 m
+   * apart swap places under GPS noise, and a per-fix flip would drop a correct lock in a
+   * hole back to its raw end-vertex distance.
+   */
+  otherCoverMarginMeters: number;
+  /** Far-side ends closer than this are the same junction (routeSegmentGapMinBridgeMeters). */
+  minBridgeMeters: number;
+  /** Maximum turn between end tangent, bridge and far-side segment (routeSegmentGapMaxTurnDegrees). */
+  maxTurnDegrees: number;
 };
 
 type Vec = { x: number; y: number };
@@ -30,17 +44,18 @@ type Vec = { x: number; y: number };
  * When the sample is beyond an end of `segment`, this estimates the offset from where the
  * track plausibly continues: the extrapolated end tangent, or a straight bridge to the
  * aligned end of another segment on the far side of the hole. Returns null when the sample
- * is not beyond an end, the hole is longer than `maxOverrunMeters`, or a segment attached
- * to this end already covers the sample (the data continues, so there is no hole).
+ * is not beyond an end, the hole is longer than `options.maxOverrunMeters`, a segment attached
+ * to this end already covers the sample (the data continues, so there is no hole), or any
+ * other segment covers the sample clearly more closely than the projection would.
  */
 export function projectAcrossEndGap(
   sample: { latitude: number; longitude: number },
   segment: TrackSegment,
   closest: ClosestPolylinePointResult,
   nearbySegments: TrackSegment[],
-  maxOverrunMeters: number,
-  coverToleranceMeters: number
+  options: EndGapOptions
 ): EndGapProjection | null {
+  const { maxOverrunMeters, coverToleranceMeters, otherCoverMarginMeters, minBridgeMeters, maxTurnDegrees } = options;
   const coordinates = segment.coordinates;
   const n = coordinates.length;
   if (n < 2) return null;
@@ -72,6 +87,8 @@ export function projectAcrossEndGap(
   if (along <= 0) return null;
 
   let best = Number.POSITIVE_INFINITY;
+  // Closest other segment that carries the sample on its own geometry (not at an end).
+  let otherCoverMeters = Number.POSITIVE_INFINITY;
   // Where the data resumes on the far side bounds how long the hole can be.
   let farthestResumeMeters: number | null = null;
 
@@ -90,13 +107,13 @@ export function projectAcrossEndGap(
       const innerVec = toLocal(inner);
       const continuation = normalize({ x: innerVec.x - farVec.x, y: innerVec.y - farVec.y });
       if (!continuation) continue;
-      if (farLength < MIN_BRIDGE_METERS) {
-        if (angleBetween(continuation, tangent) <= MAX_BRIDGE_TURN_DEGREES) continuesTrack = true;
+      if (farLength < minBridgeMeters) {
+        if (angleBetween(continuation, tangent) <= maxTurnDegrees) continuesTrack = true;
         continue;
       }
       const bridge = { x: farVec.x / farLength, y: farVec.y / farLength };
-      if (angleBetween(bridge, tangent) > MAX_BRIDGE_TURN_DEGREES) continue;
-      if (angleBetween(bridge, continuation) > MAX_BRIDGE_TURN_DEGREES) continue;
+      if (angleBetween(bridge, tangent) > maxTurnDegrees) continue;
+      if (angleBetween(bridge, continuation) > maxTurnDegrees) continue;
       farthestResumeMeters = Math.max(farthestResumeMeters ?? 0, farLength);
       // A segment starting across the hole does not end it: parallel lines of other
       // operators (京急 at 品川, the bundled Shinkansen at 東京) start there too.
@@ -105,17 +122,22 @@ export function projectAcrossEndGap(
       best = Math.min(best, Math.abs(cross(p, bridge)));
     }
 
-    if (!continuesTrack) continue;
     const otherClosest = findClosestPointOnPolyline(sample.latitude, sample.longitude, oc);
     const clamped = isClampedTo('first', otherClosest, oc.length) || isClampedTo('last', otherClosest, oc.length);
+    if (clamped || otherClosest.distanceMeters > coverToleranceMeters) continue;
     // The data resumes on `other` and the sample is on it: this end is not a hole any more.
-    if (!clamped && otherClosest.distanceMeters <= coverToleranceMeters) return null;
+    if (continuesTrack) return null;
+    otherCoverMeters = Math.min(otherCoverMeters, otherClosest.distanceMeters);
   }
 
   const tangentBudget = farthestResumeMeters === null ? maxOverrunMeters : farthestResumeMeters;
   if (along <= tangentBudget) best = Math.min(best, Math.abs(cross(p, tangent)));
 
   if (!Number.isFinite(best)) return null;
+  // Another line's continuous track (京急 at 品川 after a transfer, or the right line
+  // under a biased trace) explains the sample better than the guessed continuation
+  // through the hole: do not defend this segment with the guess.
+  if (otherCoverMeters + otherCoverMarginMeters < best) return null;
 
   const startOffset = segment.startOffsetMeters ?? 0;
   return {

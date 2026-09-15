@@ -205,7 +205,7 @@ export class MapMatcher {
       rescoredCurrent,
       trajectory.reliable && osStopped !== true ? trajectory.headingDegrees : null
     );
-    this.updateChallenger(topCandidate, rescoredCurrent, scoreMargin, sample.timestampMs);
+    this.updateChallenger(topCandidate, rescoredCurrent, scoreMargin, sample.timestampMs, osStopped);
 
     const health = this.lockState === 'UNRESOLVED'
       ? null
@@ -401,14 +401,17 @@ export class MapMatcher {
     const currentRouteStillBest = this.currentMatch !== null && this.isCurrentRoute(topCandidate);
     const healthRecovered = (health?.total ?? 0) >= this.config.routeSuspiciousHealthThreshold + 0.15;
 
-    if (currentRouteStillBest && healthRecovered && !this.manualReacquireActive) {
-      this.adoptSameRouteProgress(this.rescoreCurrent([topCandidate]) ?? topCandidate, topCandidate);
-      this.finishReacquireLock(topCandidate, nowMs);
+    // A route that was just switched to must be confirmed over several fixes. Its
+    // observations are cleared on the switch, so its health is built from defaults and
+    // cannot shortcut that confirmation.
+    if (currentRouteStillBest && this.confirmation) {
+      this.continueConfirmation(topCandidate, nowMs);
       return;
     }
 
-    if (this.currentMatch && this.isCurrentRoute(topCandidate) && this.confirmation) {
-      this.continueConfirmation(topCandidate, nowMs);
+    if (currentRouteStillBest && healthRecovered && !this.manualReacquireActive) {
+      this.adoptSameRouteProgress(this.rescoreCurrent([topCandidate]) ?? topCandidate, topCandidate);
+      this.finishReacquireLock(topCandidate, nowMs);
       return;
     }
 
@@ -605,9 +608,27 @@ export class MapMatcher {
     topCandidate: RouteCandidateScore,
     rescoredCurrent: RouteCandidateScore | null,
     scoreMargin: number,
-    nowMs: number
+    nowMs: number,
+    osStopped: boolean | null
   ): void {
-    if (!this.currentMatch || this.isCurrentRoute(topCandidate)) {
+    if (!this.currentMatch) {
+      this.challenger = null;
+      return;
+    }
+    // While the OS says the train is stopped (a dwell, often inside a station hole of
+    // the locked segment) a fix says nothing about which line it is on: it neither adds
+    // challenger wins nor resets them. An unreliable trajectory (GPS loss) does not freeze.
+    // The challenger's clock is paused too: time spent stopped is not persistence
+    // evidence, so it must not count toward routeChallengerMinimumMs.
+    if (osStopped === true) {
+      if (this.challenger) {
+        const pausedMs = Math.max(0, nowMs - this.challenger.lastSeenAtMs);
+        this.challenger.firstSeenAtMs += pausedMs;
+        this.challenger.lastSeenAtMs += pausedMs;
+      }
+      return;
+    }
+    if (this.isCurrentRoute(topCandidate)) {
       this.challenger = null;
       return;
     }

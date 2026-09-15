@@ -6,9 +6,6 @@ import { calculateBearing, calculateHeadingDifference } from '../geo/heading';
 import { computeTrajectory, osSpeedStopped } from '../geo/trajectory';
 import { segmentsAreAdjacent } from './continuity';
 
-/** Mean window distance (in multiples of the fixes' accuracy floor) at which the distance score halves. */
-const WINDOW_DISTANCE_SCALE_PER_ACCURACY = 2;
-
 export type WindowScoreableRoute = {
   routeId: string;
   line: RailwayLine;
@@ -47,11 +44,18 @@ function scoreOneRoute(
   const meanDistance = weightedAverage(distances, weights);
   // Averaging over the window cancels most per-fix noise, so a route that stays ~20 m
   // off the trajectory (a parallel line) is told apart from one the fixes scatter
-  // around. The falloff scale follows the fixes' reported accuracy, so degraded GPS
-  // (tunnels, urban canyons) is judged as leniently as before.
+  // around. The falloff scale follows the fixes' reported accuracy. With degraded GPS
+  // (tunnels, urban canyons) that scale grows so large that the curve is flat near 0 m and
+  // parallel sub-lines tie below the reacquire window margin, so the score is never more
+  // lenient than the fixed linear falloff used before.
   const accuracyFloors = history.map((sample) => Math.max(sample.accuracyMeters, config.routeMinimumAccuracyMeters));
-  const distanceScale = Math.max(WINDOW_DISTANCE_SCALE_PER_ACCURACY * weightedAverage(accuracyFloors, weights), 1);
-  const meanDistanceScore = clamp01(1 / (1 + (meanDistance / distanceScale) ** 2));
+  const distanceScale = Math.max(config.routeWindowDistanceScalePerAccuracy * weightedAverage(accuracyFloors, weights), 1);
+  const meanDistanceScore = clamp01(
+    Math.min(
+      1 / (1 + (meanDistance / distanceScale) ** 2),
+      1 - meanDistance / config.routeWindowLinearFalloffMeters
+    )
+  );
 
   const headingDiffs = projections
     .map((projection) => {

@@ -43,14 +43,13 @@ export function scoreCandidate(input: ScoreCandidateInput): RouteCandidateScore 
   // one attached to it) measure the offset from where the track continues through the hole
   // instead of the growing straight-line gap to the end vertex.
   if (previousSegment && (previousSegment.id === segment.id || segmentsAreAdjacent(previousSegment, segment))) {
-    const gap = projectAcrossEndGap(
-      sample,
-      segment,
-      closest,
-      nearbySegments,
-      config.routeSegmentEndOverrunMeters,
-      accuracyFloor * 2
-    );
+    const gap = projectAcrossEndGap(sample, segment, closest, nearbySegments, {
+      maxOverrunMeters: config.routeSegmentEndOverrunMeters,
+      coverToleranceMeters: accuracyFloor * config.routeSegmentGapCoverAccuracyMultiple,
+      otherCoverMarginMeters: accuracyFloor * config.routeSegmentGapOtherCoverMarginAccuracyMultiple,
+      minBridgeMeters: config.routeSegmentGapMinBridgeMeters,
+      maxTurnDegrees: config.routeSegmentGapMaxTurnDegrees,
+    });
     if (gap) {
       distance = Math.min(distance, gap.distanceMeters);
       trackPositionMeters = gap.trackPositionMeters;

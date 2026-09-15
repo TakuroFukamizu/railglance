@@ -26,10 +26,6 @@ const KNOWN_ISSUES: Record<string, { checks: HardCheck[]; observed: string }> = 
     checks: ['no-wrong-line'],
     observed: 'Leaving 田町 the 東海道線（田町〜新橋）lock is kept ~56 s into 田町→高輪ゲートウェイ.',
   },
-  'tokyo-shinagawa-keihin-tohoku-reverse': {
-    checks: ['no-wrong-line'],
-    observed: 'Leaving 新橋 the 東海道線（田町〜新橋）lock is kept ~48 s into 新橋→有楽町.',
-  },
 };
 
 const db = new FixtureRailwayDb(loadTokyoCoreFixture());
