@@ -15,56 +15,20 @@ type HardCheck = 'no-forbidden-line' | 'correct-final-line' | 'no-wrong-line';
  */
 const KNOWN_ISSUES: Record<string, { checks: HardCheck[]; observed: string }> = {
   'tabata-fork-yamanote': {
-    checks: ['no-forbidden-line', 'no-wrong-line'],
-    observed: 'From the 西日暮里 stop the lock moves to 東北新幹線（大宮〜東京）until ~60 s past 田端, then JR山手線.',
-  },
-  'tabata-fork-yamanote-reverse': {
-    checks: ['no-forbidden-line', 'correct-final-line', 'no-wrong-line'],
-    observed: 'Approaching 田端 the lock moves to 東北新幹線（大宮〜東京）and stays there to 日暮里.',
+    checks: ['no-wrong-line'],
+    observed: 'Leaving 田端 the 東北線（田端〜日暮里・1）lock is kept ~53 s into 田端→駒込 (stop plus the station hole).',
   },
   'tabata-fork-keihin-tohoku': {
-    checks: ['no-forbidden-line', 'correct-final-line', 'no-wrong-line'],
-    observed: 'From the 西日暮里 stop the lock moves to 東北新幹線（大宮〜東京）and never returns to 東北線（田端〜東十条・2）.',
-  },
-  'tabata-fork-keihin-tohoku-reverse': {
-    checks: ['no-forbidden-line', 'correct-final-line', 'no-wrong-line'],
-    observed: 'Approaching 田端 the lock moves to 東北新幹線（大宮〜東京）and stays there to 日暮里.',
-  },
-  'shinagawa-fork-yamanote': {
     checks: ['no-wrong-line'],
-    observed: 'Leaving 品川 southbound, 京急「本線」is shown for ~46 s.',
-  },
-  'shinagawa-fork-yamanote-reverse': {
-    checks: ['no-wrong-line'],
-    observed: 'Around the 品川 stop 京急「本線」is shown for ~90 s.',
-  },
-  'shinagawa-fork-keihin-tohoku-reverse': {
-    checks: ['no-wrong-line'],
-    observed: 'Around the 品川 stop 京急「本線」is shown for ~90 s; nothing is shown for the first ~107 s from 大井町.',
+    observed: 'Leaving 田端 the 東北線（田端〜日暮里・1）lock is kept ~49 s into 田端→上中里 (stop plus the station hole).',
   },
   'tokyo-shinagawa-keihin-tohoku': {
     checks: ['no-wrong-line'],
-    observed: 'Between 東京 and 新橋 the lock moves to 8号線有楽町線 for ~55 s.',
+    observed: 'Leaving 田町 the 東海道線（田町〜新橋）lock is kept ~56 s into 田町→高輪ゲートウェイ.',
   },
   'tokyo-shinagawa-keihin-tohoku-reverse': {
     checks: ['no-wrong-line'],
-    observed: 'From 新橋 to 東京 the lock moves to 8号線有楽町線 for ~57 s.',
-  },
-  'tokyo-ueno-keihin-tohoku': {
-    checks: ['no-forbidden-line', 'no-wrong-line'],
-    observed: 'Leaving 東京 the bundled straight-line JR東北新幹線 is locked and kept almost to 上野.',
-  },
-  'tokyo-ueno-keihin-tohoku-reverse': {
-    checks: ['no-forbidden-line', 'correct-final-line', 'no-wrong-line'],
-    observed: 'Near 秋葉原 the lock moves to the bundled straight-line JR東北新幹線 and stays to 東京.',
-  },
-  'ochanomizu-ryogoku-sobu-local': {
-    checks: ['no-wrong-line'],
-    observed: '4号線丸ノ内線 is shown around 御茶ノ水 (~58 s); 両国→錦糸町 shows the rapid 総武線（両国〜東京）.',
-  },
-  'ochanomizu-ryogoku-sobu-local-reverse': {
-    checks: ['no-wrong-line'],
-    observed: '両国→浅草橋 shows the rapid 総武線（両国〜東京）for ~48 s; 4号線丸ノ内線 is shown around 御茶ノ水.',
+    observed: 'Leaving 新橋 the 東海道線（田町〜新橋）lock is kept ~48 s into 新橋→有楽町.',
   },
 };
 

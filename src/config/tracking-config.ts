@@ -71,6 +71,13 @@ export type TrackingConfig = {
   routeRelockMinimumMs: number;
   routeCandidateTieMargin: number;
   routeProgressJitterMeters: number;
+  /**
+   * Longest station hole bridged for the current (or an attached) segment: while the
+   * sample is at most this far past the segment end, its distance is measured from the
+   * extrapolated end tangent or a bridge to the aligned far-side segment end instead of
+   * from the end vertex. MLIT segments end at junctions rather than at platforms.
+   */
+  routeSegmentEndOverrunMeters: number;
 };
 
 export const DEFAULT_TRACKING_CONFIG: TrackingConfig = {
@@ -127,4 +134,5 @@ export const DEFAULT_TRACKING_CONFIG: TrackingConfig = {
   routeRelockMinimumMs: 3000,
   routeCandidateTieMargin: 15,
   routeProgressJitterMeters: 15,
+  routeSegmentEndOverrunMeters: 600,
 };
