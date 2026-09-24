@@ -81,10 +81,17 @@ export function createMotionBannerController(deps: MotionBannerControllerDeps): 
   const cancel = deps.clearTimeout ?? ((h) => clearTimeout(h as ReturnType<typeof setTimeout>));
 
   let phase: MotionBannerPhase = 'idle';
+  // State captured when a request starts. The real provider flips its state before
+  // requestPermission() resolves, and the requesting wording must not follow it.
+  let requestingFrom: MotionPermissionState | null = null;
   let timer: unknown = null;
   let listeners: Array<(view: MotionBannerView) => void> = [];
 
-  const view = () => buildMotionBannerView(deps.provider.getPermissionStatus(), phase);
+  const view = () => {
+    const state =
+      phase === 'requesting' && requestingFrom !== null ? requestingFrom : deps.provider.getPermissionStatus();
+    return buildMotionBannerView(state, phase);
+  };
   const emit = () => {
     const v = view();
     for (const l of [...listeners]) l(v);
@@ -106,6 +113,7 @@ export function createMotionBannerController(deps: MotionBannerControllerDeps): 
     getView: view,
     async request() {
       clearTimer();
+      requestingFrom = deps.provider.getPermissionStatus();
       setPhase('requesting');
       let granted = false;
       try {
@@ -113,6 +121,7 @@ export function createMotionBannerController(deps: MotionBannerControllerDeps): 
       } catch {
         granted = false;
       }
+      requestingFrom = null;
       if (!granted) {
         setPhase('idle');
         return;

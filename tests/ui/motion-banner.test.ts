@@ -109,6 +109,55 @@ describe('createMotionBannerController', () => {
     expect(views.at(-1)?.visible).toBe(false);
   });
 
+  it('keeps the prior wording while requesting even if the provider flips mid-request', async () => {
+    // The real provider updates its state before requestPermission() resolves.
+    const provider = fakeProvider('unknown', 'granted');
+    let release: () => void = () => {};
+    provider.requestPermission = async () => {
+      provider.set('granted');
+      await new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      return true;
+    };
+    const controller = createMotionBannerController({ provider });
+    const views: MotionBannerView[] = [];
+    controller.subscribe((v) => views.push(v));
+
+    const pending = controller.request();
+    await Promise.resolve();
+    expect(controller.getView()).toEqual({
+      ...buildMotionBannerView('unknown', 'idle'),
+      buttonDisabled: true,
+    });
+    expect(views.every((v) => v.visible)).toBe(true);
+
+    release();
+    await pending;
+    expect(controller.getView()).toMatchObject({ visible: true, message: '有効化しました' });
+  });
+
+  it('keeps the invitation wording while a denial is still in flight', async () => {
+    const provider = fakeProvider('unknown', 'denied');
+    let release: () => void = () => {};
+    provider.requestPermission = async () => {
+      provider.set('denied');
+      await new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      return false;
+    };
+    const controller = createMotionBannerController({ provider });
+
+    const pending = controller.request();
+    await Promise.resolve();
+    expect(controller.getView()).toMatchObject({ buttonLabel: '有効化', buttonDisabled: true });
+
+    release();
+    await pending;
+    expect(controller.getView()).toMatchObject({ buttonLabel: '再試行', buttonDisabled: false });
+  });
+
   it('returns to idle with the denial wording when denied', async () => {
     const controller = createMotionBannerController({ provider: fakeProvider('unknown', 'denied') });
     await controller.request();
