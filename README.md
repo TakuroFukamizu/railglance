@@ -128,7 +128,14 @@ src/
     track-segments.json
     metadata.json
   ui/
-    debug-panel.ts             # スマホ画面開発者デバッグパネル
+    router.ts                  # hash ルーティング（home / history / diagnostics / debug）
+    home-status-card.ts        # ホームの現在の乗車カード
+    route-candidates.ts        # 路線候補リストの整形
+    motion-banner.ts           # モーションセンサー許可バナー
+    hud-preview-scale.ts       # 576×288 プレビューの縮小
+    debug-view.ts              # debug ビューと DebugPanel / スケーラの連携
+    debug-panel.ts             # 推定状態デバッグパネル（表示中のみ描画）
+    diagnostic-panel.ts        # 診断参加状態の表示
 index.html
 tests/                         # Vitest 単体テスト & GPSログ再生器
 ```

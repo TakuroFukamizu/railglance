@@ -2,6 +2,8 @@ import { SensorFusionProvider } from '../../domain/interfaces/sensor-fusion';
 import { MotionObservation } from '../../domain/speed/navigation-state-estimator';
 import { SpeedEstimate } from '../../domain/models/location';
 
+export type MotionPermissionState = 'unknown' | 'granted' | 'denied' | 'unsupported' | 'insecure-context';
+
 export class DeviceMotionSensorFusionProvider implements SensorFusionProvider {
   // Vibration energy below this reads as "no carriage vibration" (still).
   private static readonly STILL_VIBRATION_MPS2 = 0.05;
@@ -18,10 +20,25 @@ export class DeviceMotionSensorFusionProvider implements SensorFusionProvider {
   private lastTimestampMs = 0;
   private currentEstimatedSpeedKmh: number | null = null;
   private isStoppedInferred = false;
-  private permissionStatus: 'unknown' | 'granted' | 'denied' | 'unsupported' | 'insecure-context' = 'unknown';
+  private permissionStatus: MotionPermissionState = 'unknown';
+  private permissionListeners: Array<(state: MotionPermissionState) => void> = [];
 
   constructor() {
     this.startListening();
+  }
+
+  private setPermissionStatus(next: MotionPermissionState): void {
+    if (this.permissionStatus === next) return;
+    this.permissionStatus = next;
+    for (const listener of [...this.permissionListeners]) listener(next);
+  }
+
+  /** Subscribe to permission changes. Does not replay the current state. */
+  public onPermissionChange(listener: (state: MotionPermissionState) => void): () => void {
+    this.permissionListeners.push(listener);
+    return () => {
+      this.permissionListeners = this.permissionListeners.filter((l) => l !== listener);
+    };
   }
 
   /**
@@ -34,7 +51,12 @@ export class DeviceMotionSensorFusionProvider implements SensorFusionProvider {
     this.startListening();
 
     if (!('DeviceMotionEvent' in window)) {
-      this.permissionStatus = 'unsupported';
+      this.setPermissionStatus('unsupported');
+      return false;
+    }
+
+    if (window.isSecureContext === false) {
+      this.setPermissionStatus('insecure-context');
       return false;
     }
 
@@ -45,31 +67,30 @@ export class DeviceMotionSensorFusionProvider implements SensorFusionProvider {
         console.log('[SensorFusion] DeviceMotionEvent.requestPermission returned:', state);
 
         if (state === 'granted') {
-          this.permissionStatus = 'granted';
+          this.setPermissionStatus('granted');
           return true;
-        } else {
-          // If iOS returns 'denied' or prompt already accepted in WebView, check if actual events arrive
-          await new Promise((res) => setTimeout(res, 250));
-          if (this.hasReceivedEvent) {
-            console.log('[SensorFusion] Active devicemotion events received despite permission callback result!');
-            this.permissionStatus = 'granted';
-            return true;
-          }
-          this.permissionStatus = 'denied';
-          return this.hasReceivedEvent;
         }
-      } else {
-        this.permissionStatus = 'granted';
-        return true;
+        // If iOS returns 'denied' or prompt already accepted in WebView, check if actual events arrive
+        await new Promise((res) => setTimeout(res, 250));
+        if (this.hasReceivedEvent) {
+          console.log('[SensorFusion] Active devicemotion events received despite permission callback result!');
+          this.setPermissionStatus('granted');
+          return true;
+        }
+        this.setPermissionStatus('denied');
+        return false;
       }
+      this.setPermissionStatus('granted');
+      return true;
     } catch (err) {
       console.warn('[SensorFusion] Exception during requestPermission:', err);
       // Fallback check if events arrive anyway
       await new Promise((res) => setTimeout(res, 200));
       if (this.hasReceivedEvent) {
-        this.permissionStatus = 'granted';
+        this.setPermissionStatus('granted');
         return true;
       }
+      this.setPermissionStatus('denied');
       return false;
     }
   }
@@ -118,9 +139,7 @@ export class DeviceMotionSensorFusionProvider implements SensorFusionProvider {
     nowMs: number
   ): void {
     this.hasReceivedEvent = true;
-    if (this.permissionStatus !== 'granted') {
-      this.permissionStatus = 'granted';
-    }
+    this.setPermissionStatus('granted');
 
     const magnitude = Math.sqrt(x * x + y * y + z * z);
 
@@ -189,7 +208,7 @@ export class DeviceMotionSensorFusionProvider implements SensorFusionProvider {
     }
   }
 
-  public getPermissionStatus(): string {
+  public getPermissionStatus(): MotionPermissionState {
     return this.permissionStatus;
   }
 
