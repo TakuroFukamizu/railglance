@@ -3,12 +3,12 @@ import { RouteLockState, shouldDisplaySelectedRoute } from '../../../src/domain/
 import { MapMatcher } from '../../../src/domain/railway/map-matcher';
 import { FixtureRailwayDb } from './fixture-db';
 import { EdgeScenario } from './scenarios';
-import { generateTrace } from './trace';
+import { generateTrace, TracePoint } from './trace';
 
 export type Tick = {
   t: number;
   runIndex: number;
-  phase: string;
+  phase: TracePoint['phase'];
   displayedLineId: string | null;
   lockState: RouteLockState | null;
   allowedLineIds: ReadonlySet<string>;
