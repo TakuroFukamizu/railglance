@@ -117,6 +117,12 @@ export type RouteChallengerState = {
   consecutiveWins: number;
   firstSeenAtMs: number;
   lastSeenAtMs: number;
+  /**
+   * Time this challenger has led while the train was moving. Fixes taken while the
+   * OS reports the train stopped are not persistence evidence, so they are excluded;
+   * firstSeenAtMs/lastSeenAtMs stay wall-clock for logging and debugging.
+   */
+  activeDurationMs: number;
   latestScore: number;
   latestMargin: number;
 };

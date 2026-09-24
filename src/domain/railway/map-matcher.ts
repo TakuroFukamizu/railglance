@@ -596,7 +596,7 @@ export class MapMatcher {
   private challengerDominant(): boolean {
     if (!this.challenger || !this.currentMatch) return false;
     if (this.challenger.routeId === routeIdentityKey(this.currentMatch.segment)) return false;
-    const duration = this.challenger.lastSeenAtMs - this.challenger.firstSeenAtMs;
+    const duration = this.challenger.activeDurationMs;
     return (
       this.challenger.latestMargin >= this.config.routeChallengerMinMargin &&
       this.challenger.consecutiveWins >= this.config.routeChallengerConsecutiveCount &&
@@ -618,14 +618,10 @@ export class MapMatcher {
     // While the OS says the train is stopped (a dwell, often inside a station hole of
     // the locked segment) a fix says nothing about which line it is on: it neither adds
     // challenger wins nor resets them. An unreliable trajectory (GPS loss) does not freeze.
-    // The challenger's clock is paused too: time spent stopped is not persistence
-    // evidence, so it must not count toward routeChallengerMinimumMs.
+    // Stopped time is not persistence evidence either: it does not accumulate into
+    // activeDurationMs, which is what routeChallengerMinimumMs measures.
     if (osStopped === true) {
-      if (this.challenger) {
-        const pausedMs = Math.max(0, nowMs - this.challenger.lastSeenAtMs);
-        this.challenger.firstSeenAtMs += pausedMs;
-        this.challenger.lastSeenAtMs += pausedMs;
-      }
+      if (this.challenger) this.challenger.lastSeenAtMs = nowMs;
       return;
     }
     if (this.isCurrentRoute(topCandidate)) {
@@ -640,6 +636,7 @@ export class MapMatcher {
 
     if (this.challenger && this.challenger.routeId === challengerKey) {
       this.challenger.consecutiveWins += 1;
+      this.challenger.activeDurationMs += Math.max(0, nowMs - this.challenger.lastSeenAtMs);
       this.challenger.lastSeenAtMs = nowMs;
       this.challenger.latestScore = topCandidate.totalScore;
       this.challenger.latestMargin = comparedMargin;
@@ -654,6 +651,7 @@ export class MapMatcher {
       consecutiveWins: 1,
       firstSeenAtMs: nowMs,
       lastSeenAtMs: nowMs,
+      activeDurationMs: 0,
       latestScore: topCandidate.totalScore,
       latestMargin: comparedMargin,
     };

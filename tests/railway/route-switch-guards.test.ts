@@ -134,7 +134,10 @@ describe('guard: a stop neither adds nor resets challenger wins', () => {
     expect(afterDwell?.challenger?.consecutiveWins).toBe(3);
     // Only ~2 s of moving evidence: below routeChallengerMinimumMs (4000).
     const challenger = afterDwell!.challenger!;
-    expect(challenger.lastSeenAtMs - challenger.firstSeenAtMs).toBeLessThan(DEFAULT_TRACKING_CONFIG.routeChallengerMinimumMs);
+    expect(challenger.activeDurationMs).toBeLessThan(DEFAULT_TRACKING_CONFIG.routeChallengerMinimumMs);
+    expect(challenger.lastSeenAtMs - challenger.firstSeenAtMs).toBeGreaterThanOrEqual(
+      DEFAULT_TRACKING_CONFIG.routeChallengerMinimumMs
+    );
     expect(dominant()).toBe(false);
   });
 
