@@ -172,7 +172,7 @@ export class DebugPanel {
           <div>Challenger: ${match?.challenger ? escapeHtml(match.challenger.lineId) : 'なし'}</div>
           <div>Challenger Score: ${match?.challenger?.latestScore ?? '--'}</div>
           <div>Consecutive Wins: ${match?.challenger?.consecutiveWins ?? '--'}</div>
-          <div>Duration: ${match?.challenger ? `${Math.max(0, match.challenger.lastSeenAtMs - match.challenger.firstSeenAtMs)} ms` : '--'}</div>
+          <div>Duration: ${match?.challenger ? `${match.challenger.activeDurationMs} ms (走行中) / ${Math.max(0, match.challenger.lastSeenAtMs - match.challenger.firstSeenAtMs)} ms (実時間)` : '--'}</div>
           <div>Trajectory Heading: ${match?.trajectoryHeadingDegrees !== null && match?.trajectoryHeadingDegrees !== undefined ? `${match.trajectoryHeadingDegrees.toFixed(1)}°` : '--'}</div>
           <div>Manual Lock State: ${match?.lockState === 'MANUAL_LOCK' ? (match.manualLockAway ? '離れている' : 'ロック中') : 'なし'}</div>
         </div>

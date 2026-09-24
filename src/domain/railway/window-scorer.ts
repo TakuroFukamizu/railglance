@@ -42,7 +42,20 @@ function scoreOneRoute(
   const projections = history.map((sample) => projectOntoRoute(sample, route.segments));
   const distances = projections.map((projection) => projection.distanceMeters);
   const meanDistance = weightedAverage(distances, weights);
-  const meanDistanceScore = clamp01(1 - meanDistance / 120);
+  // Averaging over the window cancels most per-fix noise, so a route that stays ~20 m
+  // off the trajectory (a parallel line) is told apart from one the fixes scatter
+  // around. The falloff scale follows the fixes' reported accuracy. With degraded GPS
+  // (tunnels, urban canyons) that scale grows so large that the curve is flat near 0 m and
+  // parallel sub-lines tie below the reacquire window margin, so the score is never more
+  // lenient than the fixed linear falloff used before.
+  const accuracyFloors = history.map((sample) => Math.max(sample.accuracyMeters, config.routeMinimumAccuracyMeters));
+  const distanceScale = Math.max(config.routeWindowDistanceScalePerAccuracy * weightedAverage(accuracyFloors, weights), 1);
+  const meanDistanceScore = clamp01(
+    Math.min(
+      1 / (1 + (meanDistance / distanceScale) ** 2),
+      1 - meanDistance / config.routeWindowLinearFalloffMeters
+    )
+  );
 
   const headingDiffs = projections
     .map((projection) => {

@@ -9,7 +9,8 @@ import {
 } from '../models/railway';
 import { findClosestPointOnPolyline } from '../geo/polyline';
 import { calculateBearing, calculateHeadingDifference } from '../geo/heading';
-import { classifyContinuity, continuityBonus } from './continuity';
+import { classifyContinuity, continuityBonus, segmentsAreAdjacent } from './continuity';
+import { projectAcrossEndGap } from './segment-gap';
 
 export type ScoreCandidateInput = {
   sample: LocationSample;
@@ -32,11 +33,29 @@ export function scoreCandidate(input: ScoreCandidateInput): RouteCandidateScore 
     input;
 
   const closest = findClosestPointOnPolyline(sample.latitude, sample.longitude, segment.coordinates);
-  const distance = closest.distanceMeters;
   const startOffset = segment.startOffsetMeters ?? 0;
-  const trackPositionMeters = startOffset + closest.distanceAlongPolylineMeters;
+  let distance = closest.distanceMeters;
+  let trackPositionMeters = startOffset + closest.distanceAlongPolylineMeters;
 
   const accuracyFloor = Math.max(sample.accuracyMeters, config.routeMinimumAccuracyMeters);
+
+  // Station holes: segments end at junctions, not platforms. For the current segment (or
+  // one attached to it) measure the offset from where the track continues through the hole
+  // instead of the growing straight-line gap to the end vertex.
+  if (previousSegment && (previousSegment.id === segment.id || segmentsAreAdjacent(previousSegment, segment))) {
+    const gap = projectAcrossEndGap(sample, segment, closest, nearbySegments, {
+      maxOverrunMeters: config.routeSegmentEndOverrunMeters,
+      coverToleranceMeters: accuracyFloor * config.routeSegmentGapCoverAccuracyMultiple,
+      otherCoverMarginMeters: accuracyFloor * config.routeSegmentGapOtherCoverMarginAccuracyMultiple,
+      minBridgeMeters: config.routeSegmentGapMinBridgeMeters,
+      maxTurnDegrees: config.routeSegmentGapMaxTurnDegrees,
+    });
+    if (gap) {
+      distance = Math.min(distance, gap.distanceMeters);
+      trackPositionMeters = gap.trackPositionMeters;
+    }
+  }
+
   const normalizedDistance = distance / accuracyFloor;
 
   // 1. Distance score (40 pts max), softened by GPS-accuracy-normalized distance.
