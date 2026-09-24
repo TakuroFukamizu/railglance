@@ -289,7 +289,7 @@ async function main() {
   );
 }
 
-if (process.argv[1]?.includes('build-route-edge-fixture')) {
+if (import.meta.url.endsWith(process.argv[1]) || process.argv[1]?.includes('build-route-edge-fixture')) {
   main().catch((error) => {
     console.error(error);
     process.exit(1);

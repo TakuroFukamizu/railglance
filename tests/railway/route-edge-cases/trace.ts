@@ -163,7 +163,8 @@ export function generateTrace(
   let previousEnd: LatLon | null = null;
 
   const emitStationary = (at: LatLon, seconds: number, runIndex: number, phase: TracePoint['phase'], gps: GpsQuality, secondsIntoRun: number) => {
-    for (let i = 0; i < seconds; i++) {
+    const ticks = Math.max(0, Math.round(seconds));
+    for (let i = 0; i < ticks; i++) {
       const [lat, lon] = offsetMeters(at, random.gaussian() * gps.noiseSigmaMeters * 0.6, random.gaussian() * gps.noiseSigmaMeters * 0.6);
       points.push({
         sample: {
@@ -190,7 +191,7 @@ export function generateTrace(
       const station = nearestSegmentStation(db, run.path[0], path[0]);
       if (station) path.unshift(station);
     }
-    if (run.dwellAtEndS) {
+    if (run.dwellAtEndS !== undefined) {
       const station = nearestSegmentStation(db, run.path[run.path.length - 1], path[path.length - 1]);
       if (station) path.push(station);
     }
@@ -241,7 +242,7 @@ export function generateTrace(
     }
 
     previousEnd = path[path.length - 1];
-    if (run.dwellAtEndS) emitStationary(previousEnd, run.dwellAtEndS, runIndex, 'dwell', gps, secondsIntoRun);
+    if (run.dwellAtEndS !== undefined) emitStationary(previousEnd, run.dwellAtEndS, runIndex, 'dwell', gps, secondsIntoRun);
   });
 
   return points;
