@@ -12,24 +12,24 @@
     "operatorId": "jreast",
     "name": "JR東北新幹線",
     "shortName": "東北新幹線",
-    "directionAName": "上り（東京方面）",
-    "directionBName": "下り（仙台・新青森方面）"
+    "directionAName": "下り（仙台・新青森方面）",
+    "directionBName": "上り（東京方面）"
   },
   {
     "id": "jreast-joetsu-shinkansen",
     "operatorId": "jreast",
     "name": "JR上越新幹線",
     "shortName": "上越新幹線",
-    "directionAName": "上り（東京・大宮方面）",
-    "directionBName": "下り（新潟方面）"
+    "directionAName": "下り（新潟方面）",
+    "directionBName": "上り（東京・大宮方面）"
   },
   {
     "id": "jreast-hokuriku-shinkansen",
     "operatorId": "jreast",
     "name": "JR北陸新幹線",
     "shortName": "北陸新幹線",
-    "directionAName": "上り（東京・大宮方面）",
-    "directionBName": "下り（長野・金沢方面）"
+    "directionAName": "下り（長野・金沢方面）",
+    "directionBName": "上り（東京・大宮方面）"
   },
   {
     "id": "keikyu-main-line",
@@ -44,15 +44,15 @@
     "operatorId": "sotetsu",
     "name": "相鉄本線",
     "shortName": "相鉄線",
-    "directionAName": "上り（横浜・JR直通方面）",
-    "directionBName": "下り（海老名方面）"
+    "directionAName": "下り（海老名方面）",
+    "directionBName": "上り（横浜・JR直通方面）"
   },
   {
     "id": "jreast-yokohama-line",
     "operatorId": "jreast",
     "name": "JR横浜線",
     "shortName": "横浜線",
-    "directionAName": "上り（東神奈川・横浜方面）",
-    "directionBName": "下り（町田・八王子方面）"
+    "directionAName": "下り（町田・八王子方面）",
+    "directionBName": "上り（東神奈川・横浜方面）"
   }
 ]

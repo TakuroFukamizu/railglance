@@ -868,3 +868,43 @@ describe('JourneyStateEstimator - station data completeness', () => {
     }
   });
 });
+
+// 方向名が未定義の路線(MLIT由来の路線など)では、駅順序(sequence)がどちら向きに
+// 振られているかはデータ上保証されないため、「上り」「下り」を推測で出してはいけない。
+// 代わりに進行方向側の終端駅名で「○○方面」と表示する。
+class UnnamedDirectionDatabase extends MockStationDatabase {
+  private yokohamaStations: Station[] = [
+    { id: 'st-1', lineId: 'line-1', name: '東神奈川', sequence: 1, latitude: 35.4775, longitude: 139.6339 },
+    { id: 'st-2', lineId: 'line-1', name: '新横浜', sequence: 2, latitude: 35.5070, longitude: 139.6176 },
+    { id: 'st-3', lineId: 'line-1', name: '八王子', sequence: 3, latitude: 35.6423, longitude: 139.3389 },
+  ];
+
+  async getLine(lineId: string): Promise<RailwayLine | undefined> {
+    return { id: lineId, operatorId: 'mlit-operator', operatorName: '東日本旅客鉄道', name: '横浜線' };
+  }
+  async getStationsByLine(): Promise<Station[]> {
+    return this.yokohamaStations;
+  }
+}
+
+describe('JourneyStateEstimator - direction label without curated direction names', () => {
+  it('labels travel toward decreasing sequence with the sequence-1 terminal instead of guessing 下り', async () => {
+    const estimator = new JourneyStateEstimator(new UnnamedDirectionDatabase(), DEFAULT_TRACKING_CONFIG);
+    const state = await estimateAt(estimator, 'DOWN', 1500, SEG_1);
+    expect(state.direction).toBe('DOWN');
+    expect(state.directionName).toBe('東神奈川方面');
+  });
+
+  it('labels travel toward increasing sequence with the last-sequence terminal instead of guessing 上り', async () => {
+    const estimator = new JourneyStateEstimator(new UnnamedDirectionDatabase(), DEFAULT_TRACKING_CONFIG);
+    const state = await estimateAt(estimator, 'UP', 1500, SEG_1);
+    expect(state.direction).toBe('UP');
+    expect(state.directionName).toBe('八王子方面');
+  });
+
+  it('still prefers curated direction names when the line has them', async () => {
+    const estimator = new JourneyStateEstimator(new MockStationDatabase(), DEFAULT_TRACKING_CONFIG);
+    const state = await estimateAt(estimator, 'DOWN', 1500, SEG_1);
+    expect(state.directionName).toBe('下り');
+  });
+});

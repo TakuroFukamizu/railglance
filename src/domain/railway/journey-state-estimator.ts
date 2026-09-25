@@ -66,6 +66,40 @@ export function computeSegmentProgress(
   };
 }
 
+/**
+ * 進行方向側の終端駅名から「○○方面」ラベルを作る際の駅名の最大文字数。
+ * HUD ヘッダー右側(12px bold, 右端 x=278)に路線名と並べて収める必要があるため、
+ * 長い駅名(例: 羽田空港第1・第2ターミナル)は省略記号付きで切り詰める。
+ */
+const DIRECTION_TERMINAL_NAME_MAX_CHARS = 8;
+
+/**
+ * HUD に出す方向ラベルを決める。
+ *
+ * 契約: 駅 sequence が増える向きの走行(UP) → directionAName、減る向き(DOWN) → directionBName。
+ *
+ * 路線に方向名が無い場合(MLIT 由来路線など)は「上り」「下り」を推測しない。
+ * MLIT 由来路線の sequence は端点駅IDのハッシュ順で振られており、どちらの端が起点かは
+ * データ上保証されないため、既定値で「上り」を出すと路線ごとに五分五分で逆になる
+ * (issue #72: 横浜線で東神奈川方面が「下り」と表示された)。
+ * 代わりに進行方向側の終端駅名で「○○方面」と表示する。これは駅順序がどちら向きでも正しい。
+ */
+export function resolveDirectionName(
+  line: RailwayLine,
+  isDown: boolean,
+  orderedStations: Station[]
+): string | null {
+  const curated = isDown ? line.directionBName : line.directionAName;
+  if (curated) return curated;
+  if (orderedStations.length === 0) return null;
+  const terminal = isDown ? orderedStations[0] : orderedStations[orderedStations.length - 1];
+  const name = [...terminal.name];
+  const shortened = name.length > DIRECTION_TERMINAL_NAME_MAX_CHARS
+    ? `${name.slice(0, DIRECTION_TERMINAL_NAME_MAX_CHARS - 1).join('')}…`
+    : terminal.name;
+  return `${shortened}方面`;
+}
+
 export class JourneyStateEstimator {
   private lastSample: LocationSample | null = null;
   private lastConfirmedDirection: TravelDirection = 'UNKNOWN';
@@ -365,11 +399,9 @@ export class JourneyStateEstimator {
 
     // 方向が確定していない場合は方向名を出さない(現状の制御フローでは到達しないが、
     // 誤った方向名をHUDに出さないためのガードとして残す)。
-    const directionName = isDown
-      ? selectedLine.directionBName ?? '下り'
-      : isUpDirection(direction)
-        ? selectedLine.directionAName ?? '上り'
-        : null;
+    const directionName = isDown || isUpDirection(direction)
+      ? resolveDirectionName(selectedLine, isDown, orderedStations)
+      : null;
     const confidence = displayableMatch ? displayableMatch.confidence : (navState?.confidence ?? 0.5);
 
     let status: JourneyState['status'] = 'TRACKING';
