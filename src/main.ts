@@ -321,6 +321,7 @@ async function init() {
   const diagnosticIndicator = document.getElementById('diagnostic-indicator');
   const diagnosticStatus = document.getElementById('diagnostic-status');
   const diagnosticDetail = document.getElementById('diagnostic-detail');
+  const diagnosticMessage = document.getElementById('diagnostic-message');
 
   const renderDiagnosticStatus = (status: DiagnosticStatus) => {
     const view = buildDiagnosticPanelView(status);
@@ -328,6 +329,7 @@ async function init() {
     diagnosticIndicator?.classList.toggle('is-error', view.errored);
     if (diagnosticStatus) diagnosticStatus.textContent = view.statusLabel;
     if (diagnosticDetail) diagnosticDetail.textContent = view.detailText;
+    if (diagnosticMessage) diagnosticMessage.textContent = view.message;
     if (diagnosticStart) {
       diagnosticStart.disabled = view.startDisabled;
       diagnosticStart.textContent = view.startLabel;

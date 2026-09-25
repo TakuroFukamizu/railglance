@@ -9,10 +9,8 @@
     <div id="app">
       <header class="app-header">
         <button id="btn-back" class="btn-back" type="button" hidden aria-label="ホームに戻る">‹ 戻る</button>
-        <div class="app-identity">
-          <h1>RailGlance</h1>
-          <p id="build-info" class="build-info">バージョン情報を読み込み中…</p>
-        </div>
+        <!-- No app title here: the Even App WebView already shows it in its navigation bar. -->
+        <p id="build-info" class="build-info">バージョン情報を読み込み中…</p>
       </header>
 
       <main class="app-main">
@@ -69,6 +67,7 @@
         <!-- テスター向け診断記録 -->
         <section data-view="diagnostics" class="view diagnostic-section" hidden>
           <h2 tabindex="-1">テスター向け診断記録</h2>
+          <p id="diagnostic-message" class="diagnostic-message" aria-live="polite">通常のエラー収集のみ有効です。</p>
           <p>
             通常はエラーと、位置座標を除いた状態変化だけを Sentry に送信します。
             キャンペーン参加中は正確な GPS 座標、速度、路線・区間・駅の判定、デッドレコニング状態を
