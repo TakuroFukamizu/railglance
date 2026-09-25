@@ -53,6 +53,15 @@ const GOTENYAMA_FORK: LatLon = [35.62049, 139.73762];
 const OSAKI: LatLon = [35.62077, 139.72761];
 
 const TUNNEL_GPS: GpsQuality = { accuracyMeters: [40, 90], noiseSigmaMeters: 30 };
+/** Deep tunnel: no fix reaches the app at all. */
+const NO_FIX_GPS: GpsQuality = { accuracyMeters: [400, 900], noiseSigmaMeters: 150, dropFixes: true };
+/**
+ * Just after a tunnel exit: positions come back far outside maxGpsAccuracyMeters (500 m),
+ * so MapMatcher rejects them, and the device reports neither speed nor heading yet.
+ */
+const REACQUIRING_GPS: GpsQuality = { accuracyMeters: [520, 900], noiseSigmaMeters: 150, nullSpeedHeading: true };
+/** Accuracy back inside the limit, still no speed/heading from the device. */
+const DEGRADED_GPS: GpsQuality = { accuracyMeters: [60, 150], noiseSigmaMeters: 45, nullSpeedHeading: true };
 
 const nipporiToTabata: TraceRun[] = [
   {
@@ -102,6 +111,20 @@ const tamachiToShinagawa: TraceRun[] = [
 ];
 
 export const FORWARD_SCENARIOS: EdgeScenario[] = [
+  {
+    // MapMatcher must not resolve the line from rejected fixes, and must recover once
+    // usable fixes return east of 両国 rather than staying on whatever it held.
+    id: 'sobu-rapid-tunnel-outage',
+    title: '総武快速線 東京→錦糸町: 地下で測位が途切れ、出口で精度不良のまま復帰する',
+    runs: [
+      { label: '東京→新日本橋（測位なし）', path: ['mlit-segment-609c610c74b9'], maxSpeedKmh: 60, accept: [LINES.sobuRyogokuTokyo], dwellAtEndS: 30, gps: NO_FIX_GPS },
+      { label: '新日本橋→馬喰町（測位なし）', path: ['mlit-segment-90360139449f'], maxSpeedKmh: 55, accept: [LINES.sobuRyogokuTokyo], dwellAtEndS: 30, gps: NO_FIX_GPS },
+      { label: '馬喰町→両国（精度不良で復帰）', path: ['mlit-segment-04883a324733'], maxSpeedKmh: 70, accept: [LINES.sobuRyogokuTokyo], gps: REACQUIRING_GPS },
+      { label: '両国→錦糸町（精度回復中）', path: ['mlit-segment-7683be07ad58'], maxSpeedKmh: 75, accept: [LINES.sobuRyogokuChoshi], dwellAtEndS: 30, gps: DEGRADED_GPS },
+      { label: '錦糸町→亀戸', path: ['mlit-segment-3cfed8720eca'], maxSpeedKmh: 70, accept: [LINES.sobuRyogokuChoshi] },
+    ],
+    forbiddenLineIds: SHINKANSEN_LINES,
+  },
   {
     id: 'tabata-fork-yamanote',
     title: '山手線 日暮里→田端→巣鴨: 京浜東北線と並走後、田端で西へ分離',
