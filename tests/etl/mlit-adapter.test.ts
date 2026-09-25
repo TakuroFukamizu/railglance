@@ -393,5 +393,63 @@ describe('MlitRailwayAdapter', () => {
     expect(identitySnapshot(first)).toEqual(identitySnapshot(second));
     expect(first.lines.length).toBeGreaterThan(1);
   });
+
+  // N02 splits lines at track junctions too, and those are not stations. Issue #70: every
+  // section of the Tokaido Shinkansen between 東京 and 品川 is junction-to-junction, so all
+  // of them failed the nearest-station limit and the stretch vanished from the dataset.
+  it('chains sections that meet at a junction far from any station', async () => {
+    const result = await loadFixture(
+      [stationFeature('始点', '001', 139, 35), stationFeature('終点', '002', 139, 35.06)],
+      [
+        sectionFeature([[139, 35], [139, 35.02]]),
+        sectionFeature([[139, 35.02], [139, 35.04]]),
+        sectionFeature([[139, 35.04], [139, 35.06]]),
+      ],
+    );
+
+    expect(result.segments).toHaveLength(1);
+    // The chained polyline keeps every junction vertex; its direction is not significant.
+    const coordinates = result.segments[0].coordinates;
+    expect(coordinates).toHaveLength(4);
+    expect(coordinates.map(([latitude]) => latitude).sort()).toEqual([35, 35.02, 35.04, 35.06]);
+    expect([...result.stations.map((station) => station.name)].sort()).toEqual(['始点', '終点']);
+  });
+
+  it('does not chain through a junction that sits at a station', async () => {
+    const result = await loadFixture(
+      [
+        stationFeature('始点', '001', 139, 35),
+        // 220 m from the junction: still the station's own stop, not a plain junction.
+        stationFeature('中間', '002', 139, 35.018),
+        stationFeature('終点', '003', 139, 35.04),
+      ],
+      [
+        sectionFeature([[139, 35], [139, 35.02]]),
+        sectionFeature([[139, 35.02], [139, 35.04]]),
+      ],
+    );
+
+    expect(result.segments).toHaveLength(2);
+    expect(result.stations.map((station) => station.name)).toEqual(['始点', '中間', '終点']);
+  });
+
+  it('leaves a branch junction alone', async () => {
+    const result = await loadFixture(
+      [
+        stationFeature('始点', '001', 139, 35),
+        stationFeature('北', '002', 139, 35.06),
+        stationFeature('東', '003', 139.04, 35.03),
+      ],
+      [
+        sectionFeature([[139, 35], [139, 35.03]]),
+        sectionFeature([[139, 35.03], [139, 35.06]]),
+        sectionFeature([[139, 35.03], [139.04, 35.03]]),
+      ],
+    );
+
+    // Three section ends meet 3.3 km from every station: chaining any two of them would
+    // invent a through route, so all three stay unchained and fail the station limit.
+    expect(result.segments).toEqual([]);
+  });
 });
 
