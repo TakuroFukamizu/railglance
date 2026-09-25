@@ -5,9 +5,18 @@
     "fromStationId": "st-atsugi",
     "toStationId": "st-ebina",
     "coordinates": [
-      [35.3957, 139.3734],
-      [35.4240, 139.3810],
-      [35.4526, 139.3900]
+      [
+        35.3957,
+        139.3734
+      ],
+      [
+        35.424,
+        139.381
+      ],
+      [
+        35.4526,
+        139.39
+      ]
     ],
     "lengthMeters": 6500
   },
@@ -17,9 +26,18 @@
     "fromStationId": "st-ebina",
     "toStationId": "st-zama",
     "coordinates": [
-      [35.4526, 139.3900],
-      [35.4660, 139.3950],
-      [35.4806, 139.4005]
+      [
+        35.4526,
+        139.39
+      ],
+      [
+        35.466,
+        139.395
+      ],
+      [
+        35.4806,
+        139.4005
+      ]
     ],
     "lengthMeters": 3200
   },
@@ -29,9 +47,18 @@
     "fromStationId": "st-zama",
     "toStationId": "st-sobudaimae",
     "coordinates": [
-      [35.4806, 139.4005],
-      [35.4900, 139.4070],
-      [35.4988, 139.4144]
+      [
+        35.4806,
+        139.4005
+      ],
+      [
+        35.49,
+        139.407
+      ],
+      [
+        35.4988,
+        139.4144
+      ]
     ],
     "lengthMeters": 2400
   },
@@ -41,9 +68,18 @@
     "fromStationId": "st-sobudaimae",
     "toStationId": "st-odakyu-sagamihara",
     "coordinates": [
-      [35.4988, 139.4144],
-      [35.5070, 139.4190],
-      [35.5152, 139.4243]
+      [
+        35.4988,
+        139.4144
+      ],
+      [
+        35.507,
+        139.419
+      ],
+      [
+        35.5152,
+        139.4243
+      ]
     ],
     "lengthMeters": 2100
   },
@@ -53,9 +89,18 @@
     "fromStationId": "st-odakyu-sagamihara",
     "toStationId": "st-sagamiono",
     "coordinates": [
-      [35.5152, 139.4243],
-      [35.5230, 139.4300],
-      [35.5317, 139.4372]
+      [
+        35.5152,
+        139.4243
+      ],
+      [
+        35.523,
+        139.43
+      ],
+      [
+        35.5317,
+        139.4372
+      ]
     ],
     "lengthMeters": 2200
   },
@@ -65,9 +110,18 @@
     "fromStationId": "st-sagamiono",
     "toStationId": "st-machida",
     "coordinates": [
-      [35.5317, 139.4372],
-      [35.5370, 139.4410],
-      [35.5424, 139.4456]
+      [
+        35.5317,
+        139.4372
+      ],
+      [
+        35.537,
+        139.441
+      ],
+      [
+        35.5424,
+        139.4456
+      ]
     ],
     "lengthMeters": 1500
   },
@@ -77,9 +131,18 @@
     "fromStationId": "st-machida",
     "toStationId": "st-shinyurigaoka",
     "coordinates": [
-      [35.5424, 139.4456],
-      [35.5700, 139.4750],
-      [35.6038, 139.5076]
+      [
+        35.5424,
+        139.4456
+      ],
+      [
+        35.57,
+        139.475
+      ],
+      [
+        35.6038,
+        139.5076
+      ]
     ],
     "lengthMeters": 8800
   },
@@ -89,9 +152,18 @@
     "fromStationId": "st-shinyurigaoka",
     "toStationId": "st-mukogaokayuen",
     "coordinates": [
-      [35.6038, 139.5076],
-      [35.6100, 139.5350],
-      [35.6173, 139.5651]
+      [
+        35.6038,
+        139.5076
+      ],
+      [
+        35.61,
+        139.535
+      ],
+      [
+        35.6173,
+        139.5651
+      ]
     ],
     "lengthMeters": 5800
   },
@@ -101,9 +173,18 @@
     "fromStationId": "st-mukogaokayuen",
     "toStationId": "st-noborito",
     "coordinates": [
-      [35.6173, 139.5651],
-      [35.6190, 139.5675],
-      [35.6206, 139.5699]
+      [
+        35.6173,
+        139.5651
+      ],
+      [
+        35.619,
+        139.5675
+      ],
+      [
+        35.6206,
+        139.5699
+      ]
     ],
     "lengthMeters": 600
   },
@@ -113,9 +194,18 @@
     "fromStationId": "st-noborito",
     "toStationId": "st-seijogakuenmae",
     "coordinates": [
-      [35.6206, 139.5699],
-      [35.6300, 139.5850],
-      [35.6397, 139.6000]
+      [
+        35.6206,
+        139.5699
+      ],
+      [
+        35.63,
+        139.585
+      ],
+      [
+        35.6397,
+        139.6
+      ]
     ],
     "lengthMeters": 3300
   },
@@ -125,9 +215,18 @@
     "fromStationId": "st-seijogakuenmae",
     "toStationId": "st-kyodo",
     "coordinates": [
-      [35.6397, 139.6000],
-      [35.6460, 139.6180],
-      [35.6521, 139.6366]
+      [
+        35.6397,
+        139.6
+      ],
+      [
+        35.646,
+        139.618
+      ],
+      [
+        35.6521,
+        139.6366
+      ]
     ],
     "lengthMeters": 3600
   },
@@ -137,9 +236,18 @@
     "fromStationId": "st-kyodo",
     "toStationId": "st-shimokitazawa",
     "coordinates": [
-      [35.6521, 139.6366],
-      [35.6570, 139.6520],
-      [35.6617, 139.6672]
+      [
+        35.6521,
+        139.6366
+      ],
+      [
+        35.657,
+        139.652
+      ],
+      [
+        35.6617,
+        139.6672
+      ]
     ],
     "lengthMeters": 3000
   },
@@ -149,9 +257,18 @@
     "fromStationId": "st-shimokitazawa",
     "toStationId": "st-yoyogiuehara",
     "coordinates": [
-      [35.6617, 139.6672],
-      [35.6650, 139.6730],
-      [35.6691, 139.6796]
+      [
+        35.6617,
+        139.6672
+      ],
+      [
+        35.665,
+        139.673
+      ],
+      [
+        35.6691,
+        139.6796
+      ]
     ],
     "lengthMeters": 1400
   },
@@ -161,253 +278,39 @@
     "fromStationId": "st-yoyogiuehara",
     "toStationId": "st-shinjuku",
     "coordinates": [
-      [35.6691, 139.6796],
-      [35.6790, 139.6900],
-      [35.6896, 139.7005]
+      [
+        35.6691,
+        139.6796
+      ],
+      [
+        35.679,
+        139.69
+      ],
+      [
+        35.6896,
+        139.7005
+      ]
     ],
     "lengthMeters": 3500
   },
-
-  {
-    "id": "seg-shinkansen-tokyo-ueno",
-    "lineId": "jreast-tohoku-shinkansen",
-    "fromStationId": "st-shinkansen-tokyo",
-    "toStationId": "st-shinkansen-ueno",
-    "coordinates": [
-      [35.6812, 139.7671],
-      [35.6980, 139.7730],
-      [35.7141, 139.7774]
-    ],
-    "lengthMeters": 3600
-  },
-  {
-    "id": "seg-shinkansen-ueno-omiya",
-    "lineId": "jreast-tohoku-shinkansen",
-    "fromStationId": "st-shinkansen-ueno",
-    "toStationId": "st-shinkansen-omiya",
-    "coordinates": [
-      [35.7141, 139.7774],
-      [35.8100, 139.6800],
-      [35.9063, 139.6240]
-    ],
-    "lengthMeters": 26700
-  },
-  {
-    "id": "seg-shinkansen-omiya-oyama",
-    "lineId": "jreast-tohoku-shinkansen",
-    "fromStationId": "st-shinkansen-omiya",
-    "toStationId": "st-shinkansen-oyama",
-    "coordinates": [
-      [35.9063, 139.6240],
-      [36.1000, 139.7200],
-      [36.3129, 139.8066]
-    ],
-    "lengthMeters": 50300
-  },
-  {
-    "id": "seg-shinkansen-oyama-utsunomiya",
-    "lineId": "jreast-tohoku-shinkansen",
-    "fromStationId": "st-shinkansen-oyama",
-    "toStationId": "st-shinkansen-utsunomiya",
-    "coordinates": [
-      [36.3129, 139.8066],
-      [36.4300, 139.8500],
-      [36.5590, 139.8983]
-    ],
-    "lengthMeters": 28500
-  },
-  {
-    "id": "seg-shinkansen-utsunomiya-nasushiobara",
-    "lineId": "jreast-tohoku-shinkansen",
-    "fromStationId": "st-shinkansen-utsunomiya",
-    "toStationId": "st-shinkansen-nasushiobara",
-    "coordinates": [
-      [36.5590, 139.8983],
-      [36.7500, 139.9500],
-      [36.9314, 140.0169]
-    ],
-    "lengthMeters": 49300
-  },
-  {
-    "id": "seg-shinkansen-nasushiobara-koriyama",
-    "lineId": "jreast-tohoku-shinkansen",
-    "fromStationId": "st-shinkansen-nasushiobara",
-    "toStationId": "st-shinkansen-koriyama",
-    "coordinates": [
-      [36.9314, 140.0169],
-      [37.1500, 140.2000],
-      [37.3980, 140.3881]
-    ],
-    "lengthMeters": 58300
-  },
-  {
-    "id": "seg-shinkansen-koriyama-fukushima",
-    "lineId": "jreast-tohoku-shinkansen",
-    "fromStationId": "st-shinkansen-koriyama",
-    "toStationId": "st-shinkansen-fukushima",
-    "coordinates": [
-      [37.3980, 140.3881],
-      [37.5800, 140.4200],
-      [37.7543, 140.4589]
-    ],
-    "lengthMeters": 46100
-  },
-  {
-    "id": "seg-shinkansen-fukushima-sendai",
-    "lineId": "jreast-tohoku-shinkansen",
-    "fromStationId": "st-shinkansen-fukushima",
-    "toStationId": "st-shinkansen-sendai",
-    "coordinates": [
-      [37.7543, 140.4589],
-      [38.0000, 140.6500],
-      [38.2601, 140.8824]
-    ],
-    "lengthMeters": 79000
-  },
-  {
-    "id": "seg-shinkansen-sendai-morioka",
-    "lineId": "jreast-tohoku-shinkansen",
-    "fromStationId": "st-shinkansen-sendai",
-    "toStationId": "st-shinkansen-morioka",
-    "coordinates": [
-      [38.2601, 140.8824],
-      [39.0000, 141.0000],
-      [39.7013, 141.1363]
-    ],
-    "lengthMeters": 183500
-  },
-  {
-    "id": "seg-shinkansen-morioka-shinaomori",
-    "lineId": "jreast-tohoku-shinkansen",
-    "fromStationId": "st-shinkansen-morioka",
-    "toStationId": "st-shinkansen-shinaomori",
-    "coordinates": [
-      [39.7013, 141.1363],
-      [40.2000, 140.9000],
-      [40.8277, 140.6933]
-    ],
-    "lengthMeters": 178400
-  },
-
-  {
-    "id": "seg-joetsu-omiya-kumagaya",
-    "lineId": "jreast-joetsu-shinkansen",
-    "fromStationId": "st-joetsu-omiya",
-    "toStationId": "st-joetsu-kumagaya",
-    "coordinates": [
-      [35.9063, 139.6240],
-      [36.0200, 139.5000],
-      [36.1397, 139.3897]
-    ],
-    "lengthMeters": 34700
-  },
-  {
-    "id": "seg-joetsu-kumagaya-takasaki",
-    "lineId": "jreast-joetsu-shinkansen",
-    "fromStationId": "st-joetsu-kumagaya",
-    "toStationId": "st-joetsu-takasaki",
-    "coordinates": [
-      [36.1397, 139.3897],
-      [36.2300, 139.2000],
-      [36.3225, 139.0127]
-    ],
-    "lengthMeters": 39900
-  },
-  {
-    "id": "seg-joetsu-takasaki-echigoyuzawa",
-    "lineId": "jreast-joetsu-shinkansen",
-    "fromStationId": "st-joetsu-takasaki",
-    "toStationId": "st-joetsu-echigoyuzawa",
-    "coordinates": [
-      [36.3225, 139.0127],
-      [36.6000, 138.9000],
-      [36.9360, 138.8094]
-    ],
-    "lengthMeters": 74200
-  },
-  {
-    "id": "seg-joetsu-echigoyuzawa-nagaoka",
-    "lineId": "jreast-joetsu-shinkansen",
-    "fromStationId": "st-joetsu-echigoyuzawa",
-    "toStationId": "st-joetsu-nagaoka",
-    "coordinates": [
-      [36.9360, 138.8094],
-      [37.2000, 138.8300],
-      [37.4474, 138.8530]
-    ],
-    "lengthMeters": 58400
-  },
-  {
-    "id": "seg-joetsu-nagaoka-niigata",
-    "lineId": "jreast-joetsu-shinkansen",
-    "fromStationId": "st-joetsu-nagaoka",
-    "toStationId": "st-joetsu-niigata",
-    "coordinates": [
-      [37.4474, 138.8530],
-      [37.6800, 138.9500],
-      [37.9120, 139.0617]
-    ],
-    "lengthMeters": 63300
-  },
-
-  {
-    "id": "seg-hokuriku-takasaki-karuizawa",
-    "lineId": "jreast-hokuriku-shinkansen",
-    "fromStationId": "st-hokuriku-takasaki",
-    "toStationId": "st-hokuriku-karuizawa",
-    "coordinates": [
-      [36.3225, 139.0127],
-      [36.3350, 138.8000],
-      [36.3429, 138.6353]
-    ],
-    "lengthMeters": 41800
-  },
-  {
-    "id": "seg-hokuriku-karuizawa-nagano",
-    "lineId": "jreast-hokuriku-shinkansen",
-    "fromStationId": "st-hokuriku-karuizawa",
-    "toStationId": "st-hokuriku-nagano",
-    "coordinates": [
-      [36.3429, 138.6353],
-      [36.5000, 138.4000],
-      [36.6431, 138.1886]
-    ],
-    "lengthMeters": 75600
-  },
-  {
-    "id": "seg-hokuriku-nagano-toyama",
-    "lineId": "jreast-hokuriku-shinkansen",
-    "fromStationId": "st-hokuriku-nagano",
-    "toStationId": "st-hokuriku-toyama",
-    "coordinates": [
-      [36.6431, 138.1886],
-      [36.8000, 137.7000],
-      [36.7018, 137.2134]
-    ],
-    "lengthMeters": 105900
-  },
-  {
-    "id": "seg-hokuriku-toyama-kanazawa",
-    "lineId": "jreast-hokuriku-shinkansen",
-    "fromStationId": "st-hokuriku-toyama",
-    "toStationId": "st-hokuriku-kanazawa",
-    "coordinates": [
-      [36.7018, 137.2134],
-      [36.6500, 136.9000],
-      [36.5780, 136.6478]
-    ],
-    "lengthMeters": 58500
-  },
-
   {
     "id": "seg-keikyu-haneda-t1t2-t3",
     "lineId": "keikyu-main-line",
     "fromStationId": "st-keikyu-haneda-t1t2",
     "toStationId": "st-keikyu-haneda-t3",
     "coordinates": [
-      [35.5492, 139.7845],
-      [35.5465, 139.7750],
-      [35.5447, 139.7681]
+      [
+        35.5492,
+        139.7845
+      ],
+      [
+        35.5465,
+        139.775
+      ],
+      [
+        35.5447,
+        139.7681
+      ]
     ],
     "lengthMeters": 1700
   },
@@ -417,9 +320,18 @@
     "fromStationId": "st-keikyu-haneda-t3",
     "toStationId": "st-keikyu-tenkubashi",
     "coordinates": [
-      [35.5447, 139.7681],
-      [35.5460, 139.7620],
-      [35.5486, 139.7561]
+      [
+        35.5447,
+        139.7681
+      ],
+      [
+        35.546,
+        139.762
+      ],
+      [
+        35.5486,
+        139.7561
+      ]
     ],
     "lengthMeters": 1300
   },
@@ -429,9 +341,18 @@
     "fromStationId": "st-keikyu-tenkubashi",
     "toStationId": "st-keikyu-kamata",
     "coordinates": [
-      [35.5486, 139.7561],
-      [35.5550, 139.7400],
-      [35.5614, 139.7242]
+      [
+        35.5486,
+        139.7561
+      ],
+      [
+        35.555,
+        139.74
+      ],
+      [
+        35.5614,
+        139.7242
+      ]
     ],
     "lengthMeters": 3500
   },
@@ -441,9 +362,18 @@
     "fromStationId": "st-keikyu-kamata",
     "toStationId": "st-keikyu-kawasaki",
     "coordinates": [
-      [35.5614, 139.7242],
-      [35.5450, 139.7120],
-      [35.5316, 139.7029]
+      [
+        35.5614,
+        139.7242
+      ],
+      [
+        35.545,
+        139.712
+      ],
+      [
+        35.5316,
+        139.7029
+      ]
     ],
     "lengthMeters": 3800
   },
@@ -453,9 +383,18 @@
     "fromStationId": "st-keikyu-kawasaki",
     "toStationId": "st-keikyu-yokohama",
     "coordinates": [
-      [35.5316, 139.7029],
-      [35.5000, 139.6700],
-      [35.4658, 139.6225]
+      [
+        35.5316,
+        139.7029
+      ],
+      [
+        35.5,
+        139.67
+      ],
+      [
+        35.4658,
+        139.6225
+      ]
     ],
     "lengthMeters": 10600
   },
@@ -465,22 +404,39 @@
     "fromStationId": "st-keikyu-yokohama",
     "toStationId": "st-keikyu-kamiooka",
     "coordinates": [
-      [35.4658, 139.6225],
-      [35.4350, 139.6100],
-      [35.4089, 139.5961]
+      [
+        35.4658,
+        139.6225
+      ],
+      [
+        35.435,
+        139.61
+      ],
+      [
+        35.4089,
+        139.5961
+      ]
     ],
     "lengthMeters": 6700
   },
-
   {
     "id": "seg-sotetsu-yokohama-nishiya",
     "lineId": "sotetsu-main-line",
     "fromStationId": "st-sotetsu-yokohama",
     "toStationId": "st-sotetsu-nishiya",
     "coordinates": [
-      [35.4658, 139.6220],
-      [35.4665, 139.5900],
-      [35.4674, 139.5668]
+      [
+        35.4658,
+        139.622
+      ],
+      [
+        35.4665,
+        139.59
+      ],
+      [
+        35.4674,
+        139.5668
+      ]
     ],
     "lengthMeters": 6900
   },
@@ -490,9 +446,18 @@
     "fromStationId": "st-sotetsu-nishiya",
     "toStationId": "st-sotetsu-futamatagawa",
     "coordinates": [
-      [35.4674, 139.5668],
-      [35.4650, 139.5500],
-      [35.4633, 139.5323]
+      [
+        35.4674,
+        139.5668
+      ],
+      [
+        35.465,
+        139.55
+      ],
+      [
+        35.4633,
+        139.5323
+      ]
     ],
     "lengthMeters": 3600
   },
@@ -502,9 +467,18 @@
     "fromStationId": "st-sotetsu-futamatagawa",
     "toStationId": "st-sotetsu-yamato",
     "coordinates": [
-      [35.4633, 139.5323],
-      [35.4660, 139.4950],
-      [35.4694, 139.4611]
+      [
+        35.4633,
+        139.5323
+      ],
+      [
+        35.466,
+        139.495
+      ],
+      [
+        35.4694,
+        139.4611
+      ]
     ],
     "lengthMeters": 7400
   },
@@ -514,22 +488,39 @@
     "fromStationId": "st-sotetsu-yamato",
     "toStationId": "st-sotetsu-ebina",
     "coordinates": [
-      [35.4694, 139.4611],
-      [35.4600, 139.4200],
-      [35.4526, 139.3900]
+      [
+        35.4694,
+        139.4611
+      ],
+      [
+        35.46,
+        139.42
+      ],
+      [
+        35.4526,
+        139.39
+      ]
     ],
     "lengthMeters": 6700
   },
-
   {
     "id": "seg-yokohama-higashikanagawa-shinyokohama",
     "lineId": "jreast-yokohama-line",
     "fromStationId": "st-yokohama-higashikanagawa",
     "toStationId": "st-yokohama-shinyokohama",
     "coordinates": [
-      [35.4780, 139.6334],
-      [35.4920, 139.6250],
-      [35.5075, 139.6175]
+      [
+        35.478,
+        139.6334
+      ],
+      [
+        35.492,
+        139.625
+      ],
+      [
+        35.5075,
+        139.6175
+      ]
     ],
     "lengthMeters": 6100
   },
@@ -539,9 +530,18 @@
     "fromStationId": "st-yokohama-shinyokohama",
     "toStationId": "st-yokohama-nakayama",
     "coordinates": [
-      [35.5075, 139.6175],
-      [35.5110, 139.5780],
-      [35.5147, 139.5394]
+      [
+        35.5075,
+        139.6175
+      ],
+      [
+        35.511,
+        139.578
+      ],
+      [
+        35.5147,
+        139.5394
+      ]
     ],
     "lengthMeters": 7400
   },
@@ -551,9 +551,18 @@
     "fromStationId": "st-yokohama-nakayama",
     "toStationId": "st-yokohama-nagatsuta",
     "coordinates": [
-      [35.5147, 139.5394],
-      [35.5230, 139.5170],
-      [35.5317, 139.4950]
+      [
+        35.5147,
+        139.5394
+      ],
+      [
+        35.523,
+        139.517
+      ],
+      [
+        35.5317,
+        139.495
+      ]
     ],
     "lengthMeters": 4600
   },
@@ -563,9 +572,18 @@
     "fromStationId": "st-yokohama-nagatsuta",
     "toStationId": "st-yokohama-machida",
     "coordinates": [
-      [35.5317, 139.4950],
-      [35.5370, 139.4700],
-      [35.5424, 139.4456]
+      [
+        35.5317,
+        139.495
+      ],
+      [
+        35.537,
+        139.47
+      ],
+      [
+        35.5424,
+        139.4456
+      ]
     ],
     "lengthMeters": 5600
   },
@@ -575,9 +593,18 @@
     "fromStationId": "st-yokohama-machida",
     "toStationId": "st-yokohama-sagamihara",
     "coordinates": [
-      [35.5424, 139.4456],
-      [35.5600, 139.4100],
-      [35.5813, 139.3712]
+      [
+        35.5424,
+        139.4456
+      ],
+      [
+        35.56,
+        139.41
+      ],
+      [
+        35.5813,
+        139.3712
+      ]
     ],
     "lengthMeters": 8600
   },
@@ -587,9 +614,18 @@
     "fromStationId": "st-yokohama-sagamihara",
     "toStationId": "st-yokohama-hachioji",
     "coordinates": [
-      [35.5813, 139.3712],
-      [35.6200, 139.3550],
-      [35.6556, 139.3390]
+      [
+        35.5813,
+        139.3712
+      ],
+      [
+        35.62,
+        139.355
+      ],
+      [
+        35.6556,
+        139.339
+      ]
     ],
     "lengthMeters": 9800
   }
