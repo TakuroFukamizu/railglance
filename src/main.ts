@@ -346,6 +346,14 @@ async function init() {
     }
   };
 
+  // Action feedback goes to both places: the chip clamps its detail to one
+  // line, and the diagnostics view (where these actions live) shows it in full.
+  const showDiagnosticError = (message: string) => {
+    diagnosticIndicator?.classList.add('is-error');
+    if (diagnosticDetail) diagnosticDetail.textContent = message;
+    if (diagnosticMessage) diagnosticMessage.textContent = message;
+  };
+
   telemetryManager.subscribe((status) => {
     renderDiagnosticStatus(status);
     reserveChipSpace();
@@ -353,8 +361,7 @@ async function init() {
 
   diagnosticStart?.addEventListener('click', async () => {
     if (!telemetryManager.hasQualification() && !diagnosticConsent?.checked) {
-      if (diagnosticDetail) diagnosticDetail.textContent = '収集内容を確認し、同意欄をチェックしてください。';
-      diagnosticIndicator?.classList.add('is-error');
+      showDiagnosticError('収集内容を確認し、同意欄をチェックしてください。');
       return;
     }
     diagnosticStart.disabled = true;
@@ -362,8 +369,7 @@ async function init() {
       await telemetryManager.startDiagnostic(diagnosticAccessCode?.value ?? '');
     } catch (error) {
       diagnosticStart.disabled = false;
-      diagnosticIndicator?.classList.add('is-error');
-      if (diagnosticDetail) diagnosticDetail.textContent = error instanceof Error ? error.message : String(error);
+      showDiagnosticError(error instanceof Error ? error.message : String(error));
     }
   });
 
@@ -372,8 +378,7 @@ async function init() {
     try {
       await telemetryManager.stopDiagnostic();
     } catch (error) {
-      diagnosticIndicator?.classList.add('is-error');
-      if (diagnosticDetail) diagnosticDetail.textContent = '停止処理に失敗しました。未送信ログは端末に保持されています。';
+      showDiagnosticError('停止処理に失敗しました。未送信ログは端末に保持されています。');
       captureRuntimeError(error, 'diagnostic-session-stop');
     }
   });
@@ -384,8 +389,7 @@ async function init() {
     try {
       await telemetryManager.deleteLocalData();
     } catch (error) {
-      diagnosticIndicator?.classList.add('is-error');
-      if (diagnosticDetail) diagnosticDetail.textContent = '端末内ログを削除できませんでした。';
+      showDiagnosticError('端末内ログを削除できませんでした。');
       captureRuntimeError(error, 'diagnostic-local-data-delete');
     } finally {
       diagnosticDelete.disabled = false;

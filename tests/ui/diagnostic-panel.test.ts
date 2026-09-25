@@ -68,7 +68,7 @@ describe('buildDiagnosticPanelView', () => {
     expect(view.detailText).toBe('資格期限: <2026-09-20T00:00:00.000Z>');
   });
 
-  it('falls back to the campaign name when the stored qualification has no id', () => {
+  it('labels the campaign as unknown when the stored qualification has no id', () => {
     const view = buildDiagnosticPanelView(
       enrolled({ state: 'active', campaignId: null, message: '診断収集中です。' }),
       formatDateTime
@@ -108,6 +108,7 @@ describe('buildDiagnosticPanelView', () => {
     );
 
     expect(view.statusLabel).toBe('診断収集: 端末保存中 · campaign-1');
+    expect(view.detailText).toBe('資格期限: <2026-09-20T00:00:00.000Z>');
     expect(view.collecting).toBe(true);
     expect(view.stopDisabled).toBe(false);
   });
@@ -153,6 +154,16 @@ describe('buildDiagnosticPanelView', () => {
     expect(view.errored).toBe(true);
     expect(view.startDisabled).toBe(true);
     expect(view.stopDisabled).toBe(true);
+  });
+
+  it('keeps the message when an enrolled qualification has no expiry to show', () => {
+    const view = buildDiagnosticPanelView(
+      enrolled({ state: 'refreshing', qualificationExpiresAt: null, message: '参加資格を確認しています。' }),
+      formatDateTime
+    );
+
+    expect(view.statusLabel).toBe('診断収集: 有効 · campaign-1');
+    expect(view.detailText).toBe('参加資格を確認しています。');
   });
 
   it('shows the state message instead of the expiry once an enrolled tester is revoked', () => {
