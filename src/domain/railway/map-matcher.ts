@@ -55,6 +55,7 @@ export class MapMatcher {
   private lastCandidates: RouteCandidateScore[] = [];
   private healthLowSinceMs: number | null = null;
   private confirmation: RouteConfirmation | null = null;
+  private projectionContradictedCount = 0;
 
   constructor(
     private db: RailwayDatabaseReader,
@@ -165,6 +166,11 @@ export class MapMatcher {
     const effectiveHeading = resolveEffectiveHeading(trajectory, sample, osStopped);
 
     const candidateScores: RouteCandidateScore[] = [];
+    const operatorIdBySegmentId = new Map<string, string>();
+    for (const segment of segments) {
+      const line = await this.db.getLine(segment.lineId);
+      if (line) operatorIdBySegmentId.set(segment.id, line.operatorId);
+    }
     for (const segment of segments) {
       const line = await this.db.getLine(segment.lineId);
       if (!line) continue;
@@ -175,6 +181,7 @@ export class MapMatcher {
           line,
           previousSegment: this.currentMatch?.segment ?? null,
           nearbySegments: segments,
+          operatorIdBySegmentId,
           lockState: this.lockState,
           effectiveHeadingDegrees: effectiveHeading,
           config: this.config,
@@ -199,6 +206,8 @@ export class MapMatcher {
         this.currentMatch = projected;
       }
     }
+
+    this.updateProjectionContradiction(rescoredCurrent, candidateScores, sample);
 
     await this.recordObservation(
       sample,
@@ -522,6 +531,7 @@ export class MapMatcher {
   }
 
   private switchCurrent(candidate: RouteCandidateScore, nowMs: number, reason: RouteSwitchReason): void {
+    this.projectionContradictedCount = 0;
     this.pushEvent('route-switch', reason, {
       fromLineId: this.currentMatch?.line.id ?? null,
       fromSegmentId: this.currentMatch?.segment.id ?? null,
@@ -542,8 +552,39 @@ export class MapMatcher {
     this.currentMatch = rescoredCurrent;
   }
 
+  /**
+   * A lock kept alive by the station-hole projection while another line's own geometry
+   * carries the fixes by a clear margin: after a few consecutive fixes that is a transfer
+   * or a wrong lock, not a hole in this line's data. Counting fixes keeps a single noisy
+   * fix from dropping a correct lock.
+   */
+  private updateProjectionContradiction(
+    rescoredCurrent: RouteCandidateScore | null,
+    candidates: RouteCandidateScore[],
+    sample: LocationSample
+  ): void {
+    if (!rescoredCurrent || (rescoredCurrent.endOverrunMeters ?? 0) <= 0) {
+      this.projectionContradictedCount = 0;
+      return;
+    }
+    const accuracyFloor = Math.max(sample.accuracyMeters, this.config.routeMinimumAccuracyMeters);
+    const currentRaw = rescoredCurrent.rawDistanceMeters ?? rescoredCurrent.distanceMeters;
+    const currentKey = routeIdentityKey(rescoredCurrent.segment);
+    const contradicted = candidates.some(
+      (candidate) =>
+        routeIdentityKey(candidate.segment) !== currentKey &&
+        (candidate.rawDistanceMeters ?? candidate.distanceMeters) + accuracyFloor < currentRaw
+    );
+    this.projectionContradictedCount = contradicted ? this.projectionContradictedCount + 1 : 0;
+  }
+
+  private projectionContradicted(): boolean {
+    return this.projectionContradictedCount >= this.config.routeSegmentGapContradictionCount;
+  }
+
   private shouldEnterSuspicious(health: RouteHealth | null, nowMs: number): boolean {
     if (this.challengerDominant()) return true;
+    if (this.projectionContradicted()) return true;
     if (!health) {
       this.healthLowSinceMs = null;
       return false;
@@ -562,6 +603,9 @@ export class MapMatcher {
     topCandidate: RouteCandidateScore
   ): boolean {
     if (!this.currentMatch || !this.isCurrentRoute(topCandidate)) return false;
+    // Health is built from the projected distance, so a route the projection keeps alive
+    // still looks healthy. Do not recover while another line's own geometry contradicts it.
+    if (this.projectionContradicted()) return false;
     if ((health?.total ?? 0) < this.config.routeSuspiciousHealthThreshold + 0.12) return false;
     return scoreMargin >= 0 || !this.challenger;
   }

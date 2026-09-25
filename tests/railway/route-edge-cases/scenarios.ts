@@ -20,6 +20,7 @@ export const LINES = {
   tokaidoTamachiShinagawa1: 'mlit-line-e19f4a814b4d', // 東海道線（田町〜品川・1）
   tokaidoTamachiShinagawa2: 'mlit-line-d869cff35c54', // 東海道線（田町〜品川・2）
   tokaidoOimachiShinagawa: 'mlit-line-b47507a4f4a7', // 東海道線（大井町〜品川）
+  keikyuMain: 'mlit-line-1f492a1312d3', // 京急本線 (京浜急行電鉄)
   chuo: 'mlit-line-59c38d061b4c', // 中央線（神田〜高尾）
   sobuOchanomizuRyogoku: 'mlit-line-a6580baa4053', // 総武線（御茶ノ水〜両国）local tracks
   sobuRyogokuTokyo: 'mlit-line-3e374ba2fe23', // 総武線（両国〜東京）rapid tunnel
@@ -111,6 +112,19 @@ const tamachiToShinagawa: TraceRun[] = [
 ];
 
 export const FORWARD_SCENARIOS: EdgeScenario[] = [
+  {
+    // Issue #69: the station-hole projection keeps defending the JR lock south of 品川,
+    // so the transfer onto 京急本線 shows up late. The walk between platforms is modelled
+    // as the 品川 dwell; the Keikyu run then starts from the same place.
+    id: 'shinagawa-transfer-keikyu',
+    title: '東海道線 田町→品川で下車し、京急本線 品川→北品川→新馬場へ乗り換え',
+    runs: [
+      ...tamachiToShinagawa.slice(0, 2),
+      { label: '品川→北品川', path: ['mlit-segment-6af419255af3'], maxSpeedKmh: 45, accept: [LINES.keikyuMain], dwellAtEndS: 30 },
+      { label: '北品川→新馬場', path: ['mlit-segment-c8310a51e493'], maxSpeedKmh: 45, accept: [LINES.keikyuMain], dwellAtEndS: 20 },
+    ],
+    forbiddenLineIds: SHINKANSEN_LINES,
+  },
   {
     // MapMatcher must not resolve the line from rejected fixes, and must recover once
     // usable fixes return east of 両国 rather than staying on whatever it held.
