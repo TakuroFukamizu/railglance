@@ -158,6 +158,7 @@ export class MapMatcher {
     );
 
     if (segments.length === 0) {
+      this.projectionContradictedCount = 0;
       return this.handleNoCandidates(sample);
     }
 
@@ -166,13 +167,20 @@ export class MapMatcher {
     const effectiveHeading = resolveEffectiveHeading(trajectory, sample, osStopped);
 
     const candidateScores: RouteCandidateScore[] = [];
+    const lineById = new Map<string, RailwayLine>();
     const operatorIdBySegmentId = new Map<string, string>();
     for (const segment of segments) {
-      const line = await this.db.getLine(segment.lineId);
-      if (line) operatorIdBySegmentId.set(segment.id, line.operatorId);
+      let line = lineById.get(segment.lineId);
+      if (!line) {
+        const loaded = await this.db.getLine(segment.lineId);
+        if (!loaded) continue;
+        line = loaded;
+        lineById.set(segment.lineId, line);
+      }
+      operatorIdBySegmentId.set(segment.id, line.operatorId);
     }
     for (const segment of segments) {
-      const line = await this.db.getLine(segment.lineId);
+      const line = lineById.get(segment.lineId);
       if (!line) continue;
       candidateScores.push(
         scoreCandidate({
@@ -190,6 +198,7 @@ export class MapMatcher {
     }
 
     if (candidateScores.length === 0) {
+      this.projectionContradictedCount = 0;
       return this.handleNoCandidates(sample);
     }
 

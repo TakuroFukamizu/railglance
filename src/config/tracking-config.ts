@@ -79,11 +79,6 @@ export type TrackingConfig = {
    */
   routeSegmentEndOverrunMeters: number;
   /**
-   * Straight-line bridges across a station hole: the far-side segment end must be at least
-   * this far from the end vertex (closer ends are the same junction, not the far side of a
-   * hole).
-   */
-  /**
    * How far past a segment's end the continuity bonus fades to zero while the station-hole
    * projection is carrying the candidate.
    */
@@ -93,6 +88,11 @@ export type TrackingConfig = {
    * more than the accuracy floor before the locked route is treated as suspicious.
    */
   routeSegmentGapContradictionCount: number;
+  /**
+   * Straight-line bridges across a station hole: the far-side segment end must be at least
+   * this far from the end vertex (closer ends are the same junction, not the far side of a
+   * hole).
+   */
   routeSegmentGapMinBridgeMeters: number;
   /** Maximum turn between a segment's end tangent, the bridge and the far-side segment. */
   routeSegmentGapMaxTurnDegrees: number;
