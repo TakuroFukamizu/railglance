@@ -1,5 +1,6 @@
 import { haversineDistance } from '../../../src/domain/geo/distance';
 import { calculateBearing } from '../../../src/domain/geo/heading';
+import { findClosestPointOnPolyline } from '../../../src/domain/geo/polyline';
 import { LocationSample } from '../../../src/domain/models/location';
 import { FixtureRailwayDb } from './fixture-db';
 
@@ -12,6 +13,10 @@ export type GpsQuality = {
   accuracyMeters: [min: number, max: number];
   /** 1-sigma cross-track error of the reported position. */
   noiseSigmaMeters: number;
+  /** No fix reaches the app at all (deep tunnel): time passes, nothing is emitted. */
+  dropFixes?: boolean;
+  /** The device reports a position but no speed or heading (cold reacquisition). */
+  nullSpeedHeading?: boolean;
 };
 
 export const OPEN_SKY_GPS: GpsQuality = { accuracyMeters: [8, 15], noiseSigmaMeters: 6 };
@@ -36,6 +41,9 @@ export type TracePoint = {
   /** Seconds since the current run started moving (dwell ticks keep counting). */
   secondsIntoRun: number;
 };
+
+/** Wall clock a trace starts at, whether or not its first run emits any fix. */
+export const TRACE_START_TIMESTAMP_MS = 1_000;
 
 const ACCELERATION_MPS2 = 0.7;
 const MIN_MOVING_SPEED_MPS = 1.5;
@@ -113,6 +121,30 @@ const MAX_BRIDGE_METERS = 1500;
 const STATION_SNAP_METERS = 50;
 
 /**
+ * Moves a run's first or last point onto the platform: the polyline usually ends at a
+ * junction hundreds of metres away. When the platform is beside the path rather than
+ * past its end, the path is cut there instead of extended, so the train never doubles
+ * back over track it already covered.
+ */
+function snapToStation(db: FixtureRailwayDb, item: PathItem, path: LatLon[], side: 'start' | 'end'): LatLon[] {
+  const edge = side === 'end' ? path[path.length - 1] : path[0];
+  const station = nearestSegmentStation(db, item, edge);
+  if (!station || path.length < 2) return path;
+
+  const closest = findClosestPointOnPolyline(station[0], station[1], path);
+  const total = closest.totalPolylineLengthMeters;
+  const along = closest.distanceAlongPolylineMeters;
+  const projected: LatLon = [closest.projectedPoint[0], closest.projectedPoint[1]];
+
+  if (side === 'end') {
+    if (along >= total - 1) return [...path, station];
+    return [...path.slice(0, closest.segmentIndex + 1), projected];
+  }
+  if (along <= 1) return [station, ...path];
+  return [projected, ...path.slice(closest.segmentIndex + 1)];
+}
+
+/**
  * The from/to station of a segment path item nearest to a path end, when that end
  * is more than STATION_SNAP_METERS away. Explicit [lat, lon] items are taken as-is.
  */
@@ -148,6 +180,35 @@ function offsetMeters(point: LatLon, northMeters: number, eastMeters: number): L
 }
 
 /**
+ * The ridden polyline of every run, in order: segments chained and oriented, station
+ * stops moved onto the platform, and the join to the previous run trimmed. Exported so
+ * tests can assert the geometry never doubles back without GPS noise in the way.
+ */
+export function buildTracePaths(db: FixtureRailwayDb, runs: TraceRun[]): LatLon[][] {
+  const paths: LatLon[][] = [];
+  let previousEnd: LatLon | null = null;
+  runs.forEach((run, runIndex) => {
+    let path = buildRunPolyline(db, run.path, previousEnd, runs[runIndex + 1]?.path[0] ?? null);
+    // The previous run ended on a platform, which can sit a little way along this run's
+    // polyline. Start from that point instead of doubling back to the segment's own start.
+    if (previousEnd && path.length > 2) {
+      const rest = path.slice(1);
+      const onward = findClosestPointOnPolyline(previousEnd[0], previousEnd[1], rest);
+      if (onward.distanceMeters <= 150 && onward.distanceAlongPolylineMeters > 1) {
+        const projected: LatLon = [onward.projectedPoint[0], onward.projectedPoint[1]];
+        path = [previousEnd, projected, ...rest.slice(onward.segmentIndex + 1)];
+      }
+    }
+    // Stops happen at platforms, not at polyline ends (which can sit hundreds of metres away on a junction).
+    if (runIndex === 0) path = snapToStation(db, run.path[0], path, 'start');
+    if (run.dwellAtEndS !== undefined) path = snapToStation(db, run.path[run.path.length - 1], path, 'end');
+    paths.push(path);
+    previousEnd = path[path.length - 1];
+  });
+  return paths;
+}
+
+/**
  * Deterministic 1 Hz GPS trace along the runs: trapezoidal speed between stops,
  * cross-track noise, station dwells with near-zero OS speed and no heading.
  */
@@ -159,42 +220,36 @@ export function generateTrace(
 ): TracePoint[] {
   const random = createRandom(seed);
   const points: TracePoint[] = [];
-  let timestampMs = options.startTimestampMs ?? 1_000;
+  const paths = buildTracePaths(db, runs);
+  let timestampMs = options.startTimestampMs ?? TRACE_START_TIMESTAMP_MS;
   let previousEnd: LatLon | null = null;
 
   const emitStationary = (at: LatLon, seconds: number, runIndex: number, phase: TracePoint['phase'], gps: GpsQuality, secondsIntoRun: number) => {
     const ticks = Math.max(0, Math.round(seconds));
     for (let i = 0; i < ticks; i++) {
       const [lat, lon] = offsetMeters(at, random.gaussian() * gps.noiseSigmaMeters * 0.6, random.gaussian() * gps.noiseSigmaMeters * 0.6);
-      points.push({
-        sample: {
-          latitude: lat,
-          longitude: lon,
-          accuracyMeters: Math.round(gps.accuracyMeters[0] + random.next() * (gps.accuracyMeters[1] - gps.accuracyMeters[0])),
-          speedMps: Math.abs(random.gaussian() * 0.15),
-          headingDegrees: null,
-          timestampMs,
-        },
-        runIndex,
-        phase,
-        secondsIntoRun: secondsIntoRun + i,
-      });
+      if (!gps.dropFixes) {
+        points.push({
+          sample: {
+            latitude: lat,
+            longitude: lon,
+            accuracyMeters: Math.round(gps.accuracyMeters[0] + random.next() * (gps.accuracyMeters[1] - gps.accuracyMeters[0])),
+            speedMps: gps.nullSpeedHeading ? null : Math.abs(random.gaussian() * 0.15),
+            headingDegrees: null,
+            timestampMs,
+          },
+          runIndex,
+          phase,
+          secondsIntoRun: secondsIntoRun + i,
+        });
+      }
       timestampMs += 1_000;
     }
   };
 
   runs.forEach((run, runIndex) => {
     const gps = run.gps ?? OPEN_SKY_GPS;
-    const path = buildRunPolyline(db, run.path, previousEnd, runs[runIndex + 1]?.path[0] ?? null);
-    // Stops happen at platforms, not at polyline ends (which can sit hundreds of metres away on a junction).
-    if (runIndex === 0) {
-      const station = nearestSegmentStation(db, run.path[0], path[0]);
-      if (station) path.unshift(station);
-    }
-    if (run.dwellAtEndS !== undefined) {
-      const station = nearestSegmentStation(db, run.path[run.path.length - 1], path[path.length - 1]);
-      if (station) path.push(station);
-    }
+    const path = paths[runIndex];
     const cumulative = [0];
     for (let i = 1; i < path.length; i++) cumulative.push(cumulative[i - 1] + distance(path[i - 1], path[i]));
     const length = cumulative[cumulative.length - 1];
@@ -224,19 +279,21 @@ export function generateTrace(
       const [lat, lon] = offsetMeters(point, north, east);
       const reportedSpeed = Math.max(0, speed + random.gaussian() * 0.3);
 
-      points.push({
-        sample: {
-          latitude: lat,
-          longitude: lon,
-          accuracyMeters: Math.round(gps.accuracyMeters[0] + random.next() * (gps.accuracyMeters[1] - gps.accuracyMeters[0])),
-          speedMps: Math.round(reportedSpeed * 10) / 10,
-          headingDegrees: speed > 2 ? (bearing + random.gaussian() * 4 + 360) % 360 : null,
-          timestampMs,
-        },
-        runIndex,
-        phase: 'run',
-        secondsIntoRun,
-      });
+      if (!gps.dropFixes) {
+        points.push({
+          sample: {
+            latitude: lat,
+            longitude: lon,
+            accuracyMeters: Math.round(gps.accuracyMeters[0] + random.next() * (gps.accuracyMeters[1] - gps.accuracyMeters[0])),
+            speedMps: gps.nullSpeedHeading ? null : Math.round(reportedSpeed * 10) / 10,
+            headingDegrees: gps.nullSpeedHeading || speed <= 2 ? null : (bearing + random.gaussian() * 4 + 360) % 360,
+            timestampMs,
+          },
+          runIndex,
+          phase: 'run',
+          secondsIntoRun,
+        });
+      }
       timestampMs += 1_000;
       secondsIntoRun++;
     }
