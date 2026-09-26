@@ -1,0 +1,40 @@
+{
+  "description": "上り側終端駅(起点)を路線ごとに指定する。MLIT 由来路線は駅 sequence の向きがハッシュ順で決まるため、起点駅がどちらの端に来たかを見て directionAName(sequence 増加方向) / directionBName(減少方向) を「上り」「下り」に振り分ける。operators は operatorName または operatorId と照合する(同名の「本線」を事業者で区別するため)。",
+  "lineDirections": [
+    {
+      "lineNames": ["横浜線", "JR横浜線"],
+      "operators": ["東日本旅客鉄道", "jreast"],
+      "upTerminalStation": "東神奈川"
+    },
+    {
+      "lineNames": ["小田原線", "小田急小田原線", "小田急本線"],
+      "operators": ["小田急電鉄", "odakyu"],
+      "upTerminalStation": "新宿"
+    },
+    {
+      "lineNames": ["東北新幹線", "JR東北新幹線"],
+      "operators": ["東日本旅客鉄道", "jreast"],
+      "upTerminalStation": "東京"
+    },
+    {
+      "lineNames": ["上越新幹線", "JR上越新幹線"],
+      "operators": ["東日本旅客鉄道", "jreast"],
+      "upTerminalStation": "大宮"
+    },
+    {
+      "lineNames": ["北陸新幹線", "JR北陸新幹線"],
+      "operators": ["東日本旅客鉄道", "jreast"],
+      "upTerminalStation": "高崎"
+    },
+    {
+      "lineNames": ["本線", "相鉄本線"],
+      "operators": ["相模鉄道", "sotetsu"],
+      "upTerminalStation": "横浜"
+    },
+    {
+      "lineNames": ["本線"],
+      "operators": ["京浜急行電鉄"],
+      "upTerminalStation": "泉岳寺"
+    }
+  ]
+}
