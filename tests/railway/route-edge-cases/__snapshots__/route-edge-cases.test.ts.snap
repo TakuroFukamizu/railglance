@@ -550,7 +550,7 @@ exports[`'sobu-rapid-tunnel-outage': '総武快速線 東京→錦糸町: 地下
     "総武線（両国〜銚子）",
   ],
   "finalLine": "総武線（両国〜銚子）",
-  "firstDisplayAtS": 99,
+  "firstDisplayAtS": 348,
   "fixes": 281,
   "forbiddenLineS": 0,
   "hiddenAfterFirstLockS": 0,
