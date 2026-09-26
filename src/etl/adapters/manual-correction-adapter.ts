@@ -1,6 +1,6 @@
 import { RailwaySourceAdapter, RawRailwayDataset } from './source-adapter';
 import { SourceLicenseMetadata, DataProvenance } from '../../domain/models/provenance';
-import { RailwayLine } from '../../domain/models/railway';
+import { RailwayLine, Station } from '../../domain/models/railway';
 import lineAliases from '../../../data/corrections/line-aliases.json';
 import excludedSegments from '../../../data/corrections/excluded-segments.json';
 import lineDirections from '../../../data/corrections/line-directions.json';
@@ -81,16 +81,22 @@ export class ManualCorrectionAdapter implements RailwaySourceAdapter {
 
     // Apply Line Directions: 方向名を持たない路線(MLIT 由来)に、起点駅の位置から
     // 「上り」「下り」を振り分ける。手書きの方向名がある路線は上書きしない。
+    const stationsByLine = new Map<string, Station[]>();
+    for (const station of dataset.stations) {
+      const list = stationsByLine.get(station.lineId) ?? [];
+      list.push(station);
+      stationsByLine.set(station.lineId, list);
+    }
     const updatedLines = aliasedLines.map((line) => {
       if (line.directionAName || line.directionBName) return line;
       const entry = this.lineDirections.find((candidate) => matchesLineDirection(candidate, line));
       if (!entry) return line;
-      const lineStations = dataset.stations.filter((station) => station.lineId === line.id);
-      const names = resolveLineDirectionNames(entry, lineStations);
+      const names = resolveLineDirectionNames(entry, stationsByLine.get(line.id) ?? []);
       if (!names) {
         console.warn(
           `[ManualCorrectionAdapter] Line ${line.id} (${line.name}) matched a direction entry but ` +
-            `up terminal "${entry.upTerminalStation}" is not at an end of its station list; leaving direction names unset.`
+            `up terminal "${entry.upTerminalStation}" could not be resolved to an end of its station list ` +
+            '(station missing from the line, mid-line, or fewer than two stations); leaving direction names unset.'
         );
         return line;
       }
