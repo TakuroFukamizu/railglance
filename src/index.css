@@ -10,9 +10,9 @@
   --brightness-tertiary: #007700;  /* Level 7: Units, Distances, Status Marks */
   --brightness-disabled: #003300;  /* Level 4: Inactive / Track */
 
-  /* Space kept clear for the fixed diagnostic chip: the longest enrolled detail
-     (campaign / consent / expiry) wraps to three lines at 320px. */
-  --chip-reserve: 112px;
+  /* Space kept clear for the fixed diagnostic chip: two single-line rows plus
+     padding. main.ts re-measures the chip and overrides this at runtime. */
+  --chip-reserve: 98px;
 }
 
 * {
@@ -61,10 +61,6 @@ body {
   padding-bottom: 12px;
 }
 
-.app-header h1 {
-  font-size: 20px;
-}
-
 .btn-back {
   background: none;
   border: 1px solid var(--border-color);
@@ -74,12 +70,6 @@ body {
   font-size: 15px;
   cursor: pointer;
   flex-shrink: 0;
-}
-
-.app-identity {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
 }
 
 /* Build stamp: testers use this to confirm the Even Hub package actually updated. */
@@ -253,6 +243,11 @@ body {
   margin-top: 10px;
 }
 
+/* Full state message; the fixed chip only has room for a one-line summary. */
+.diagnostic-message {
+  color: #8b949e;
+}
+
 .diagnostic-consent {
   display: flex;
   align-items: flex-start;
@@ -300,6 +295,17 @@ body {
   border-radius: 6px;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
   cursor: pointer;
+}
+
+/* Exactly two lines: each row is clamped so a long message cannot grow the chip
+   and eat the page (issue #73). The full message lives on the diagnostics view. */
+.diagnostic-indicator > strong,
+.diagnostic-indicator > span {
+  display: block;
+  max-width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .diagnostic-indicator.is-active {
@@ -507,18 +513,29 @@ body {
 
 .debug-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  /* min() keeps a column from being wider than a narrow phone viewport. */
+  grid-template-columns: repeat(auto-fit, minmax(min(280px, 100%), 1fr));
   gap: 16px;
   margin-top: 12px;
 }
 
 .debug-card {
+  /* Raw URLs and ids have no break opportunities; let them wrap anywhere so a
+     long value cannot push the card past the viewport (issue #73). */
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
   background-color: rgba(255, 255, 255, 0.03);
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 6px;
   padding: 12px;
   font-size: 13px;
   line-height: 1.6;
+}
+
+/* The score table is wide by nature; scroll it inside the card instead of the page. */
+.candidates-card {
+  overflow-x: auto;
 }
 
 .debug-card h3 {
