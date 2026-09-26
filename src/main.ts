@@ -1,5 +1,20 @@
 import './index.css';
 import { bootstrapApp } from './app/bootstrap';
+import { createRideHistoryController } from './app/ride-history-controller';
+import { DEFAULT_RIDE_HISTORY_CONFIG } from './config/ride-history-config';
+import type { RideRecord } from './domain/history/ride-record';
+import {
+  IndexedDbRideHistoryStore,
+  InMemoryRideHistoryStore,
+  type RideHistoryStore,
+} from './infrastructure/storage/ride-history-store';
+import { buildHistoryCardView, buildHistoryListView, type RideListItem, type RideDetailView } from './ui/ride-history-view';
+import {
+  buildRideHistoryExport,
+  serializeRideHistoryExport,
+  exportRideHistoryText,
+  type ExportCapabilities,
+} from './ui/ride-export';
 import { DebugPanel } from './ui/debug-panel';
 import { LocationSample } from './domain/models/location';
 import { LocationProvider, BrowserLocationProvider } from './infrastructure/geolocation/browser-location-provider';
@@ -135,6 +150,60 @@ function renderBuildInfo(): void {
   if (el) el.textContent = formatBuildInfo(readBuildInfo());
 }
 
+function createHistoryItemButton(item: RideListItem): HTMLButtonElement {
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = 'history-item-button';
+  button.dataset.rideId = item.id;
+  const title = document.createElement('div');
+  title.className = 'history-item-title';
+  const name = document.createElement('span');
+  name.textContent = item.lineName;
+  const direction = document.createElement('span');
+  direction.className = 'history-item-direction';
+  direction.textContent = item.direction;
+  title.append(name, direction);
+  const route = document.createElement('div');
+  route.className = 'history-item-route';
+  route.textContent = item.route;
+  const meta = document.createElement('div');
+  meta.className = 'history-item-meta';
+  meta.textContent = [item.when, item.duration, item.distance].join(' · ');
+  button.append(title, route, meta);
+  return button;
+}
+
+function createHistoryDetail(detail: RideDetailView): HTMLDivElement {
+  const container = document.createElement('div');
+  container.className = 'history-detail';
+  const dl = document.createElement('dl');
+  const rows = [
+    ['出発', detail.startedAt],
+    ['到着', detail.endedAt],
+    ...(detail.operatorName ? [['事業者', detail.operatorName]] : []),
+    ['最高速度', detail.maxSpeed],
+    ...(detail.passedStations.length ? [['通過駅', detail.passedStations.join('・')]] : []),
+    ['終了理由', detail.endReasonLabel],
+  ];
+  for (const [label, value] of rows) {
+    const dt = document.createElement('dt');
+    dt.textContent = label;
+    const dd = document.createElement('dd');
+    dd.textContent = value;
+    dl.append(dt, dd);
+  }
+  const actions = document.createElement('div');
+  actions.className = 'history-detail-actions';
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = 'btn btn-danger';
+  button.dataset.rideDelete = detail.id;
+  button.textContent = 'この乗車を削除';
+  actions.append(button);
+  container.append(dl, actions);
+  return container;
+}
+
 async function init() {
   // Rendered before any await so the stamp is visible even when bootstrap fails.
   renderBuildInfo();
@@ -150,6 +219,18 @@ async function init() {
       renderHomeStatus(model, db.getSyncStatus?.());
     }
   });
+
+  let rideStore: RideHistoryStore = new IndexedDbRideHistoryStore();
+  try {
+    await (rideStore as IndexedDbRideHistoryStore).open();
+  } catch (error) {
+    captureRuntimeError(error, 'ride-history-open');
+    rideStore = new InMemoryRideHistoryStore();
+  }
+  const rideHistory = createRideHistoryController({ store: rideStore, onError: captureRuntimeError });
+  let expandedId: string | null = null;
+  let latestRides: RideRecord[] = [];
+  let historyExportRunning = false;
 
   // --- Views & routing ---
   const views = Object.fromEntries(
@@ -205,6 +286,132 @@ async function init() {
   backButton.addEventListener('click', () => router.navigate('home'));
   router.start();
 
+  // --- Ride history ---
+  const historyCardBody = document.getElementById('history-card-body');
+  const historyList = document.getElementById('history-list');
+  const historyEmpty = document.getElementById('history-empty');
+  const historyExport = document.getElementById('btn-history-export') as HTMLButtonElement | null;
+  const historyClear = document.getElementById('btn-history-clear') as HTMLButtonElement | null;
+  const historyExportStatus = document.getElementById('history-export-status');
+  const historyExportPanel = document.getElementById('history-export-panel');
+  const historyExportText = document.getElementById('history-export-text') as HTMLTextAreaElement | null;
+
+  function renderHistory(rides: RideRecord[]): void {
+    const card = buildHistoryCardView(rides, DEFAULT_RIDE_HISTORY_CONFIG.homeCardCount);
+    if (historyCardBody) {
+      if (card.emptyText) {
+        historyCardBody.classList.add('card-empty');
+        historyCardBody.textContent = card.emptyText;
+      } else {
+        historyCardBody.classList.remove('card-empty');
+        const ul = document.createElement('ul');
+        ul.className = 'history-list';
+        for (const item of card.items) {
+          const li = document.createElement('li');
+          li.className = 'history-item';
+          li.append(createHistoryItemButton(item));
+          ul.append(li);
+        }
+        historyCardBody.replaceChildren(ul);
+      }
+    }
+
+    const list = buildHistoryListView(rides, expandedId);
+    if (historyEmpty) {
+      historyEmpty.hidden = !list.emptyText;
+      historyEmpty.textContent = list.emptyText ?? '';
+    }
+    if (historyExport) historyExport.disabled = historyExportRunning || list.exportDisabled;
+    if (historyClear) historyClear.disabled = list.clearDisabled;
+    if (historyList) {
+      historyList.replaceChildren(...list.items.map(({ item, detail }) => {
+        const li = document.createElement('li');
+        li.className = 'history-item';
+        const button = createHistoryItemButton(item);
+        button.setAttribute('aria-expanded', String(detail !== null));
+        li.append(button);
+        if (detail) li.append(createHistoryDetail(detail));
+        return li;
+      }));
+    }
+  }
+
+  rideHistory.subscribe((rides) => {
+    latestRides = rides;
+    renderHistory(rides);
+  });
+
+  historyCardBody?.addEventListener('click', (event) => {
+    const target = event.target as HTMLElement | null;
+    const button = target?.closest<HTMLButtonElement>('button[data-ride-id]');
+    const id = button?.dataset.rideId;
+    if (!id) return;
+    expandedId = id;
+    renderHistory(latestRides);
+    router.navigate('history');
+  });
+
+  historyList?.addEventListener('click', (event) => {
+    const target = event.target as HTMLElement | null;
+    const deleteButton = target?.closest<HTMLButtonElement>('button[data-ride-delete]');
+    const deleteId = deleteButton?.dataset.rideDelete;
+    if (deleteId) {
+      if (!window.confirm('この乗車履歴を削除します。よろしいですか？')) return;
+      void rideHistory.removeRide(deleteId);
+      return;
+    }
+    const button = target?.closest<HTMLButtonElement>('button[data-ride-id]');
+    const id = button?.dataset.rideId;
+    if (!id) return;
+    expandedId = expandedId === id ? null : id;
+    renderHistory(latestRides);
+  });
+
+  historyClear?.addEventListener('click', () => {
+    if (!window.confirm('端末内の乗車履歴をすべて削除します。よろしいですか？')) return;
+    expandedId = null;
+    void rideHistory.clearAll();
+  });
+
+  historyExport?.addEventListener('click', async () => {
+    historyExportRunning = true;
+    historyExport.disabled = true;
+    if (historyExportStatus) historyExportStatus.hidden = true;
+    if (historyExportPanel) historyExportPanel.hidden = true;
+    try {
+      const rides = await rideHistory.exportAll();
+      const text = serializeRideHistoryExport(
+        buildRideHistoryExport(rides, Date.now(), readBuildInfo().version ?? 'unknown')
+      );
+      const caps: ExportCapabilities = {};
+      if (typeof navigator.share === 'function') caps.share = (t, title) => navigator.share({ title, text: t });
+      if (typeof navigator.clipboard?.writeText === 'function') caps.copy = (t) => navigator.clipboard.writeText(t);
+      const outcome = await exportRideHistoryText(text, 'RailGlance 乗車履歴', caps);
+      if (outcome === 'cancelled') return;
+      if (historyExportStatus) {
+        historyExportStatus.textContent = outcome === 'shared'
+          ? '共有しました'
+          : outcome === 'copied'
+            ? 'クリップボードにコピーしました'
+            : '共有もコピーも使えないため、下のテキストをコピーしてください';
+        historyExportStatus.hidden = false;
+      }
+      if (outcome === 'manual') {
+        if (historyExportText) historyExportText.value = text;
+        if (historyExportPanel) historyExportPanel.hidden = false;
+      }
+    } catch (error) {
+      captureRuntimeError(error, 'ride-history-export');
+      if (historyExportStatus) {
+        historyExportStatus.textContent = 'エクスポートに失敗しました';
+        historyExportStatus.hidden = false;
+      }
+    } finally {
+      historyExportRunning = false;
+      historyExport.disabled = buildHistoryListView(latestRides, expandedId).exportDisabled;
+    }
+  });
+
   // The fixed diagnostic chip grows with its detail text; keep the page padding
   // large enough that the last control on every view stays reachable above it.
   const diagnosticChip = document.getElementById('diagnostic-indicator');
@@ -255,6 +462,7 @@ async function init() {
   };
 
   logger.subscribe((entry) => {
+    rideHistory.onTick(entry);
     const lastImageResult = evenG2Adapter.getLastImageResult ? evenG2Adapter.getLastImageResult() : 'none';
     const syncStatus = db.getSyncStatus ? db.getSyncStatus() : undefined;
     const bridge = evenG2Adapter.getBridgeDiagnostics?.();
@@ -397,6 +605,7 @@ async function init() {
   });
 
   // Auto-start controller and Even G2 Bridge connection
+  await rideHistory.start();
   await controller.start();
 }
 
