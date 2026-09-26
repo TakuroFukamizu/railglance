@@ -149,6 +149,10 @@ export type RouteCandidateScore = {
   segment: TrackSegment;
   line: RailwayLine;
   distanceMeters: number;
+  /** Distance to the segment's own polyline, before any station-hole projection. */
+  rawDistanceMeters?: number;
+  /** How far past the segment's end the station-hole projection carried this candidate. */
+  endOverrunMeters?: number;
   distanceScore: number;
   headingScore: number;
   continuityScore: number;

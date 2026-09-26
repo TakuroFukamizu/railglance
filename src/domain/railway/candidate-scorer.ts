@@ -18,6 +18,8 @@ export type ScoreCandidateInput = {
   line: RailwayLine;
   previousSegment: TrackSegment | null;
   nearbySegments: TrackSegment[];
+  /** Operator of each nearby segment's line, so a hole is only bridged to the same railway. */
+  operatorIdBySegmentId?: ReadonlyMap<string, string>;
   lockState: RouteLockState;
   effectiveHeadingDegrees: number | null;
   config: TrackingConfig;
@@ -31,11 +33,13 @@ export function looksLikeShinkansen(line: RailwayLine): boolean {
 export function scoreCandidate(input: ScoreCandidateInput): RouteCandidateScore {
   const { sample, segment, line, previousSegment, nearbySegments, lockState, effectiveHeadingDegrees, config } =
     input;
+  const operators = input.operatorIdBySegmentId;
 
   const closest = findClosestPointOnPolyline(sample.latitude, sample.longitude, segment.coordinates);
   const startOffset = segment.startOffsetMeters ?? 0;
   let distance = closest.distanceMeters;
   let trackPositionMeters = startOffset + closest.distanceAlongPolylineMeters;
+  let overrunMeters = 0;
 
   const accuracyFloor = Math.max(sample.accuracyMeters, config.routeMinimumAccuracyMeters);
 
@@ -49,10 +53,18 @@ export function scoreCandidate(input: ScoreCandidateInput): RouteCandidateScore 
       otherCoverMarginMeters: accuracyFloor * config.routeSegmentGapOtherCoverMarginAccuracyMultiple,
       minBridgeMeters: config.routeSegmentGapMinBridgeMeters,
       maxTurnDegrees: config.routeSegmentGapMaxTurnDegrees,
+      continuationSegmentIds: operators
+        ? new Set(
+            nearbySegments
+              .filter((candidate) => operators.get(candidate.id) === line.operatorId)
+              .map((candidate) => candidate.id)
+          )
+        : undefined,
     });
     if (gap) {
       distance = Math.min(distance, gap.distanceMeters);
       trackPositionMeters = gap.trackPositionMeters;
+      overrunMeters = gap.overrunMeters;
     }
   }
 
@@ -88,7 +100,12 @@ export function scoreCandidate(input: ScoreCandidateInput): RouteCandidateScore 
 
   // 3. Topology continuity (up to 20 pts, scaled by lock state).
   const continuityKind: ContinuityKind = classifyContinuity(previousSegment, segment, nearbySegments);
-  const continuityScore = continuityBonus(continuityKind, lockState, config);
+  // Riding on past a segment's end is weaker and weaker evidence that this is still the
+  // line: fade the bonus out, or a lock kept alive by the projection outweighs another
+  // line the fixes are actually sitting on (a transfer at 品川).
+  const continuityFade =
+    overrunMeters > 0 ? Math.max(0, 1 - overrunMeters / config.routeSegmentGapContinuityFadeMeters) : 1;
+  const continuityScore = Math.round(continuityBonus(continuityKind, lockState, config) * continuityFade * 10) / 10;
 
   // 4. Accuracy / history weighting (10 pts max).
   const historyScore = sample.accuracyMeters <= 20 ? 10 : sample.accuracyMeters <= 50 ? 5 : 0;
@@ -109,6 +126,8 @@ export function scoreCandidate(input: ScoreCandidateInput): RouteCandidateScore 
     segment,
     line,
     distanceMeters: Math.round(distance * 10) / 10,
+    rawDistanceMeters: Math.round(closest.distanceMeters * 10) / 10,
+    endOverrunMeters: Math.round(overrunMeters),
     distanceScore: Math.round(distanceScore * 10) / 10,
     headingScore: Math.round(headingScore * 10) / 10,
     continuityScore,

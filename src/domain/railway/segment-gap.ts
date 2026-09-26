@@ -12,6 +12,8 @@ export type EndGapProjection = {
   distanceMeters: number;
   /** Track position extrapolated beyond the segment end. */
   trackPositionMeters: number;
+  /** How far past the segment end the sample sits. */
+  overrunMeters: number;
 };
 
 export type EndGapOptions = {
@@ -30,6 +32,13 @@ export type EndGapOptions = {
   minBridgeMeters: number;
   /** Maximum turn between end tangent, bridge and far-side segment (routeSegmentGapMaxTurnDegrees). */
   maxTurnDegrees: number;
+  /**
+   * Segments that may be treated as this track continuing across the hole. A station hole
+   * is a gap in one operator's own data, so only that operator's track can bridge it;
+   * another operator's line running through the same place (京急 south of 品川) is a
+   * different railway, not the continuation. Omit to accept any nearby segment.
+   */
+  continuationSegmentIds?: ReadonlySet<string>;
 };
 
 type Vec = { x: number; y: number };
@@ -95,12 +104,13 @@ export function projectAcrossEndGap(
   for (const other of nearbySegments) {
     if (other.id === segment.id || other.coordinates.length < 2) continue;
     const oc = other.coordinates;
+    const mayContinue = options.continuationSegmentIds?.has(other.id) ?? true;
     // Does `other` pick the track up again, either right at this end or across the hole?
     let continuesTrack = segmentsAreAdjacent(segment, other);
-    for (const [far, inner] of [
+    for (const [far, inner] of mayContinue ? [
       [oc[0], oc[1]],
       [oc[oc.length - 1], oc[oc.length - 2]],
-    ] as const) {
+    ] as const : []) {
       const farVec = toLocal(far);
       const farLength = Math.hypot(farVec.x, farVec.y);
       if (farLength > maxOverrunMeters) continue;
@@ -144,6 +154,7 @@ export function projectAcrossEndGap(
     distanceMeters: best,
     trackPositionMeters:
       end === 'last' ? startOffset + closest.totalPolylineLengthMeters + along : startOffset - along,
+    overrunMeters: along,
   };
 }
 

@@ -19,7 +19,7 @@ type HardCheck = 'no-forbidden-line' | 'correct-final-line' | 'no-wrong-line';
 const KNOWN_ISSUES: Record<string, { checks: HardCheck[]; observed: string; maxWrongLineS: number }> = {
   'tabata-fork-yamanote': {
     checks: ['no-wrong-line'],
-    maxWrongLineS: 8,
+    maxWrongLineS: 7,
     observed: 'Leaving 田端 the 東北線（田端〜日暮里・1）lock is kept ~53 s into 田端→駒込 (stop plus the station hole).',
   },
   'tabata-fork-keihin-tohoku': {
@@ -31,6 +31,18 @@ const KNOWN_ISSUES: Record<string, { checks: HardCheck[]; observed: string; maxW
     checks: ['no-wrong-line'],
     maxWrongLineS: 11,
     observed: 'Leaving 田町 the 東海道線（田町〜新橋）lock is kept ~56 s into 田町→高輪ゲートウェイ.',
+  },
+  'shinagawa-transfer-keikyu': {
+    checks: ['no-wrong-line'],
+    maxWrongLineS: 2,
+    observed:
+      'Leaving 品川 onto 京急本線 the JR lock is kept ~40 s: for about 400 m the JR end-tangent ' +
+      'projection and 京急 are within one accuracy floor of each other.',
+  },
+  'shinagawa-transfer-keikyu-reverse': {
+    checks: ['no-wrong-line'],
+    maxWrongLineS: 5,
+    observed: 'Approaching 品川 on 京急本線 the lock moves to the JR line ~5 s past the settle window.',
   },
   'sobu-rapid-tunnel-outage-reverse': {
     checks: ['no-wrong-line', 'correct-final-line'],

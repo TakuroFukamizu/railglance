@@ -79,6 +79,16 @@ export type TrackingConfig = {
    */
   routeSegmentEndOverrunMeters: number;
   /**
+   * How far past a segment's end the continuity bonus fades to zero while the station-hole
+   * projection is carrying the candidate.
+   */
+  routeSegmentGapContinuityFadeMeters: number;
+  /**
+   * Consecutive fixes where another line's own geometry beats the projected distance by
+   * more than the accuracy floor before the locked route is treated as suspicious.
+   */
+  routeSegmentGapContradictionCount: number;
+  /**
    * Straight-line bridges across a station hole: the far-side segment end must be at least
    * this far from the end vertex (closer ends are the same junction, not the far side of a
    * hole).
@@ -161,6 +171,8 @@ export const DEFAULT_TRACKING_CONFIG: TrackingConfig = {
   routeCandidateTieMargin: 15,
   routeProgressJitterMeters: 15,
   routeSegmentEndOverrunMeters: 600,
+  routeSegmentGapContinuityFadeMeters: 150,
+  routeSegmentGapContradictionCount: 5,
   routeSegmentGapMinBridgeMeters: 30,
   routeSegmentGapMaxTurnDegrees: 45,
   routeSegmentGapCoverAccuracyMultiple: 2,
