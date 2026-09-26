@@ -1,13 +1,22 @@
 import { describe, expect, it } from 'vitest';
 import sampleLines from '../../src/data/sample/lines.json';
 import sampleMetadata from '../../src/data/sample/metadata.json';
+import sampleTrackSegments from '../../src/data/sample/track-segments.json';
 import { DexieRailwayDatabase } from '../../src/infrastructure/storage/dexie-railway-database';
 
 describe('bundled dataset', () => {
   // Issue #67 / #70: the bundled Shinkansen geometry was a 3-point straight line per
   // station pair, and 東京→上野 ran straight over the conventional corridor at 秋葉原.
   it('carries no Shinkansen geometry', () => {
-    expect(sampleLines.filter((line) => line.name.includes('新幹線'))).toEqual([]);
+    const shinkansenLineIds = new Set(
+      sampleLines.filter((line) => line.name.includes('新幹線') || line.id.includes('shinkansen')).map((line) => line.id)
+    );
+    expect([...shinkansenLineIds]).toEqual([]);
+    expect(
+      sampleTrackSegments.filter(
+        (segment) => shinkansenLineIds.has(segment.lineId) || segment.lineId.includes('shinkansen')
+      )
+    ).toEqual([]);
   });
 
   it('reloads the bundled rows on a device holding an older bundled version', async () => {

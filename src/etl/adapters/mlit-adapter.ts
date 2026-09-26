@@ -102,7 +102,9 @@ export class MlitRailwayAdapter implements RailwaySourceAdapter {
       const key = this.lineKey(feature);
       if (!key) continue;
       lineByKey.set(key, lineByKey.get(key) ?? this.lineFromFeature(key, feature, provenance));
-      rawSectionsByKey.set(key, [...(rawSectionsByKey.get(key) ?? []), coordinates]);
+      const lineSections = rawSectionsByKey.get(key);
+      if (lineSections) lineSections.push(coordinates);
+      else rawSectionsByKey.set(key, [coordinates]);
     }
 
     const rawSegmentsByLine = new Map<string, TrackSegment[]>();
