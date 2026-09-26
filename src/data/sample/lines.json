@@ -20,15 +20,15 @@
     "operatorId": "sotetsu",
     "name": "相鉄本線",
     "shortName": "相鉄線",
-    "directionAName": "上り（横浜・JR直通方面）",
-    "directionBName": "下り（海老名方面）"
+    "directionAName": "下り（海老名方面）",
+    "directionBName": "上り（横浜・JR直通方面）"
   },
   {
     "id": "jreast-yokohama-line",
     "operatorId": "jreast",
     "name": "JR横浜線",
     "shortName": "横浜線",
-    "directionAName": "上り（東神奈川・横浜方面）",
-    "directionBName": "下り（町田・八王子方面）"
+    "directionAName": "下り（町田・八王子方面）",
+    "directionBName": "上り（東神奈川・横浜方面）"
   }
 ]
