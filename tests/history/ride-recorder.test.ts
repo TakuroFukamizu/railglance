@@ -111,10 +111,9 @@ function freeze<T>(value: T): T {
 }
 
 describe('ride lifecycle and measurements', () => {
-  it('never promotes stopped-only candidates for 60 seconds', () => {
+  it('stays idle for 60 seconds of committed tracking stopped ticks', () => {
     const result = run(ticks(0, 60_000, { isStopped: true }));
-    expect(result.state.phase).toBe('candidate');
-    expect(result.state.record).toBeNull();
+    expect(result.state).toEqual(createInitialRideRecorderState());
     expect(result.effects).toEqual([]);
   });
 
@@ -351,12 +350,77 @@ describe('decision edge cases', () => {
     expect(promoted.state.record).toMatchObject({ lineId: 'L2', startedAtMs: 30_000, directionName: '内回り', passedStations: [B] });
   });
 
-  it('promotes when the first moving tick arrives after the confirmation interval', () => {
+  it('starts confirmation and ride duration at departure after opening while stopped', () => {
     const state = run(ticks(0, 60_000, { isStopped: true })).state;
-    const promoted = step(state, tick({ timestampMs: 61_000, tracking: false }));
+    const departure = step(state, tick({ timestampMs: 61_000 }));
+    expect(departure.state).toMatchObject({ phase: 'candidate', candidateSinceMs: 61_000, sawMovingTick: true, record: null });
+    expect(departure.effects).toEqual([]);
+    let candidate = departure.state;
+    for (const input of ticks(62_000, 90_000)) {
+      const result = step(candidate, input);
+      expect(result.state.phase).toBe('candidate');
+      expect(result.effects).toEqual([]);
+      candidate = result.state;
+    }
+    const promoted = step(candidate, tick({ timestampMs: 91_000 }));
     expect(promoted.state.phase).toBe('riding');
+    expect(promoted.state.record!.startedAtMs).toBe(61_000);
     expect(promoted.state.stoppedSinceMs).toBeNull();
     expect(promoted.effects).toHaveLength(1);
+  });
+
+  it('stays idle after a stopped close until the next departure', () => {
+    const closed = run([...ticks(0, 120_000), ...ticks(121_000, 721_000, { isStopped: true, location: null })]);
+    expect(closed.effects.at(-1)).toMatchObject({ type: 'close', record: { endReason: 'stopped' } });
+    let state = closed.state;
+    for (const input of ticks(722_000, 782_000, { isStopped: true, location: null })) {
+      const result = step(state, input);
+      expect(result.state).toEqual(createInitialRideRecorderState());
+      expect(result.effects).toEqual([]);
+      state = result.state;
+    }
+    const departure = step(state, tick({ timestampMs: 783_000 }));
+    expect(departure.state).toMatchObject({ phase: 'candidate', candidateSinceMs: 783_000, record: null });
+    expect(departure.effects).toEqual([]);
+    const promoted = step(departure.state, tick({ timestampMs: 813_000 }));
+    expect(promoted.state.record!.startedAtMs).toBe(783_000);
+  });
+
+  it('closes or discards a stopped transfer and waits idle for the new line departure', () => {
+    const newLine = { ...line, id: 'L2' };
+    for (const duration of [60_000, 120_000]) {
+      const before = run(ticks(0, duration)).state;
+      const transferred = step(before, tick({ timestampMs: duration + 1000, line: newLine, isStopped: true }));
+      expect(transferred.effects).toEqual(duration === 60_000
+        ? [{ type: 'discard', recordId: 'ride-1' }]
+        : [{ type: 'close', record: expect.objectContaining({ endReason: 'transfer', endedAtMs: duration, lineId: 'L1' }) }]);
+      expect(transferred.state).toEqual(createInitialRideRecorderState());
+      const waiting = step(transferred.state, tick({ timestampMs: duration + 2000, line: newLine, isStopped: true }));
+      expect(waiting.state.phase).toBe('idle');
+      expect(waiting.effects).toEqual([]);
+      const departure = step(waiting.state, tick({ timestampMs: duration + 3000, line: newLine }));
+      expect(departure.state).toMatchObject({ phase: 'candidate', candidateSinceMs: duration + 3000, candidateLine: newLine });
+      expect(departure.effects).toEqual([]);
+    }
+  });
+
+  it('resets a candidate to idle when the new line tick is stopped', () => {
+    const before = run(ticks(0, 29_000)).state;
+    const newLine = { ...line, id: 'L2' };
+    const switched = step(before, tick({ timestampMs: 30_000, line: newLine, isStopped: true }));
+    expect(switched.state).toEqual(createInitialRideRecorderState());
+    expect(switched.effects).toEqual([]);
+    const untracked = step(switched.state, tick({ timestampMs: 31_000, line: newLine, tracking: false }));
+    expect(untracked.state.phase).toBe('idle');
+    const departure = step(untracked.state, tick({ timestampMs: 32_000, line: newLine }));
+    expect(departure.state).toMatchObject({ phase: 'candidate', candidateSinceMs: 32_000, candidateLine: newLine });
+    expect(departure.effects).toEqual([]);
+  });
+
+  it('still promotes after 30 committed seconds when departure is followed by stopped ticks', () => {
+    const result = run([tick(), ...ticks(1000, 30_000, { isStopped: true })]);
+    expect(result.state).toMatchObject({ phase: 'riding', sawMovingTick: true, record: { startedAtMs: 0 } });
+    expect(result.effects).toEqual([{ type: 'persist', record: result.state.record }]);
   });
 
   it('uses first and last candidate stations and fills stations first seen while riding', () => {

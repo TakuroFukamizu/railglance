@@ -110,15 +110,15 @@ function closeRecord(state: RideRecorderState, record: RideRecord, endedAtMs: nu
 export function reduceRideTick(state: RideRecorderState, tick: RideTick, config: RideHistoryConfig, newId: () => string = createRideId): Result {
   if (state.lastCommittedAtMs !== null && tick.timestampMs <= state.lastCommittedAtMs) return { state, effects: [] };
   if (state.phase === 'idle') {
-    return { state: tick.committed && tick.tracking ? startCandidate(tick, config) : { ...state }, effects: [] };
+    return { state: tick.committed && tick.tracking && !tick.isStopped ? startCandidate(tick, config) : { ...state }, effects: [] };
   }
   if (state.phase === 'candidate' && !tick.committed) return { state: createInitialRideRecorderState(), effects: [] };
   if (state.phase === 'candidate' && tick.line?.id !== state.candidateLine?.id) {
-    return { state: startCandidate(tick, config), effects: [] };
+    return { state: tick.isStopped ? createInitialRideRecorderState() : startCandidate(tick, config), effects: [] };
   }
   if (state.phase === 'riding' && state.record && tick.committed && tick.line?.id !== state.record.lineId) {
     const result = closeRecord(state, state.record, state.lastCommittedAtMs!, 'transfer', tick.timestampMs, config);
-    return { state: startCandidate(tick, config), effects: result.effects };
+    return { state: tick.isStopped ? result.state : startCandidate(tick, config), effects: result.effects };
   }
 
   const next = { ...state, stoppedSinceMs: tick.isStopped ? (state.stoppedSinceMs ?? tick.timestampMs) : null };
