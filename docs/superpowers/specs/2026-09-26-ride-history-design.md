@@ -21,7 +21,7 @@ Issue には決めていない点が多いので、本 spec で次のとおり�
 
 | 項目 | 決定 | 根拠 |
 | --- | --- | --- |
-| 乗車の開始判定 | 確定ロック中（`isCommittedRouteLock`）が 30 秒連続し、開始 tick は `journey.status === 'TRACKING'`、その間に 1 回以上「停止していない」tick があった | 路線のフラップで幽霊乗車を作らない。継続判定にはロック状態だけを使い、トンネル内の `GPS_UNAVAILABLE` で乗車を切らない |
+| 乗車の開始判定 | 確定ロック中（`isCommittedRouteLock`）が 30 秒連続する。開始 tick は `journey.status === 'TRACKING'` かつ停止していない tick（出発）に限る | 路線のフラップで幽霊乗車を作らない。停車中に候補を始めないので、終点での長い停車が次の乗車に混ざらない。継続判定にはロック状態だけを使い、トンネル内の `GPS_UNAVAILABLE` で乗車を切らない |
 | 乗車の終了判定 | (a) 確定ロックのまま別路線に変わった、(b) 確定ロックでない状態が 180 秒続いた、(c) 停止状態が 600 秒続いた、(d) 起動時に前回の未終了レコードが残っていた | 乗換・降車後の徒歩・終点での長時間停車・WebView 強制終了に対応する |
 | 終了時刻 | (a)(b) は最後に確定ロックだった tick の時刻、(c) は停止が始まった tick の時刻、(d) は最終更新時刻 | タイムアウト満了時刻ではなく、乗っていた最後の時刻を残す |
 | 最短乗車 | 2 分未満または 500 m 未満は保存しない | 駅間 1 区間の短い乗車（通常 2 分以上）は残し、誤検出は捨てる |
@@ -128,9 +128,10 @@ export const DEFAULT_RIDE_HISTORY_CONFIG: RideHistoryConfig;
 状態機械
 
 ```
-idle ──committed & tracking──▶ candidate ──30s 連続 committed & 非停止 tick あり──▶ riding
+idle ──committed & tracking & 非停止──▶ candidate ──30s 連続 committed──▶ riding
 candidate ──非 committed──▶ idle（レコードは作らない）
-riding ──別 lineId で committed──▶ close(transfer) → candidate（新路線、開始時刻はその tick）
+candidate ──別 lineId──▶ 非停止なら新路線の candidate、停止中なら idle
+riding ──別 lineId で committed──▶ close(transfer) → 非停止なら candidate（新路線、開始時刻はその tick）、停止中なら idle
 riding ──非 committed が 180s──▶ close(route-lost)
 riding ──停止が 600s──▶ close(stopped)
 ```
@@ -143,7 +144,7 @@ riding ──停止が 600s──▶ close(stopped)
 - `candidate` → `riding` に上がった時点で `record` を作る。`startedAtMs = candidateSinceMs`。`fromStation` は candidate 以降に
   最初に観測した非 `null` の `previousStation`。`passedStations` はそれ以降 `previousStation.id` が変わるたびに追記する。
 - `riding` 中の committed tick で `line.id` が変われば `close(transfer)`。`endedAtMs = lastCommittedAtMs`（旧路線の最後の tick）。
-  その tick から新路線の `candidate` を始める。
+  その tick が停止していなければ新路線の `candidate` を始め、停止していれば `idle` に戻る（次の出発 tick で候補が始まる）。
 - 非 committed tick は `lostSinceMs` を立てる。`committed` に戻れば消す。`riding` 中に `timestampMs - lostSinceMs >= routeLostEndMs`
   なら `close(route-lost)`、`endedAtMs = lastCommittedAtMs`。
 - `isStopped` が真なら `stoppedSinceMs` を立て、偽で消す。`riding` 中に `timestampMs - stoppedSinceMs >= stoppedEndMs` なら
@@ -154,7 +155,7 @@ riding ──停止が 600s──▶ close(stopped)
 - `toStation` は close 時に「最後に観測した非 `null` の `previousStation`」。
 - `persist` は riding 昇格時、`passedStations` が伸びた tick、前回 persist から `persistIntervalMs` 以上経った tick、close 時に出す。
 - close 時に `endedAtMs - startedAtMs < minRideDurationMs` または `distanceMeters < minRideDistanceMeters` なら `discard`。
-- `finalizeDanglingRecord(record, nowMs)`: 起動時に見つかった `status: 'open'` を `endedAtMs = record.updatedAtMs`、
+- `finalizeDanglingRecord(record, config)`: 起動時に見つかった `status: 'open'` を `endedAtMs = record.updatedAtMs`、
   `endReason: 'app-restart'` で閉じる。最短未満なら `null` を返す（呼び出し側が削除）。
 
 ## 保存
