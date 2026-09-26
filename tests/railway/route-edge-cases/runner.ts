@@ -3,7 +3,7 @@ import { RouteLockState, shouldDisplaySelectedRoute } from '../../../src/domain/
 import { MapMatcher } from '../../../src/domain/railway/map-matcher';
 import { FixtureRailwayDb } from './fixture-db';
 import { EdgeScenario } from './scenarios';
-import { generateTrace, TracePoint } from './trace';
+import { generateTrace, TRACE_START_TIMESTAMP_MS, TracePoint } from './trace';
 
 export type Tick = {
   /** Seconds since the first fix of the trace (not the fix count: GPS can drop out). */
@@ -63,10 +63,13 @@ export async function runScenario(
   config: TrackingConfig = DEFAULT_TRACKING_CONFIG
 ): Promise<ScenarioResult> {
   const matcher = new MapMatcher(db, config);
-  const trace = generateTrace(db, scenario.id, scenario.runs, { initialDwellS: scenario.initialDwellS });
+  const trace = generateTrace(db, scenario.id, scenario.runs, {
+    initialDwellS: scenario.initialDwellS,
+    startTimestampMs: TRACE_START_TIMESTAMP_MS,
+  });
   const settleS = scenario.settleS ?? DEFAULT_SETTLE_S;
   const forbidden = new Set(scenario.forbiddenLineIds ?? []);
-  const startMs = trace[0]?.sample.timestampMs ?? 0;
+  const startMs = TRACE_START_TIMESTAMP_MS;
   const ticks: Tick[] = [];
 
   for (const [index, point] of trace.entries()) {

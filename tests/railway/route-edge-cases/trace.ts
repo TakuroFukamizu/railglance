@@ -42,6 +42,9 @@ export type TracePoint = {
   secondsIntoRun: number;
 };
 
+/** Wall clock a trace starts at, whether or not its first run emits any fix. */
+export const TRACE_START_TIMESTAMP_MS = 1_000;
+
 const ACCELERATION_MPS2 = 0.7;
 const MIN_MOVING_SPEED_MPS = 1.5;
 
@@ -129,7 +132,7 @@ function snapToStation(db: FixtureRailwayDb, item: PathItem, path: LatLon[], sid
   if (!station || path.length < 2) return path;
 
   const closest = findClosestPointOnPolyline(station[0], station[1], path);
-  const total = path.reduce((sum, point, index) => (index === 0 ? 0 : sum + distance(path[index - 1], point)), 0);
+  const total = closest.totalPolylineLengthMeters;
   const along = closest.distanceAlongPolylineMeters;
   const projected: LatLon = [closest.projectedPoint[0], closest.projectedPoint[1]];
 
@@ -218,7 +221,7 @@ export function generateTrace(
   const random = createRandom(seed);
   const points: TracePoint[] = [];
   const paths = buildTracePaths(db, runs);
-  let timestampMs = options.startTimestampMs ?? 1_000;
+  let timestampMs = options.startTimestampMs ?? TRACE_START_TIMESTAMP_MS;
   let previousEnd: LatLon | null = null;
 
   const emitStationary = (at: LatLon, seconds: number, runIndex: number, phase: TracePoint['phase'], gps: GpsQuality, secondsIntoRun: number) => {
