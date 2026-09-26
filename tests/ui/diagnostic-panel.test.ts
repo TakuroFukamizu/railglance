@@ -156,14 +156,23 @@ describe('buildDiagnosticPanelView', () => {
     expect(view.stopDisabled).toBe(true);
   });
 
-  it('keeps the message when an enrolled qualification has no expiry to show', () => {
+  it('keeps the message while an enrolled qualification is being refreshed', () => {
     const view = buildDiagnosticPanelView(
-      enrolled({ state: 'refreshing', qualificationExpiresAt: null, message: '参加資格を確認しています。' }),
+      enrolled({ state: 'refreshing', message: '参加資格を確認しています。' }),
       formatDateTime
     );
 
     expect(view.statusLabel).toBe('診断収集: 有効 · campaign-1');
     expect(view.detailText).toBe('参加資格を確認しています。');
+  });
+
+  it('keeps the message when an enrolled qualification has no expiry to show', () => {
+    const view = buildDiagnosticPanelView(
+      enrolled({ state: 'active', qualificationExpiresAt: null, message: '診断収集中です。' }),
+      formatDateTime
+    );
+
+    expect(view.detailText).toBe('診断収集中です。');
   });
 
   it('shows the state message instead of the expiry once an enrolled tester is revoked', () => {
@@ -178,10 +187,17 @@ describe('buildDiagnosticPanelView', () => {
 });
 
 describe('formatLocalDateTime', () => {
-  it('drops seconds so the chip line stays short', () => {
+  it('renders a fixed-width 24-hour stamp without seconds, whatever the runtime locale', () => {
     const formatted = formatLocalDateTime('2026-10-08T04:58:02.000Z');
 
-    expect(formatted).not.toMatch(/:\d{2}:\d{2}/);
-    expect(formatted).toMatch(/2026/);
+    expect(formatted).toMatch(/^\d{4}\/\d{2}\/\d{2} \d{2}:\d{2}$/);
+    expect(formatted).toMatch(/^2026\/10\//);
+  });
+
+  it('never falls back to a 12-hour clock in the afternoon', () => {
+    const formatted = formatLocalDateTime('2026-10-08T14:05:00.000Z');
+
+    expect(formatted).not.toMatch(/午後|PM/i);
+    expect(formatted).toMatch(/ \d{2}:05$/);
   });
 });

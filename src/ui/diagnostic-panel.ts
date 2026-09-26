@@ -24,15 +24,22 @@ const ERROR_STATES = ['expired', 'revoked', 'release-blocked'];
 const START_BLOCKED_STATES = ['joining', 'revoked', 'release-blocked'];
 /** States a tester can sit in before any qualification exists, where their own tick must survive. */
 const PRE_ENROLLMENT_STATES = ['errors-only', 'joining'];
+/** Settled enrolled states whose label already says it all, so the chip can spend line 2 on the expiry. */
+const STEADY_ENROLLED_STATES = ['active', 'paused', 'offline-buffering'];
 
-/** Minute precision: the chip has one line for this and seconds never matter to a tester. */
+/**
+ * Fixed-width `YYYY/MM/DD HH:mm` in the device's time zone. The chip has one
+ * line for this, so the locale is pinned (the UI is Japanese) and seconds are
+ * dropped: a 12-hour or comma-separated format would only invite an ellipsis.
+ */
 export function formatLocalDateTime(isoTimestamp: string): string {
-  return new Date(isoTimestamp).toLocaleString(undefined, {
+  return new Date(isoTimestamp).toLocaleString('ja-JP', {
     year: 'numeric',
-    month: 'numeric',
-    day: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
     hour: '2-digit',
     minute: '2-digit',
+    hourCycle: 'h23',
   });
 }
 
@@ -52,16 +59,14 @@ function statusLabelOf(status: DiagnosticStatus, collecting: boolean): string {
 }
 
 /**
- * The chip only has one line for this. While enrollment is healthy the state
- * label already says everything the message would, so the expiry (the one
- * thing a tester may need to act on) wins; any other state keeps its message.
+ * The chip only has one line for this. In a settled enrolled state the label
+ * already says everything the message would, so the expiry (the one thing a
+ * tester may need to act on) wins. Transitional states such as `refreshing`
+ * and every error state keep their message, since the label alone would hide
+ * what is going on.
  */
-function detailTextOf(
-  status: DiagnosticStatus,
-  errored: boolean,
-  formatDateTime: (iso: string) => string
-): string {
-  if (status.enrolled && !errored && status.qualificationExpiresAt) {
+function detailTextOf(status: DiagnosticStatus, formatDateTime: (iso: string) => string): string {
+  if (status.enrolled && STEADY_ENROLLED_STATES.includes(status.state) && status.qualificationExpiresAt) {
     return `資格期限: ${formatDateTime(status.qualificationExpiresAt)}`;
   }
   return status.message;
@@ -76,13 +81,12 @@ export function buildDiagnosticPanelView(
   formatDateTime: (iso: string) => string = formatLocalDateTime
 ): DiagnosticPanelView {
   const collecting = COLLECTING_STATES.includes(status.state);
-  const errored = ERROR_STATES.includes(status.state);
   return {
     statusLabel: statusLabelOf(status, collecting),
-    detailText: detailTextOf(status, errored, formatDateTime),
+    detailText: detailTextOf(status, formatDateTime),
     message: status.message,
     collecting,
-    errored,
+    errored: ERROR_STATES.includes(status.state),
     consentChecked: consentCheckedOf(status),
     consentDisabled: status.enrolled,
     accessCodeDisabled: status.enrolled,
