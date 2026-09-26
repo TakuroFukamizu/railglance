@@ -115,10 +115,19 @@ export class DexieRailwayDatabase extends Dexie implements RailwayDataRepository
     await this.open();
     const existingMeta = await this.datasetMetadata.get('current');
 
-    // Migration / Refresh check for Schema v1.1.0
+    // Refresh on a schema migration, and whenever the bundled dataset itself changed:
+    // its rows are the offline fallback, so a correction to them has to reach devices
+    // that already hold an older copy.
     const targetSchemaVersion = RAILWAY_DATASET_SCHEMA_VERSION;
-    if (!existingMeta || existingMeta.schemaVersion !== targetSchemaVersion) {
-      console.log(`[DexieRailwayDatabase] Migrating IndexedDB schema to ${targetSchemaVersion}...`);
+    const bundledVersion = (sampleMetadata as DatasetMetadata).version;
+    if (
+      !existingMeta ||
+      existingMeta.schemaVersion !== targetSchemaVersion ||
+      existingMeta.version !== bundledVersion
+    ) {
+      console.log(
+        `[DexieRailwayDatabase] Loading bundled dataset v${bundledVersion} (schema ${targetSchemaVersion})...`
+      );
       await this.resetToBundledDataset();
     }
 

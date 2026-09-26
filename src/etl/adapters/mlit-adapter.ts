@@ -18,6 +18,15 @@ export type MlitRailwayAdapterOptions = {
 };
 
 const KANTO_BUFFER = { minLat: 34.5, maxLat: 37.75, minLon: 138.0, maxLon: 141.5 };
+/**
+ * N02 splits a line into sections at track junctions as well as at stations, and those
+ * junctions are not named places. A section that runs junction-to-junction has no station
+ * within NEAREST_STATION_LIMIT_METERS of either end and used to be dropped, taking the
+ * whole 東京〜品川 stretch of the Tokaido Shinkansen with it. Sections are chained back
+ * together through such junctions before stations are matched.
+ */
+const JUNCTION_MERGE_GUARD_METERS = 300;
+const NEAREST_STATION_LIMIT_METERS = 1500;
 
 export class MlitRailwayAdapter implements RailwaySourceAdapter {
   public sourceId = MLIT_SOURCE_ID;
@@ -85,35 +94,53 @@ export class MlitRailwayAdapter implements RailwaySourceAdapter {
       stationsByLine.set(line.id, list);
     }
 
-    const rawSegmentsByLine = new Map<string, TrackSegment[]>();
+    const rawSectionsByKey = new Map<string, Array<Array<[number, number]>>>();
     for (const feature of sections) {
       const coordinates = this.lineCoordinates(feature);
-      if (!coordinates || !coordinates.some(([lat, lon]) => this.inKanto(lat, lon))) continue;
+      if (!coordinates || coordinates.length < 2) continue;
+      if (!coordinates.some(([lat, lon]) => this.inKanto(lat, lon))) continue;
       const key = this.lineKey(feature);
       if (!key) continue;
-      const line = lineByKey.get(key) ?? this.lineFromFeature(key, feature, provenance);
-      lineByKey.set(key, line);
-      const candidates = stationsByLine.get(line.id) ?? [];
-      const from = this.nearestStation(coordinates[0], candidates);
-      const to = this.nearestStation(coordinates[coordinates.length - 1], candidates);
-      if (!from || !to || from.station.id === to.station.id || from.distance > 1500 || to.distance > 1500) continue;
+      lineByKey.set(key, lineByKey.get(key) ?? this.lineFromFeature(key, feature, provenance));
+      const lineSections = rawSectionsByKey.get(key);
+      if (lineSections) lineSections.push(coordinates);
+      else rawSectionsByKey.set(key, [coordinates]);
+    }
 
-      const endpointKey = [from.station.id, to.station.id].sort().join(':');
-      const segment: TrackSegment = {
-        id: `mlit-segment-${this.hash(`${line.id}:${endpointKey}`)}`,
-        lineId: line.id,
-        fromStationId: from.station.id,
-        toStationId: to.station.id,
-        coordinates,
-        provenance: [provenance],
-      };
-      const list = rawSegmentsByLine.get(line.id) ?? [];
-      const existingIndex = list.findIndex((candidate) => candidate.id === segment.id);
-      if (existingIndex < 0 || list[existingIndex].coordinates.length < coordinates.length) {
-        if (existingIndex >= 0) list.splice(existingIndex, 1, segment);
-        else list.push(segment);
+    const rawSegmentsByLine = new Map<string, TrackSegment[]>();
+    for (const [key, rawSections] of rawSectionsByKey) {
+      const line = lineByKey.get(key)!;
+      const candidates = stationsByLine.get(line.id) ?? [];
+      for (const coordinates of this.chainSectionsThroughJunctions(rawSections, candidates)) {
+        const from = this.nearestStation(coordinates[0], candidates);
+        const to = this.nearestStation(coordinates[coordinates.length - 1], candidates);
+        if (
+          !from ||
+          !to ||
+          from.station.id === to.station.id ||
+          from.distance > NEAREST_STATION_LIMIT_METERS ||
+          to.distance > NEAREST_STATION_LIMIT_METERS
+        ) {
+          continue;
+        }
+
+        const endpointKey = [from.station.id, to.station.id].sort().join(':');
+        const segment: TrackSegment = {
+          id: `mlit-segment-${this.hash(`${line.id}:${endpointKey}`)}`,
+          lineId: line.id,
+          fromStationId: from.station.id,
+          toStationId: to.station.id,
+          coordinates,
+          provenance: [provenance],
+        };
+        const list = rawSegmentsByLine.get(line.id) ?? [];
+        const existingIndex = list.findIndex((candidate) => candidate.id === segment.id);
+        if (existingIndex < 0 || list[existingIndex].coordinates.length < coordinates.length) {
+          if (existingIndex >= 0) list.splice(existingIndex, 1, segment);
+          else list.push(segment);
+        }
+        rawSegmentsByLine.set(line.id, list);
       }
-      rawSegmentsByLine.set(line.id, list);
     }
 
     const lines: RailwayLine[] = [];
@@ -210,6 +237,46 @@ export class MlitRailwayAdapter implements RailwaySourceAdapter {
       name: String(feature.properties?.N02_003 ?? '路線名不明'),
       provenance: [provenance],
     };
+  }
+
+  /**
+   * Joins sections that meet end-to-end at a point that is not a station of this line, so a
+   * run of junction-split sections becomes one station-to-station polyline. Junctions within
+   * JUNCTION_MERGE_GUARD_METERS of a station are left alone: merging there would swallow the
+   * station and produce a segment that skips it. Only points where exactly two section ends
+   * meet are joined, so a real branch (three or more ends) still splits the line.
+   */
+  private chainSectionsThroughJunctions(
+    sections: Array<Array<[number, number]>>,
+    stations: Station[]
+  ): Array<Array<[number, number]>> {
+    const pointKey = (point: [number, number]) => `${point[0].toFixed(6)},${point[1].toFixed(6)}`;
+    let chained = sections.map((section) => [...section]);
+
+    for (;;) {
+      const endsAt = new Map<string, number[]>();
+      chained.forEach((section, index) => {
+        for (const end of [section[0], section[section.length - 1]]) {
+          endsAt.set(pointKey(end), [...(endsAt.get(pointKey(end)) ?? []), index]);
+        }
+      });
+
+      const junction = [...endsAt.entries()].find(([key, indexes]) => {
+        if (indexes.length !== 2 || new Set(indexes).size !== 2) return false;
+        const [latitude, longitude] = key.split(',').map(Number);
+        const nearest = this.nearestStation([latitude, longitude], stations);
+        return !nearest || nearest.distance > JUNCTION_MERGE_GUARD_METERS;
+      });
+      if (!junction) return chained;
+
+      const [key, [firstIndex, secondIndex]] = junction;
+      const first = chained[firstIndex];
+      const second = chained[secondIndex];
+      const head = pointKey(first[first.length - 1]) === key ? first : [...first].reverse();
+      const tail = pointKey(second[0]) === key ? second : [...second].reverse();
+      chained = chained.filter((_, index) => index !== firstIndex && index !== secondIndex);
+      chained.push([...head, ...tail.slice(1)]);
+    }
   }
 
   private nearestStation(point: [number, number], stations: Station[]) {
