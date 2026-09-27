@@ -142,7 +142,9 @@ riding ──停止が 600s──▶ close(stopped)
   `{ type: 'persist', record }`（open レコードの書き込み）、`{ type: 'close', record }`（closed レコードの書き込み）、
   `{ type: 'discard', recordId }`（最短未満で捨てる。open レコードを書いた後なら削除）。
 - `candidate` → `riding` に上がった時点で `record` を作る。`startedAtMs = candidateSinceMs`。`fromStation` は candidate 以降に
-  最初に観測した非 `null` の `previousStation`。`passedStations` はそれ以降 `previousStation.id` が変わるたびに追記する。
+  最初に観測した非 `null` の `previousStation`。`passedStations` は candidate 段階から `previousStation.id` が変わるたびに追記する。
+  ただし新しい駅が末尾から 2 つ目と同じ id なら、追記せず末尾を取り除く（停車中の方向反転で `previousStation` が
+  A → B → A と往復したとき、B を通過駅に残さない）。
 - `riding` 中の committed tick で `line.id` が変われば `close(transfer)`。`endedAtMs = lastCommittedAtMs`（旧路線の最後の tick）。
   その tick が停止していなければ新路線の `candidate` を始め、停止していれば `idle` に戻る（次の出発 tick で候補が始まる）。
 - 非 committed tick は `lostSinceMs` を立てる。`committed` に戻れば消す。`riding` 中に `timestampMs - lostSinceMs >= routeLostEndMs`
@@ -153,7 +155,7 @@ riding ──停止が 600s──▶ close(stopped)
   `timestampMs` が進んでいるとき、haversine を加算する。`maxSampleJumpMeters` 超の跳びは加算せず `lastLocation` だけ更新する。
   `lastLocation` は候補段階から追う（riding 昇格前の 30 秒分も距離に入れる）。
 - `toStation` は close 時に「最後に観測した非 `null` の `previousStation`」。
-- `persist` は riding 昇格時、`passedStations` が伸びた tick、前回 persist から `persistIntervalMs` 以上経った tick、close 時に出す。
+- `persist` は riding 昇格時、`passedStations` が伸びた tick（取り除きでは出さない）、前回 persist から `persistIntervalMs` 以上経った tick、close 時に出す。
 - close 時に `endedAtMs - startedAtMs < minRideDurationMs` または `distanceMeters < minRideDistanceMeters` なら `discard`。
 - `finalizeDanglingRecord(record, config)`: 起動時に見つかった `status: 'open'` を `endedAtMs = record.updatedAtMs`、
   `endReason: 'app-restart'` で閉じる。最短未満なら `null` を返す（呼び出し側が削除）。
@@ -207,6 +209,10 @@ export function createRideHistoryController(deps: {
 - `onTick` は `toRideTick` → `reduceRideTick` を同期で回し、effects を直列キュー（Promise チェーン）で store に流す。
   store の失敗は `onError(error, 'ride-history-persist')` に渡して握りつぶす（乗車判定は続ける）。
 - `close` の後に `prune(now - retentionMs, maxRecords)` を実行し、`listRecent` でキャッシュを更新して購読者に通知する。
+  `prune` が失敗してもキャッシュ更新と通知は行う。
+- `clearAll()` は終了した乗車を消す操作で、進行中の乗車は継続して記録する。`store.clear()` の直後に reducer が保持する
+  open レコードを書き戻し、WebView 強制終了で進行中の乗車が失われる隙間を作らない。
+- `start()` は未終了レコードの確定が 1 件失敗しても残りを続け、最後に必ずキャッシュを更新して通知する。
 - `start()` で `findOpen()` の各レコードを `finalizeDanglingRecord` で閉じる（`null` なら `remove`）。
 
 `main.ts` は `bootstrapApp` の後に `createRideHistoryController({ store: new IndexedDbRideHistoryStore(), onError: captureRuntimeError })`
@@ -327,6 +333,9 @@ export async function exportRideHistoryText(text: string, title: string, caps: E
   それ以外の失敗は `copy` に進む。
 - `copy` があれば呼ぶ。成功で `'copied'`。失敗は `'manual'`。
 - どちらも無ければ `'manual'`。
+- エクスポート本文は `rideHistory.getRecent()`（キャッシュ）から同期的に作る。`navigator.share` と `clipboard.writeText` は
+  ユーザ操作直後の一時的な activation に紐づくため、IndexedDB の読み込みを挟まない。キャッシュは close / prune のたびに
+  更新されるので `listAll()` と同じ内容になる。
 - `main.ts` は結果に応じて `#history-export-status` に「共有しました」「クリップボードにコピーしました」「共有もコピーも使えないため、
   下のテキストをコピーしてください」を出し、`'manual'` のときだけ `#history-export-panel` を表示して `textarea` に本文を入れる。
   `'cancelled'` は何も出さない。共有のタイトルは「RailGlance 乗車履歴」。乗車 0 件ならボタンは無効。
