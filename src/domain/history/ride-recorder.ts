@@ -28,6 +28,7 @@ export type RideRecorderState = {
   lastPersistedAtMs: number | null;
   firstStation: RideStationRef | null;
   lastStation: RideStationRef | null;
+  candidateStations: RideStationRef[];
   candidateLine: RideTick['line'];
   candidateDirectionName: string | null;
   candidateDistanceMeters: number;
@@ -44,7 +45,7 @@ export function createInitialRideRecorderState(): RideRecorderState {
     phase: 'idle', record: null, candidateSinceMs: null, sawMovingTick: false,
     lostSinceMs: null, stoppedSinceMs: null, lastCommittedAtMs: null,
     lastLocation: null, lastPersistedAtMs: null, firstStation: null, lastStation: null,
-    candidateLine: null, candidateDirectionName: null, candidateDistanceMeters: 0,
+    candidateStations: [], candidateLine: null, candidateDirectionName: null, candidateDistanceMeters: 0,
     candidateMaxSpeedKmh: null,
   };
 }
@@ -85,6 +86,7 @@ function startCandidate(tick: RideTick, config: RideHistoryConfig): RideRecorder
     ...createInitialRideRecorderState(), phase: 'candidate', candidateSinceMs: tick.timestampMs,
     candidateLine: tick.line, candidateDirectionName: tick.directionName,
     sawMovingTick: !tick.isStopped, firstStation: tick.previousStation, lastStation: tick.previousStation,
+    candidateStations: tick.previousStation ? [tick.previousStation] : [],
     candidateMaxSpeedKmh: tick.speedKmh, lastCommittedAtMs: tick.timestampMs,
     stoppedSinceMs: tick.isStopped ? tick.timestampMs : null,
     lastLocation: applySample(null, tick, config).lastLocation,
@@ -93,6 +95,13 @@ function startCandidate(tick: RideTick, config: RideHistoryConfig): RideRecorder
 
 function maxSpeed(previous: number | null, current: number | null): number | null {
   return current === null ? previous : previous === null ? current : Math.max(previous, current);
+}
+
+function updateStations(stations: RideStationRef[], station: RideStationRef | null): RideStationRef[] {
+  if (!station || station.id === stations.at(-1)?.id) return [...stations];
+  // A direction flip back cancels the station introduced by the preceding flip.
+  if (station.id === stations.at(-2)?.id) return stations.slice(0, -1);
+  return [...stations, station];
 }
 
 function tooShort(record: RideRecord, endedAtMs: number, config: RideHistoryConfig): boolean {
@@ -141,18 +150,17 @@ export function reduceRideTick(state: RideRecorderState, tick: RideTick, config:
   next.lastLocation = sample.lastLocation;
 
   if (next.phase === 'candidate') {
+    next.candidateStations = updateStations(state.candidateStations, tick.previousStation);
     next.sawMovingTick ||= !tick.isStopped;
     next.candidateDistanceMeters += sample.distance;
     next.candidateMaxSpeedKmh = maxSpeed(next.candidateMaxSpeedKmh, tick.speedKmh);
     if (next.candidateLine && next.candidateSinceMs !== null && next.sawMovingTick && tick.timestampMs - next.candidateSinceMs >= config.startConfirmMs) {
-      // The prescribed state retains the first and last candidate stations only.
-      const passedStations = next.firstStation ? [next.firstStation] : [];
-      if (next.lastStation && next.lastStation.id !== next.firstStation?.id) passedStations.push(next.lastStation);
+      const passedStations = [...next.candidateStations];
       next.phase = 'riding';
       next.record = {
         recordVersion: 1, id: newId(), status: 'open', lineId: next.candidateLine.id,
         lineName: next.candidateLine.name, operatorName: next.candidateLine.operatorName,
-        directionName: next.candidateDirectionName, fromStation: next.firstStation, toStation: null,
+        directionName: next.candidateDirectionName, fromStation: passedStations[0] ?? null, toStation: null,
         passedStations, startedAtMs: next.candidateSinceMs, endedAtMs: null, endReason: null,
         distanceMeters: next.candidateDistanceMeters, maxSpeedKmh: next.candidateMaxSpeedKmh, updatedAtMs: tick.timestampMs,
       };
@@ -163,17 +171,18 @@ export function reduceRideTick(state: RideRecorderState, tick: RideTick, config:
   }
 
   const record = next.record!;
-  const stationChanged = tick.previousStation !== null && tick.previousStation.id !== record.passedStations.at(-1)?.id;
+  const passedStations = updateStations(record.passedStations, tick.previousStation);
+  const stationsGrew = passedStations.length > record.passedStations.length;
   next.record = {
     ...record, fromStation: record.fromStation ?? next.firstStation,
-    passedStations: stationChanged ? [...record.passedStations, tick.previousStation!] : [...record.passedStations],
+    passedStations,
     distanceMeters: record.distanceMeters + sample.distance,
     maxSpeedKmh: maxSpeed(record.maxSpeedKmh, tick.speedKmh),
   };
   if (next.stoppedSinceMs !== null && tick.timestampMs - next.stoppedSinceMs >= config.stoppedEndMs) {
     return closeRecord(next, next.record, next.stoppedSinceMs, 'stopped', tick.timestampMs, config);
   }
-  if (stationChanged || next.lastPersistedAtMs === null || tick.timestampMs - next.lastPersistedAtMs >= config.persistIntervalMs) {
+  if (stationsGrew || next.lastPersistedAtMs === null || tick.timestampMs - next.lastPersistedAtMs >= config.persistIntervalMs) {
     next.record = { ...next.record, updatedAtMs: tick.timestampMs };
     next.lastPersistedAtMs = tick.timestampMs;
     return { state: next, effects: [{ type: 'persist', record: next.record }] };

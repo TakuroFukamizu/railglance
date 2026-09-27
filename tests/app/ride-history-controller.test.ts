@@ -58,6 +58,93 @@ async function settle(): Promise<void> {
 }
 
 describe('ride history controller', () => {
+  it('keeps the current ride persisted when clearing finished rides', async () => {
+    const { controller, store } = setup();
+    await store.put(record('previous'));
+    await controller.start();
+    stream(controller, 0, 45);
+    await settle();
+    const [open] = await store.findOpen();
+
+    await controller.clearAll();
+    expect(await store.findOpen()).toEqual([
+      expect.objectContaining({ id: open.id, status: 'open', startedAtMs: base }),
+    ]);
+    expect(await store.listAll()).toEqual([]);
+    expect(controller.getRecent()).toEqual([]);
+
+    stream(controller, 46, 180);
+    stream(controller, 181, 362, false);
+    await settle();
+    expect(controller.getRecent()).toEqual([
+      expect.objectContaining({ id: open.id, status: 'closed', startedAtMs: base, endReason: 'route-lost' }),
+    ]);
+    expect(await store.get(open.id)).toEqual(controller.getRecent()[0]);
+  });
+
+  it.each(['put', 'remove'] as const)('continues startup and refreshes after a dangling record %s fails', async (operation) => {
+    const { controller, store, onError } = setup();
+    const previous = record('previous');
+    const first = record('first', {
+      status: 'open', endedAtMs: null, endReason: null,
+      distanceMeters: operation === 'remove' ? 499 : 1000,
+    });
+    const second = record('second', { status: 'open', endedAtMs: null, endReason: null });
+    await store.put(previous);
+    await store.put(first);
+    await store.put(second);
+    const error = new Error('Finalization failed');
+    vi.spyOn(store, operation).mockRejectedValueOnce(error);
+    const listener = vi.fn();
+    controller.subscribe(listener);
+
+    await controller.start();
+    expect(onError.mock.calls).toEqual([[error, 'ride-history-start']]);
+    expect(controller.getRecent()).toContainEqual(previous);
+    expect(await store.get(first.id)).toEqual(first);
+    const closed = { ...second, status: 'closed', endReason: 'app-restart', endedAtMs: second.updatedAtMs };
+    expect(await store.get(second.id)).toEqual(closed);
+    expect(controller.getRecent()).toContainEqual(closed);
+    expect(listener).toHaveBeenCalledTimes(2);
+    expect(listener).toHaveBeenLastCalledWith(controller.getRecent());
+  });
+
+  it('loads finished rides on startup even when finding dangling records fails', async () => {
+    const { controller, store, onError } = setup();
+    const previous = record('previous');
+    await store.put(previous);
+    const error = new Error('Find open failed');
+    vi.spyOn(store, 'findOpen').mockRejectedValueOnce(error);
+    const listener = vi.fn();
+    controller.subscribe(listener);
+
+    await controller.start();
+    expect(onError.mock.calls).toEqual([[error, 'ride-history-start']]);
+    expect(controller.getRecent()).toEqual([previous]);
+    expect(listener).toHaveBeenCalledTimes(2);
+    expect(listener).toHaveBeenLastCalledWith([previous]);
+  });
+
+  it('shows a just-closed ride and notifies subscribers even when pruning fails', async () => {
+    const { controller, store, onError } = setup();
+    await controller.start();
+    const listener = vi.fn();
+    controller.subscribe(listener);
+    const error = new Error('Prune failed');
+    vi.spyOn(store, 'prune').mockRejectedValueOnce(error);
+    stream(controller, 0, 180);
+    stream(controller, 181, 362, false);
+    await settle();
+
+    expect(controller.getRecent()).toEqual([
+      expect.objectContaining({ status: 'closed', endReason: 'route-lost', startedAtMs: base }),
+    ]);
+    expect(controller.getRecent()).toEqual(await store.listAll());
+    expect(listener).toHaveBeenCalledTimes(2);
+    expect(listener).toHaveBeenLastCalledWith(controller.getRecent());
+    expect(onError.mock.calls).toEqual([[error, 'ride-history-close']]);
+  });
+
   it('persists an open ride at promotion and closes it after losing the route', async () => {
     const { controller, store } = setup();
     await controller.start();

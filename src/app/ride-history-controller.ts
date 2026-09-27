@@ -48,17 +48,28 @@ export function createRideHistoryController(deps: RideHistoryControllerDeps): Ri
   }
 
   async function pruneAndRefresh(): Promise<void> {
-    await store.prune(now() - config.retentionMs, config.maxRecords);
-    await refresh();
+    try {
+      await store.prune(now() - config.retentionMs, config.maxRecords);
+    } finally {
+      await refresh();
+    }
   }
 
   return {
     start() {
       return enqueue(async () => {
-        for (const record of await store.findOpen()) {
-          const closed = finalizeDanglingRecord(record, config);
-          if (closed === null) await store.remove(record.id);
-          else await store.put(closed);
+        try {
+          for (const record of await store.findOpen()) {
+            try {
+              const closed = finalizeDanglingRecord(record, config);
+              if (closed === null) await store.remove(record.id);
+              else await store.put(closed);
+            } catch (error) {
+              onError?.(error, 'ride-history-start');
+            }
+          }
+        } catch (error) {
+          onError?.(error, 'ride-history-start');
         }
         await pruneAndRefresh();
       }, 'ride-history-start');
@@ -108,6 +119,7 @@ export function createRideHistoryController(deps: RideHistoryControllerDeps): Ri
     clearAll() {
       return enqueue(async () => {
         await store.clear();
+        if (state.record !== null) await store.put(state.record);
         await refresh();
       }, 'ride-history-clear');
     },

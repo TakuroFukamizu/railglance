@@ -11,6 +11,7 @@ import {
 const line = { id: 'L1', name: '山手線', operatorName: null };
 const A = { id: 'A', name: '東京' };
 const B = { id: 'B', name: '神田' };
+const C = { id: 'C', name: '秋葉原' };
 function tick(overrides: Partial<RideTick> = {}): RideTick {
   const timestampMs = overrides.timestampMs ?? 0;
   return {
@@ -333,7 +334,7 @@ describe('ride lifecycle and measurements', () => {
     expect(state).toEqual({
       phase: 'idle', record: null, candidateSinceMs: null, sawMovingTick: false,
       lostSinceMs: null, stoppedSinceMs: null, lastCommittedAtMs: null, lastLocation: null,
-      lastPersistedAtMs: null, firstStation: null, lastStation: null, candidateLine: null,
+      lastPersistedAtMs: null, firstStation: null, lastStation: null, candidateStations: [], candidateLine: null,
       candidateDirectionName: null, candidateDistanceMeters: 0, candidateMaxSpeedKmh: null,
     });
     expect(createInitialRideRecorderState()).not.toBe(state);
@@ -423,12 +424,56 @@ describe('decision edge cases', () => {
     expect(result.effects).toEqual([{ type: 'persist', record: result.state.record }]);
   });
 
-  it('uses first and last candidate stations and fills stations first seen while riding', () => {
+  it('preserves every candidate station when promoting', () => {
     const promoted = run([
       ...ticks(0, 9000, { previousStation: A }),
-      ...ticks(10_000, 30_000, { previousStation: B }),
+      ...ticks(10_000, 19_000, { previousStation: C }),
+      ...ticks(20_000, 30_000, { previousStation: B }),
     ]);
-    expect(promoted.state.record!.passedStations).toEqual([A, B]);
+    expect(promoted.state.record).toMatchObject({ fromStation: A, passedStations: [A, C, B] });
+    expect(promoted.state.record!.passedStations).not.toBe(promoted.state.candidateStations);
+  });
+
+  it('cancels a candidate station flip before promoting', () => {
+    const before = freeze(run([
+      ...ticks(0, 9000, { previousStation: A }),
+      ...ticks(10_000, 19_000, { previousStation: B }),
+    ]).state);
+    const cancelled = step(before, tick({ timestampMs: 20_000, previousStation: A }));
+    expect(cancelled.effects).toEqual([]);
+    expect(before.candidateStations).toEqual([A, B]);
+    expect(cancelled.state.candidateStations).toEqual([A]);
+    const promoted = step(cancelled.state, tick({ timestampMs: 30_000 }));
+    expect(promoted.state.record).toMatchObject({ fromStation: A, passedStations: [A] });
+    expect(promoted.state.lastStation).toEqual(A);
+  });
+
+  it('persists riding station growth but not a cancelled flip', () => {
+    const initial = run(ticks(0, 30_000, { previousStation: A })).state;
+    const added = step(initial, tick({ timestampMs: 31_000, previousStation: B, isStopped: true }));
+    expect(added.state.record!.passedStations).toEqual([A, B]);
+    expect(added.effects).toEqual([{ type: 'persist', record: added.state.record }]);
+    const cancelled = step(freeze(added.state), tick({ timestampMs: 32_000, previousStation: A, isStopped: true }));
+    expect(cancelled.state.record).toMatchObject({ fromStation: A, passedStations: [A] });
+    expect(added.state.record!.passedStations).toEqual([A, B]);
+    expect(cancelled.effects).toEqual([]);
+    expect(cancelled.state.lastPersistedAtMs).toBe(31_000);
+    expect(cancelled.state.lastStation).toEqual(A);
+    const continued = step(cancelled.state, tick({ timestampMs: 33_000, previousStation: C }));
+    expect(continued.state.record!.passedStations).toEqual([A, C]);
+    expect(continued.effects).toEqual([{ type: 'persist', record: continued.state.record }]);
+  });
+
+  it('still persists on cadence when a riding station flip is cancelled', () => {
+    const initial = run(ticks(0, 30_000, { previousStation: A })).state;
+    const added = step(initial, tick({ timestampMs: 31_000, previousStation: B }));
+    const cancelled = step(added.state, tick({ timestampMs: 61_000, previousStation: A }));
+    expect(cancelled.state.record!.passedStations).toEqual([A]);
+    expect(cancelled.effects).toEqual([{ type: 'persist', record: cancelled.state.record }]);
+    expect(cancelled.state.lastPersistedAtMs).toBe(61_000);
+  });
+
+  it('fills stations first seen while riding', () => {
     const empty = run(ticks(0, 30_000)).state;
     const observed = step(empty, tick({ timestampMs: 31_000, previousStation: A }));
     expect(observed.state.record).toMatchObject({ fromStation: A, passedStations: [A] });
