@@ -433,6 +433,30 @@ describe('MlitRailwayAdapter', () => {
     expect(result.stations.map((station) => station.name)).toEqual(['始点', '中間', '終点']);
   });
 
+  // 新宿三丁目 on the 副都心線 is an ~800 m platform polyline in N02, and the sections are
+  // split at its two ends, each 370-430 m from the midpoint the station is placed at.
+  it('does not chain through the end of a long station polyline', async () => {
+    const result = await loadFixture(
+      [
+        stationFeature('始点', '001', 139, 35),
+        {
+          type: 'Feature',
+          properties: { ...BASE_PROPERTIES, N02_005: '長駅', N02_005c: '002' },
+          geometry: { type: 'LineString', coordinates: [[139, 35.02], [139, 35.024], [139, 35.028]] },
+        },
+        stationFeature('終点', '003', 139, 35.05),
+      ],
+      [
+        sectionFeature([[139, 35], [139, 35.02]]),
+        sectionFeature([[139, 35.02], [139, 35.024], [139, 35.028]]),
+        sectionFeature([[139, 35.028], [139, 35.05]]),
+      ],
+    );
+
+    expect(result.stations.map((station) => station.name)).toEqual(['始点', '長駅', '終点']);
+    expect(result.segments).toHaveLength(2);
+  });
+
   it('leaves a branch junction alone', async () => {
     const result = await loadFixture(
       [

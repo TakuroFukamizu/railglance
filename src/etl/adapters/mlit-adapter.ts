@@ -70,6 +70,7 @@ export class MlitRailwayAdapter implements RailwaySourceAdapter {
     const lineByKey = new Map<string, RailwayLine>();
     const stationsByLine = new Map<string, Station[]>();
     const stationCodeById = new Map<string, string>();
+    const stationGeometryByLine = new Map<string, Array<[number, number]>>();
     for (const feature of stationFeatures) {
       const coordinates = this.lineCoordinates(feature);
       if (!coordinates || !coordinates.some(([lat, lon]) => this.inKanto(lat, lon))) continue;
@@ -92,6 +93,7 @@ export class MlitRailwayAdapter implements RailwaySourceAdapter {
       const list = stationsByLine.get(line.id) ?? [];
       if (!list.some((candidate) => candidate.id === station.id)) list.push(station);
       stationsByLine.set(line.id, list);
+      stationGeometryByLine.set(line.id, [...(stationGeometryByLine.get(line.id) ?? []), ...coordinates]);
     }
 
     const rawSectionsByKey = new Map<string, Array<Array<[number, number]>>>();
@@ -111,7 +113,8 @@ export class MlitRailwayAdapter implements RailwaySourceAdapter {
     for (const [key, rawSections] of rawSectionsByKey) {
       const line = lineByKey.get(key)!;
       const candidates = stationsByLine.get(line.id) ?? [];
-      for (const coordinates of this.chainSectionsThroughJunctions(rawSections, candidates)) {
+      const stationGeometry = stationGeometryByLine.get(line.id) ?? [];
+      for (const coordinates of this.chainSectionsThroughJunctions(rawSections, stationGeometry)) {
         const from = this.nearestStation(coordinates[0], candidates);
         const to = this.nearestStation(coordinates[coordinates.length - 1], candidates);
         if (
@@ -242,13 +245,15 @@ export class MlitRailwayAdapter implements RailwaySourceAdapter {
   /**
    * Joins sections that meet end-to-end at a point that is not a station of this line, so a
    * run of junction-split sections becomes one station-to-station polyline. Junctions within
-   * JUNCTION_MERGE_GUARD_METERS of a station are left alone: merging there would swallow the
-   * station and produce a segment that skips it. Only points where exactly two section ends
+   * JUNCTION_MERGE_GUARD_METERS of a station's N02 polyline are left alone: merging there would
+   * swallow the station and produce a segment that skips it. The distance is taken to the
+   * polyline's vertices rather than the midpoint the station is placed at, because a long
+   * station (新宿三丁目 on the 副都心線, ~800 m) is split at its ends, far from that midpoint. Only points where exactly two section ends
    * meet are joined, so a real branch (three or more ends) still splits the line.
    */
   private chainSectionsThroughJunctions(
     sections: Array<Array<[number, number]>>,
-    stations: Station[]
+    stationGeometry: Array<[number, number]>
   ): Array<Array<[number, number]>> {
     const pointKey = (point: [number, number]) => `${point[0].toFixed(6)},${point[1].toFixed(6)}`;
     let chained = sections.map((section) => [...section]);
@@ -264,8 +269,10 @@ export class MlitRailwayAdapter implements RailwaySourceAdapter {
       const junction = [...endsAt.entries()].find(([key, indexes]) => {
         if (indexes.length !== 2 || new Set(indexes).size !== 2) return false;
         const [latitude, longitude] = key.split(',').map(Number);
-        const nearest = this.nearestStation([latitude, longitude], stations);
-        return !nearest || nearest.distance > JUNCTION_MERGE_GUARD_METERS;
+        return stationGeometry.every(
+          ([stationLatitude, stationLongitude]) =>
+            haversineDistance(latitude, longitude, stationLatitude, stationLongitude) > JUNCTION_MERGE_GUARD_METERS
+        );
       });
       if (!junction) return chained;
 
