@@ -150,6 +150,15 @@ export async function deployToR2(options: R2DeployOptions = {}): Promise<void> {
   // Validated before the S3 client exists so a rejected dataset can never issue a single upload.
   const datasetVersion = assertPublishableDataset(datasetBaseDir, requestedVersion);
 
+  // A dry run ends here regardless of whether credentials happen to be present (e.g. in .env):
+  // its contract is "validate the deploy gate, touch nothing in R2".
+  if (options.dryRun) {
+    console.log(
+      `[R2 Deploy] Dry run: dataset v${datasetVersion} passed the deploy gate. No S3 client was created and no network changes were made.`
+    );
+    return;
+  }
+
   const accountId = process.env.R2_ACCOUNT_ID || process.env.CLOUDFLARE_ACCOUNT_ID;
   const accessKeyId = process.env.R2_ACCESS_KEY_ID;
   const secretAccessKey = process.env.R2_SECRET_ACCESS_KEY;
@@ -160,10 +169,6 @@ export async function deployToR2(options: R2DeployOptions = {}): Promise<void> {
     .filter(Boolean);
 
   if (!accountId || !accessKeyId || !secretAccessKey) {
-    if (options.dryRun) {
-      console.log('[R2 Deploy] Dry run: credentials are not required and no network changes will be made.');
-      return;
-    }
     throw new Error(
       'R2 credentials are required. Set R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, and R2_SECRET_ACCESS_KEY in your .env file or environment, or pass --dry-run.'
     );

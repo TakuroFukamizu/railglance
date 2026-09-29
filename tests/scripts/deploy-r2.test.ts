@@ -103,6 +103,18 @@ describe('deployToR2', () => {
     await expect(deploy({ dryRun: true })).resolves.toBeUndefined();
   });
 
+  it('dry-run makes no network calls even when credentials are present', async () => {
+    setCredentials();
+    await expect(deploy({ dryRun: true })).resolves.toBeUndefined();
+    expect(aws.send).not.toHaveBeenCalled();
+  });
+
+  it('dry-run still fails closed on a dataset that would not pass the deploy gate', async () => {
+    setCredentials();
+    await expect(deploy({ dryRun: true, datasetVersion: '9.9.9' })).rejects.toThrow();
+    expect(aws.send).not.toHaveBeenCalled();
+  });
+
   it('configures CORS, uploads only the selected immutable version, then switches latest last', async () => {
     setCredentials();
     aws.send.mockRejectedValueOnce(Object.assign(new Error('Not Found'), {
