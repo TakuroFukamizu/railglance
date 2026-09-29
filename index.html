@@ -61,7 +61,17 @@
         <!-- 乗車履歴 -->
         <section data-view="history" class="view" hidden>
           <h2 tabindex="-1">乗車履歴</h2>
-          <p class="card-empty">乗車履歴はまもなく利用できるようになります</p>
+          <div class="history-actions">
+            <button id="btn-history-export" class="btn btn-secondary" type="button" disabled>エクスポート</button>
+            <button id="btn-history-clear" class="btn btn-danger" type="button" disabled>すべて削除</button>
+          </div>
+          <p id="history-export-status" class="history-export-status" hidden></p>
+          <div id="history-export-panel" class="history-export-panel" hidden>
+            <p>共有やコピーが使えないため、下のテキストを長押しして選択・コピーしてください。</p>
+            <textarea id="history-export-text" readonly rows="8" aria-label="乗車履歴の JSON"></textarea>
+          </div>
+          <p id="history-empty" class="card-empty" hidden></p>
+          <ul id="history-list" class="history-list"></ul>
         </section>
 
         <!-- テスター向け診断記録 -->

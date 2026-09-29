@@ -32,6 +32,8 @@ release allowlist、participant単位の失効、レート制限を必ず検証�
 「診断収集を停止」は新規収集だけを止め、未送信ログを保持する。「端末内ログを削除」は確認後に未送信ログだけを
 削除し、キャンペーン資格は維持する。この2操作を分離し、意図しないデータ消失を避ける。
 
+乗車履歴は端末内の IndexedDB（`RailGlanceRideHistory`）にのみ保存し、診断収集（R2）や Sentry の対象外である。診断の同意状態とは無関係に記録する。
+
 ## Worker の資格・制限
 
 Cloudflare Worker はparticipant単位のDurable Objectを資格台帳に使う。発行済みtokenの有効期間中も、

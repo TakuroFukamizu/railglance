@@ -91,9 +91,14 @@ src/
   app/
     app-controller.ts          # 位置情報処理と1秒描画ループの分離管理
     bootstrap.ts               # アプリケーション初期化
+    ride-history-controller.ts # 乗車履歴の記録と購読
   config/
     tracking-config.ts         # GPS閾値・EMAアルファ・ヒステリシス設定
+    ride-history-config.ts     # 乗車履歴の判定・保持設定
   domain/
+    history/
+      ride-record.ts           # 乗車履歴レコード型
+      ride-recorder.ts         # 乗車の開始・終了判定 reducer
     geo/
       distance.ts              # Haversine距離 & 点-線分最短距離
       heading.ts               # Bearing & Heading角度差計算
@@ -117,6 +122,7 @@ src/
       browser-location-provider.ts # Geolocation watchPosition & 自動フォールバック
     storage/
       dexie-railway-database.ts # Dexie.js IndexedDB & Bundled JSON投入
+      ride-history-store.ts    # 乗車履歴の IndexedDB ストア
     even-g2/
       even-g2-adapter.ts       # Even G2 SDK / EvenHub Simulator Bridge Adapter
       hud-renderer.ts          # HUDテキスト描画フォーマッタ
@@ -130,6 +136,8 @@ src/
   ui/
     router.ts                  # hash ルーティング（home / history / diagnostics / debug）
     home-status-card.ts        # ホームの現在の乗車カード
+    ride-history-view.ts       # 乗車履歴カード・一覧の整形
+    ride-export.ts             # 乗車履歴の JSON エクスポート
     route-candidates.ts        # 路線候補リストの整形
     motion-banner.ts           # モーションセンサー許可バナー
     hud-preview-scale.ts       # 576×288 プレビューの縮小
