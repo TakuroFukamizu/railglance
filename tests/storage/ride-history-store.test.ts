@@ -117,6 +117,29 @@ describe.each(cases)('$name', ({ create, destroy }) => {
     expect(reread?.passedStations).toEqual([{ id: 's1', name: '海老名' }]);
   });
 
+  it('isolates station objects from mutations to put inputs and get results', async () => {
+    const record = makeRecord();
+    const original = makeRecord();
+    await store.put(record);
+
+    record.fromStation!.name = 'Changed origin';
+    record.toStation!.name = 'Changed destination';
+    record.passedStations[0].name = 'Changed passed station';
+    const stored = await store.get(record.id);
+    expect(stored).toEqual(original);
+
+    stored!.fromStation!.name = 'Changed read origin';
+    stored!.toStation!.name = 'Changed read destination';
+    stored!.passedStations[0].name = 'Changed read passed station';
+    expect(await store.get(record.id)).toEqual(original);
+  });
+
+  it('preserves null station references', async () => {
+    const record = makeRecord({ fromStation: null, toStation: null });
+    await store.put(record);
+    expect(await store.get(record.id)).toEqual(record);
+  });
+
   it('findOpen returns only open records', async () => {
     await store.put(makeRecord({ id: 'c1', startedAtMs: 300 }));
     await store.put(makeRecord({ id: 'o2', status: 'open', startedAtMs: 200, endedAtMs: null, endReason: null }));
@@ -197,6 +220,21 @@ describe.each(cases)('$name', ({ create, destroy }) => {
     await store.clear();
     expect(await store.listAll()).toEqual([]);
     expect(await store.findOpen()).toEqual([]);
+  });
+
+  it('clearClosed removes closed records and preserves open records', async () => {
+    const open = makeRecord({ id: 'open', status: 'open', endedAtMs: null, endReason: null });
+    await store.put(makeRecord({ id: 'closed-1' }));
+    await store.put(open);
+    await store.put(makeRecord({ id: 'closed-2' }));
+
+    await store.clearClosed();
+
+    expect(await store.listAll()).toEqual([]);
+    expect(await store.get('closed-1')).toBeUndefined();
+    expect(await store.get('closed-2')).toBeUndefined();
+    expect(await store.findOpen()).toEqual([open]);
+    expect(await store.get(open.id)).toEqual(open);
   });
 
   it('prune deletes closed records started before the cutoff and keeps one started exactly at the cutoff', async () => {

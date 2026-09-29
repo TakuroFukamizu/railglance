@@ -157,6 +157,8 @@ riding ──停止が 600s──▶ close(stopped)
 - `toStation` は close 時に「最後に観測した非 `null` の `previousStation`」。
 - `persist` は riding 昇格時、`passedStations` が伸びた tick（取り除きでは出さない）、前回 persist から `persistIntervalMs` 以上経った tick、close 時に出す。
 - close 時に `endedAtMs - startedAtMs < minRideDurationMs` または `distanceMeters < minRideDistanceMeters` なら `discard`。
+- 時計の巻き戻り: 最後に受理した tick の時刻（`lastAcceptedAtMs`）以下の tick は、状態を変えず effect も出さずに捨てる。
+  比較対象は確定ロックの有無にかかわらず全 tick の最終受理時刻で、idle へのリセット後も引き継ぐ。
 - `finalizeDanglingRecord(record, config)`: 起動時に見つかった `status: 'open'` を `endedAtMs = record.updatedAtMs`、
   `endReason: 'app-restart'` で閉じる。最短未満なら `null` を返す（呼び出し側が削除）。
 
@@ -173,6 +175,7 @@ export type RideHistoryStore = {
   listAll(): Promise<RideRecord[]>;                    // closed のみ、startedAtMs 降順（エクスポート用）
   remove(id: string): Promise<void>;
   clear(): Promise<void>;
+  clearClosed(): Promise<void>;                        // closed だけを消す（open は残す）
   prune(cutoffStartedAtMs: number, maxRecords: number): Promise<void>; // 古い closed を消し、超過分は古い順に消す
   close(): void;
 };
@@ -210,8 +213,10 @@ export function createRideHistoryController(deps: {
   store の失敗は `onError(error, 'ride-history-persist')` に渡して握りつぶす（乗車判定は続ける）。
 - `close` の後に `prune(now - retentionMs, maxRecords)` を実行し、`listRecent` でキャッシュを更新して購読者に通知する。
   `prune` が失敗してもキャッシュ更新と通知は行う。
-- `clearAll()` は終了した乗車を消す操作で、進行中の乗車は継続して記録する。`store.clear()` の直後に reducer が保持する
-  open レコードを書き戻し、WebView 強制終了で進行中の乗車が失われる隙間を作らない。
+- `clearAll()` は終了した乗車を消す操作で、進行中の乗車は継続して記録する。ストアの `clearClosed()` で closed だけを 1 回の操作で
+  消し、open レコードには触れない（削除と書き戻しを分けると、その間の WebView 強制終了で進行中の乗車が失われる）。
+- キャッシュは `listAll()` の全 closed レコードを持ち、`getRecent()` はその先頭 `maxRecords` 件、`getAll()` は全件を返す。
+  prune が失敗して上限を超えても、エクスポートは全件を含む。
 - `start()` は未終了レコードの確定が 1 件失敗しても残りを続け、最後に必ずキャッシュを更新して通知する。
 - `start()` で `findOpen()` の各レコードを `finalizeDanglingRecord` で閉じる（`null` なら `remove`）。
 
@@ -333,9 +338,9 @@ export async function exportRideHistoryText(text: string, title: string, caps: E
   それ以外の失敗は `copy` に進む。
 - `copy` があれば呼ぶ。成功で `'copied'`。失敗は `'manual'`。
 - どちらも無ければ `'manual'`。
-- エクスポート本文は `rideHistory.getRecent()`（キャッシュ）から同期的に作る。`navigator.share` と `clipboard.writeText` は
-  ユーザ操作直後の一時的な activation に紐づくため、IndexedDB の読み込みを挟まない。キャッシュは close / prune のたびに
-  更新されるので `listAll()` と同じ内容になる。
+- エクスポート本文は `rideHistory.getAll()`（全 closed のキャッシュ）から同期的に作る。`navigator.share` と `clipboard.writeText` は
+  ユーザ操作直後の一時的な activation に紐づくため、IndexedDB の読み込みを挟まない。キャッシュは close / prune / 削除のたびに
+  `listAll()` から更新される。
 - `main.ts` は結果に応じて `#history-export-status` に「共有しました」「クリップボードにコピーしました」「共有もコピーも使えないため、
   下のテキストをコピーしてください」を出し、`'manual'` のときだけ `#history-export-panel` を表示して `textarea` に本文を入れる。
   `'cancelled'` は何も出さない。共有のタイトルは「RailGlance 乗車履歴」。乗車 0 件ならボタンは無効。

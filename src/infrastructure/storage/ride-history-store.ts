@@ -9,6 +9,7 @@ export type RideHistoryStore = {
   listAll(): Promise<RideRecord[]>;
   remove(id: string): Promise<void>;
   clear(): Promise<void>;
+  clearClosed(): Promise<void>;
   prune(cutoffStartedAtMs: number, maxRecords: number): Promise<void>;
   close(): void;
 };
@@ -58,6 +59,10 @@ export class IndexedDbRideHistoryStore extends Dexie implements RideHistoryStore
     await this.rides.clear();
   }
 
+  public async clearClosed(): Promise<void> {
+    await this.rides.where('status').equals('closed').delete();
+  }
+
   public async prune(cutoffStartedAtMs: number, maxRecords: number): Promise<void> {
     const expired = await this.rides
       .where('startedAtMs')
@@ -79,7 +84,12 @@ export class IndexedDbRideHistoryStore extends Dexie implements RideHistoryStore
 }
 
 function copyRideRecord(record: RideRecord): RideRecord {
-  return { ...record, passedStations: [...record.passedStations] };
+  return {
+    ...record,
+    fromStation: record.fromStation === null ? null : { ...record.fromStation },
+    toStation: record.toStation === null ? null : { ...record.toStation },
+    passedStations: record.passedStations.map((station) => ({ ...station })),
+  };
 }
 
 export class InMemoryRideHistoryStore implements RideHistoryStore {
@@ -112,6 +122,12 @@ export class InMemoryRideHistoryStore implements RideHistoryStore {
 
   public async clear(): Promise<void> {
     this.records.clear();
+  }
+
+  public async clearClosed(): Promise<void> {
+    for (const [id, record] of this.records) {
+      if (record.status === 'closed') this.records.delete(id);
+    }
   }
 
   public async prune(cutoffStartedAtMs: number, maxRecords: number): Promise<void> {

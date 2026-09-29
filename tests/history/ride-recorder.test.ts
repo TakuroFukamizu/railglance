@@ -114,13 +114,13 @@ function freeze<T>(value: T): T {
 describe('ride lifecycle and measurements', () => {
   it('stays idle for 60 seconds of committed tracking stopped ticks', () => {
     const result = run(ticks(0, 60_000, { isStopped: true }));
-    expect(result.state).toEqual(createInitialRideRecorderState());
+    expect(result.state).toEqual({ ...createInitialRideRecorderState(), lastAcceptedAtMs: 60_000 });
     expect(result.effects).toEqual([]);
   });
 
   it('resets a candidate on a non-committed tick', () => {
     const result = run([...ticks(0, 20_000), tick({ timestampMs: 21_000, committed: false })]);
-    expect(result.state).toEqual(createInitialRideRecorderState());
+    expect(result.state).toEqual({ ...createInitialRideRecorderState(), lastAcceptedAtMs: 21_000 });
     expect(result.effects).toEqual([]);
   });
 
@@ -306,6 +306,63 @@ describe('ride lifecycle and measurements', () => {
     expect(normal.state.lastCommittedAtMs).toBe(31_000);
   });
 
+  it('ignores a stale committed tick during route loss and still closes from the original lostSince', () => {
+    const riding = run([...ticks(0, 120_000), ...ticks(121_000, 200_000, { committed: false })]);
+    expect(riding.state).toMatchObject({ phase: 'riding', lostSinceMs: 121_000, lastCommittedAtMs: 120_000, lastAcceptedAtMs: 200_000 });
+    expect(riding.state.record).not.toBeNull();
+    const stale = step(riding.state, tick({ timestampMs: 150_000 }));
+    expect(stale.state).toBe(riding.state);
+    expect(stale.effects).toEqual([]);
+    let state = stale.state;
+    const effects: RideRecorderEffect[] = [];
+    for (const input of ticks(201_000, 300_000, { committed: false })) {
+      const result = step(state, input);
+      effects.push(...result.effects);
+      state = result.state;
+    }
+    expect(state.phase).toBe('riding');
+    expect(state.lostSinceMs).toBe(121_000);
+    expect(effects).toEqual([]);
+    const closed = step(state, tick({ timestampMs: 301_000, committed: false }));
+    expect(closed.effects).toEqual([{ type: 'close', record: expect.objectContaining({ endReason: 'route-lost', endedAtMs: 120_000 }) }]);
+    expect(closed.state.phase).toBe('idle');
+  });
+
+  it('returns the same idle state for an earlier tick and does not start a candidate', () => {
+    const accepted = step(createInitialRideRecorderState(), tick({ timestampMs: 10_000, isStopped: true }));
+    expect(accepted.state.phase).toBe('idle');
+    expect(accepted.state.lastAcceptedAtMs).toBe(10_000);
+    expect(accepted.effects).toEqual([]);
+    const backwards = step(accepted.state, tick({ timestampMs: 9_000 }));
+    expect(backwards.state).toBe(accepted.state);
+    expect(backwards.effects).toEqual([]);
+    expect(backwards.state.phase).toBe('idle');
+    expect(backwards.state.record).toBeNull();
+  });
+
+  it('ignores a committed moving tick stamped earlier than a candidate reset', () => {
+    const reset = run([...ticks(0, 20_000), tick({ timestampMs: 21_000, committed: false })]);
+    expect(reset.state.phase).toBe('idle');
+    expect(reset.state.lastAcceptedAtMs).toBe(21_000);
+    const stale = step(reset.state, tick({ timestampMs: 20_000 }));
+    expect(stale.state).toBe(reset.state);
+    expect(stale.effects).toEqual([]);
+    expect(stale.state.phase).toBe('idle');
+  });
+
+  it('ignores a tick stamped at or before the close tick', () => {
+    const riding = run(ticks(0, 120_000)).state;
+    const closed = step(riding, tick({ timestampMs: 121_000, line: { ...line, id: 'L2' }, isStopped: true }));
+    expect(closed.effects).toEqual([{ type: 'close', record: expect.objectContaining({ endReason: 'transfer', endedAtMs: 120_000 }) }]);
+    expect(closed.state.phase).toBe('idle');
+    expect(closed.state.lastAcceptedAtMs).toBe(121_000);
+    for (const timestampMs of [121_000, 120_000]) {
+      const result = step(closed.state, tick({ timestampMs }));
+      expect(result.state).toBe(closed.state);
+      expect(result.effects).toEqual([]);
+    }
+  });
+
   it('does not mutate frozen input state, records or station arrays', () => {
     const state = freeze(run(ticks(0, 30_000, { previousStation: A })).state);
     const result = step(state, tick({ timestampMs: 31_000, previousStation: B }));
@@ -333,7 +390,7 @@ describe('ride lifecycle and measurements', () => {
     const state = createInitialRideRecorderState();
     expect(state).toEqual({
       phase: 'idle', record: null, candidateSinceMs: null, sawMovingTick: false,
-      lostSinceMs: null, stoppedSinceMs: null, lastCommittedAtMs: null, lastLocation: null,
+      lostSinceMs: null, stoppedSinceMs: null, lastCommittedAtMs: null, lastAcceptedAtMs: null, lastLocation: null,
       lastPersistedAtMs: null, firstStation: null, lastStation: null, candidateStations: [], candidateLine: null,
       candidateDirectionName: null, candidateDistanceMeters: 0, candidateMaxSpeedKmh: null,
     });
@@ -376,7 +433,7 @@ describe('decision edge cases', () => {
     let state = closed.state;
     for (const input of ticks(722_000, 782_000, { isStopped: true, location: null })) {
       const result = step(state, input);
-      expect(result.state).toEqual(createInitialRideRecorderState());
+      expect(result.state).toEqual({ ...createInitialRideRecorderState(), lastAcceptedAtMs: input.timestampMs });
       expect(result.effects).toEqual([]);
       state = result.state;
     }
@@ -395,7 +452,7 @@ describe('decision edge cases', () => {
       expect(transferred.effects).toEqual(duration === 60_000
         ? [{ type: 'discard', recordId: 'ride-1' }]
         : [{ type: 'close', record: expect.objectContaining({ endReason: 'transfer', endedAtMs: duration, lineId: 'L1' }) }]);
-      expect(transferred.state).toEqual(createInitialRideRecorderState());
+      expect(transferred.state).toEqual({ ...createInitialRideRecorderState(), lastAcceptedAtMs: duration + 1000 });
       const waiting = step(transferred.state, tick({ timestampMs: duration + 2000, line: newLine, isStopped: true }));
       expect(waiting.state.phase).toBe('idle');
       expect(waiting.effects).toEqual([]);
@@ -409,7 +466,7 @@ describe('decision edge cases', () => {
     const before = run(ticks(0, 29_000)).state;
     const newLine = { ...line, id: 'L2' };
     const switched = step(before, tick({ timestampMs: 30_000, line: newLine, isStopped: true }));
-    expect(switched.state).toEqual(createInitialRideRecorderState());
+    expect(switched.state).toEqual({ ...createInitialRideRecorderState(), lastAcceptedAtMs: 30_000 });
     expect(switched.effects).toEqual([]);
     const untracked = step(switched.state, tick({ timestampMs: 31_000, line: newLine, tracking: false }));
     expect(untracked.state.phase).toBe('idle');

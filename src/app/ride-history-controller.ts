@@ -20,6 +20,7 @@ export type RideHistoryController = {
   start(): Promise<void>;
   onTick(entry: EstimationLogEntry): void;
   getRecent(): RideRecord[];
+  getAll(): RideRecord[];
   subscribe(listener: (rides: RideRecord[]) => void): () => void;
   removeRide(id: string): Promise<void>;
   clearAll(): Promise<void>;
@@ -29,6 +30,7 @@ export type RideHistoryController = {
 export function createRideHistoryController(deps: RideHistoryControllerDeps): RideHistoryController {
   const { store, config = DEFAULT_RIDE_HISTORY_CONFIG, now = Date.now, onError } = deps;
   let state = createInitialRideRecorderState();
+  let all: RideRecord[] = [];
   let recent: RideRecord[] = [];
   let queue: Promise<void> = Promise.resolve();
   const listeners: Array<(rides: RideRecord[]) => void> = [];
@@ -43,7 +45,8 @@ export function createRideHistoryController(deps: RideHistoryControllerDeps): Ri
   }
 
   async function refresh(): Promise<void> {
-    recent = await store.listRecent(config.maxRecords);
+    all = await store.listAll();
+    recent = all.slice(0, config.maxRecords);
     for (const listener of [...listeners]) listener(getRecent());
   }
 
@@ -98,6 +101,10 @@ export function createRideHistoryController(deps: RideHistoryControllerDeps): Ri
 
     getRecent,
 
+    getAll() {
+      return [...all];
+    },
+
     subscribe(listener) {
       // Each subscription has its own identity, even for the same callback.
       const subscription = (rides: RideRecord[]) => listener(rides);
@@ -118,8 +125,7 @@ export function createRideHistoryController(deps: RideHistoryControllerDeps): Ri
 
     clearAll() {
       return enqueue(async () => {
-        await store.clear();
-        if (state.record !== null) await store.put(state.record);
+        await store.clearClosed();
         await refresh();
       }, 'ride-history-clear');
     },

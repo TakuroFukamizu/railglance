@@ -24,6 +24,7 @@ export type RideRecorderState = {
   lostSinceMs: number | null;
   stoppedSinceMs: number | null;
   lastCommittedAtMs: number | null;
+  lastAcceptedAtMs: number | null;
   lastLocation: { latitude: number; longitude: number; timestampMs: number } | null;
   lastPersistedAtMs: number | null;
   firstStation: RideStationRef | null;
@@ -43,7 +44,7 @@ type Result = { state: RideRecorderState; effects: RideRecorderEffect[] };
 export function createInitialRideRecorderState(): RideRecorderState {
   return {
     phase: 'idle', record: null, candidateSinceMs: null, sawMovingTick: false,
-    lostSinceMs: null, stoppedSinceMs: null, lastCommittedAtMs: null,
+    lostSinceMs: null, stoppedSinceMs: null, lastCommittedAtMs: null, lastAcceptedAtMs: null,
     lastLocation: null, lastPersistedAtMs: null, firstStation: null, lastStation: null,
     candidateStations: [], candidateLine: null, candidateDirectionName: null, candidateDistanceMeters: 0,
     candidateMaxSpeedKmh: null,
@@ -117,7 +118,13 @@ function closeRecord(state: RideRecorderState, record: RideRecord, endedAtMs: nu
 }
 
 export function reduceRideTick(state: RideRecorderState, tick: RideTick, config: RideHistoryConfig, newId: () => string = createRideId): Result {
-  if (state.lastCommittedAtMs !== null && tick.timestampMs <= state.lastCommittedAtMs) return { state, effects: [] };
+  // Reject against the last accepted tick so a stale committed stamp cannot clear route-loss.
+  if (state.lastAcceptedAtMs !== null && tick.timestampMs <= state.lastAcceptedAtMs) return { state, effects: [] };
+  const result = reduceAcceptedRideTick(state, tick, config, newId);
+  return { state: { ...result.state, lastAcceptedAtMs: tick.timestampMs }, effects: result.effects };
+}
+
+function reduceAcceptedRideTick(state: RideRecorderState, tick: RideTick, config: RideHistoryConfig, newId: () => string): Result {
   if (state.phase === 'idle') {
     return { state: tick.committed && tick.tracking && !tick.isStopped ? startCandidate(tick, config) : { ...state }, effects: [] };
   }

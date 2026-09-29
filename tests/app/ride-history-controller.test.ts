@@ -82,6 +82,70 @@ describe('ride history controller', () => {
     expect(await store.get(open.id)).toEqual(controller.getRecent()[0]);
   });
 
+  it('clears finished rides without rewriting the in-progress open record', async () => {
+    const { controller, store } = setup();
+    await store.put(record('previous'));
+    await controller.start();
+    stream(controller, 0, 45);
+    await settle();
+    const [open] = await store.findOpen();
+    const put = vi.spyOn(store, 'put');
+
+    await controller.clearAll();
+
+    expect(put).not.toHaveBeenCalled();
+    expect(await store.get(open.id)).toEqual(open);
+    expect(await store.findOpen()).toEqual([open]);
+    expect(controller.getRecent()).toEqual([]);
+    expect(controller.getAll()).toEqual([]);
+  });
+
+  it('keeps all closed rides cached when pruning fails while limiting subscriber results', async () => {
+    const store = new InMemoryRideHistoryStore();
+    const onError = vi.fn();
+    const controller = createRideHistoryController({
+      store, now: () => base + 400_000, onError,
+      config: { ...DEFAULT_RIDE_HISTORY_CONFIG, maxRecords: 3 },
+    });
+    const previous = [
+      record('newest', { startedAtMs: base - 300_000 }),
+      record('middle', { startedAtMs: base - 400_000 }),
+      record('oldest', { startedAtMs: base - 500_000 }),
+    ];
+    for (const ride of previous) await store.put(ride);
+    await controller.start();
+    const listener = vi.fn();
+    controller.subscribe(listener);
+    const error = new Error('Prune failed');
+    vi.spyOn(store, 'prune').mockRejectedValueOnce(error);
+
+    stream(controller, 0, 180);
+    stream(controller, 181, 362, false);
+    await settle();
+
+    expect(controller.getAll()).toEqual([
+      expect.objectContaining({ status: 'closed', startedAtMs: base }),
+      ...previous,
+    ]);
+    expect(controller.getAll()).toEqual(await store.listAll());
+    expect(controller.getRecent()).toEqual(controller.getAll().slice(0, 3));
+    expect(controller.getRecent()).toHaveLength(3);
+    expect(listener).toHaveBeenLastCalledWith(controller.getRecent());
+    expect(onError.mock.calls).toEqual([[error, 'ride-history-close']]);
+  });
+
+  it('returns a copy of the full cached array', async () => {
+    const { controller, store } = setup();
+    const previous = record('previous');
+    await store.put(previous);
+    await controller.start();
+
+    const all = controller.getAll();
+    expect(all).toEqual([previous]);
+    all.pop();
+    expect(controller.getAll()).toEqual([previous]);
+  });
+
   it.each(['put', 'remove'] as const)('continues startup and refreshes after a dangling record %s fails', async (operation) => {
     const { controller, store, onError } = setup();
     const previous = record('previous');
@@ -235,7 +299,7 @@ describe('ride history controller', () => {
     }
   });
 
-  it('removes individual rides and clears all records before resolving and notifying', async () => {
+  it('removes individual rides and clears only closed records before resolving and notifying', async () => {
     const { controller, store } = setup();
     const first = record('first');
     const second = record('second', { startedAtMs: base - 400_000 });
@@ -248,10 +312,12 @@ describe('ride history controller', () => {
     expect(await store.get(first.id)).toBeUndefined();
     expect(controller.getRecent()).toEqual([second]);
     expect(listener).toHaveBeenLastCalledWith([second]);
-    await store.put(record('open', { status: 'open', endedAtMs: null, endReason: null }));
+    const open = record('open', { status: 'open', endedAtMs: null, endReason: null });
+    await store.put(open);
     await controller.clearAll();
     expect(await store.listAll()).toEqual([]);
-    expect(await store.findOpen()).toEqual([]);
+    expect(await store.findOpen()).toEqual([open]);
+    expect(controller.getAll()).toEqual([]);
     expect(controller.getRecent()).toEqual([]);
     expect(listener).toHaveBeenCalledTimes(3);
     expect(listener).toHaveBeenLastCalledWith([]);
@@ -347,7 +413,7 @@ describe('ride history controller', () => {
     const listener = vi.fn();
     controller.subscribe(listener);
     const error = new Error('Read failed');
-    vi.spyOn(store, 'listRecent').mockRejectedValueOnce(error);
+    vi.spyOn(store, 'listAll').mockRejectedValueOnce(error);
     await expect(controller[action]('previous')).resolves.toBeUndefined();
     expect(onError.mock.calls).toEqual([[error, context]]);
     expect(controller.getRecent()).toEqual([previous]);

@@ -379,7 +379,7 @@ async function init() {
     if (historyExportStatus) historyExportStatus.hidden = true;
     if (historyExportPanel) historyExportPanel.hidden = true;
     try {
-      const rides = rideHistory.getRecent();
+      const rides = rideHistory.getAll();
       const text = serializeRideHistoryExport(
         buildRideHistoryExport(rides, Date.now(), readBuildInfo().version ?? 'unknown')
       );
