@@ -50,7 +50,8 @@ export class EvenAppCampaignQualificationStore implements CampaignQualificationS
 
   constructor(
     private readonly connect: () => Promise<EvenAppKeyValueStorage>,
-    private readonly fallback: CampaignQualificationStore
+    private readonly fallback: CampaignQualificationStore,
+    private readonly reportError: (error: unknown) => void = () => {}
   ) {}
 
   public async get(): Promise<StoredCampaignQualification | null> {
@@ -90,10 +91,13 @@ export class EvenAppCampaignQualificationStore implements CampaignQualificationS
   }
 
   private async bridgeStorage(): Promise<EvenAppKeyValueStorage | null> {
-    this.storage ??= this.connect();
+    const pending = this.storage ??= this.connect();
     try {
-      return await this.storage;
+      return await pending;
     } catch {
+      // Retry on the next call: a bridge that shows up late must still receive the
+      // tester's join, or the qualification would again live only in IndexedDB.
+      if (this.storage === pending) this.storage = null;
       return null;
     }
   }
@@ -101,10 +105,15 @@ export class EvenAppCampaignQualificationStore implements CampaignQualificationS
   private async writeBridge(storage: EvenAppKeyValueStorage, value: string): Promise<boolean> {
     try {
       if (await storage.setLocalStorage(EVEN_APP_QUALIFICATION_KEY, value) !== false) return true;
-      console.warn(`${LOG_PREFIX} The Even App refused to save the qualification.`);
+      this.reportBridgeWriteFailure(new Error('The Even App refused to save the qualification.'));
     } catch (error) {
-      console.warn(`${LOG_PREFIX} Writing the Even App storage failed.`, error);
+      this.reportBridgeWriteFailure(error);
     }
     return false;
+  }
+
+  private reportBridgeWriteFailure(error: unknown): void {
+    console.warn(`${LOG_PREFIX} Writing the Even App storage failed.`, error);
+    this.reportError(error);
   }
 }

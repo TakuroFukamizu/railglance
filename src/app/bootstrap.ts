@@ -29,13 +29,16 @@ export type AppBootstrapResult = {
 /**
  * The Even App WebView drops IndexedDB on relaunch, so inside it the diagnostic
  * participation has to live in the app's native storage to survive a restart.
+ * The runtime is checked per connection attempt rather than once here, so a host
+ * handler injected after start-up is still picked up by the next store call.
  */
 function createQualificationStore(): CampaignQualificationStore {
-  const indexedDbStore = new IndexedDbCampaignQualificationStore();
-  if (!isEvenAppRuntime()) return indexedDbStore;
   return new EvenAppCampaignQualificationStore(
-    () => waitForEvenAppBridgeWithin(DEFAULT_BRIDGE_READY_TIMEOUT_MS),
-    indexedDbStore
+    () => isEvenAppRuntime()
+      ? waitForEvenAppBridgeWithin(DEFAULT_BRIDGE_READY_TIMEOUT_MS)
+      : Promise.reject(new Error('Not running inside the Even App')),
+    new IndexedDbCampaignQualificationStore(),
+    (error) => captureRuntimeError(error, 'telemetry-qualification-store')
   );
 }
 

@@ -44,7 +44,8 @@ function storeWith(bridge: EvenAppKeyValueStorage | Error, legacy = new MemoryQu
   const connect = bridge instanceof Error
     ? vi.fn(async () => { throw bridge; })
     : vi.fn(async () => bridge);
-  return { store: new EvenAppCampaignQualificationStore(connect, legacy), legacy, connect };
+  const reportError = vi.fn();
+  return { store: new EvenAppCampaignQualificationStore(connect, legacy, reportError), legacy, connect, reportError };
 }
 
 describe('EvenAppCampaignQualificationStore', () => {
@@ -131,11 +132,12 @@ describe('EvenAppCampaignQualificationStore', () => {
       setLocalStorage: async () => false,
     };
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const { store, reportError } = storeWith(bridge, legacy);
 
-    await storeWith(bridge, legacy).store.set(qualification());
+    await store.set(qualification());
 
     expect(legacy.value).toEqual(qualification());
-    expect(warn).toHaveBeenCalled();
+    expect(reportError).toHaveBeenCalledTimes(1);
     warn.mockRestore();
   });
 
@@ -153,7 +155,21 @@ describe('EvenAppCampaignQualificationStore', () => {
     warn.mockRestore();
   });
 
-  it('connects to the bridge only once', async () => {
+  it('retries the bridge after a failed handshake so a late bridge still gets the join', async () => {
+    const bridge = new FakeBridgeStorage();
+    const connect = vi.fn<() => Promise<EvenAppKeyValueStorage>>()
+      .mockRejectedValueOnce(new Error('waitForEvenAppBridge() timed out'))
+      .mockResolvedValue(bridge);
+    const store = new EvenAppCampaignQualificationStore(connect, new MemoryQualificationStore());
+
+    await expect(store.get()).resolves.toBeNull();
+    await store.set(qualification());
+
+    expect(connect).toHaveBeenCalledTimes(2);
+    expect(JSON.parse(bridge.values.get(EVEN_APP_QUALIFICATION_KEY) ?? '')).toEqual(qualification());
+  });
+
+  it('connects to the bridge only once after it succeeded', async () => {
     const { store, connect } = storeWith(new FakeBridgeStorage());
 
     await store.set(qualification());
