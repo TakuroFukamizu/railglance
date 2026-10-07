@@ -28,7 +28,12 @@ import { formatBuildInfo, readBuildInfo } from './config/build-info';
 import type { DatasetSyncStatus } from './infrastructure/storage/dexie-railway-database';
 import { createRouter, VIEW_NAMES, type ViewElement, type ViewName } from './ui/router';
 import { buildHomeStatusView, type StatusTone } from './ui/home-status-card';
-import { buildRouteCandidateItems, shouldShowRouteCandidates } from './ui/route-candidates';
+import {
+  buildRouteCandidateItems,
+  planRouteCandidateRender,
+  shouldShowRouteCandidates,
+  type RouteCandidateItem,
+} from './ui/route-candidates';
 import { createMotionBannerController } from './ui/motion-banner';
 import { attachPreviewScaler } from './ui/hud-preview-scale';
 import { createDebugViewCoordinator } from './ui/debug-view';
@@ -434,6 +439,30 @@ async function init() {
   const unlockRouteButton = document.getElementById('btn-unlock-route') as HTMLButtonElement | null;
   const routeLockWarning = document.getElementById('route-lock-warning');
 
+  // Candidate items as they currently stand in the DOM, in DOM order.
+  let renderedCandidates: RouteCandidateItem[] = [];
+
+  const createCandidateButton = (item: RouteCandidateItem): HTMLLIElement => {
+    const li = document.createElement('li');
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'route-candidate-button';
+    button.dataset.segmentId = item.segmentId;
+    const name = document.createElement('strong');
+    name.textContent = item.lineName;
+    const detail = document.createElement('small');
+    detail.textContent = item.detail;
+    button.append(name, detail);
+    li.append(button);
+    return li;
+  };
+
+  const setText = (el: Element | null, text: string) => {
+    if (el && el.textContent !== text) el.textContent = text;
+  };
+
+  // Runs once a second. Touch the DOM as little as the plan allows: on iOS a
+  // node removed from under a finger kills that scroll or tap (issue #85).
   const renderRouteControls = () => {
     const match = controller.getCurrentRouteMatch();
     const lockState = match?.lockState ?? 'UNRESOLVED';
@@ -441,24 +470,25 @@ async function init() {
     if (routeLockWarning) routeLockWarning.hidden = !(lockState === 'MANUAL_LOCK' && match?.manualLockAway);
 
     const show = shouldShowRouteCandidates(match, DEFAULT_TRACKING_CONFIG.routeCandidateTieMargin);
-    if (routeCandidates) routeCandidates.hidden = !show;
-    if (routeCandidateList) {
-      routeCandidateList.replaceChildren();
-      for (const item of buildRouteCandidateItems(match)) {
-        const li = document.createElement('li');
-        const button = document.createElement('button');
-        button.type = 'button';
-        button.className = 'route-candidate-button';
-        button.dataset.segmentId = item.segmentId;
-        const name = document.createElement('strong');
-        name.textContent = item.lineName;
-        const detail = document.createElement('small');
-        detail.textContent = item.detail;
-        button.append(name, detail);
-        li.append(button);
-        routeCandidateList.append(li);
-      }
+    if (routeCandidates && routeCandidates.hidden !== !show) routeCandidates.hidden = !show;
+    if (!routeCandidateList) return;
+
+    const patch = planRouteCandidateRender(renderedCandidates, buildRouteCandidateItems(match));
+    if (!patch) return;
+    const nodeOf = (segmentId: string) =>
+      routeCandidateList
+        .querySelector(`button[data-segment-id="${CSS.escape(segmentId)}"]`)
+        ?.closest('li') ?? null;
+    for (const segmentId of patch.remove) nodeOf(segmentId)?.remove();
+    for (const { item, beforeId } of patch.insert) {
+      routeCandidateList.insertBefore(createCandidateButton(item), beforeId ? nodeOf(beforeId) : null);
     }
+    for (const item of patch.update) {
+      const button = nodeOf(item.segmentId)?.querySelector('button');
+      setText(button?.querySelector('strong') ?? null, item.lineName);
+      setText(button?.querySelector('small') ?? null, item.detail);
+    }
+    renderedCandidates = patch.rendered;
   };
 
   logger.subscribe((entry) => {
