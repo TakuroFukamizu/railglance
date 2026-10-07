@@ -68,6 +68,17 @@ stall 扱いになり、不要なページ再構築が増える。
 `FOREGROUND_ENTER` の既存回復は残す。初回失敗で即 disconnect するのは
 フォアグラウンド復帰経路だけ。transport-stall 経路は上記バックオフが担当する。
 
+## フォアグラウンド遷移（#86）
+
+`FOREGROUND_EXIT` では HUD 更新を止めない。スマートフォンで別アプリへ切り替えたり
+画面をロックしたりしても EXIT が届くが、グラスには RailGlance のページが表示されたままで、
+WebView も動き続ける。しかも対になる `FOREGROUND_ENTER` が届く保証はない。以前は EXIT で
+`pageReady` を落とし、ENTER でしか戻さなかったため、ENTER が来ないと接続中
+（`CONNECTED`）のまま `Page Ready: false` で固まり、再接続ループも stall 回復も動かなかった。
+
+バックグラウンド中に転送が実際にハングした場合は、通常どおり watchdog → stall 回復が扱う。
+`FOREGROUND_ENTER` を受けたときのページ再構築とフル再送は従来どおり。
+
 ## DebugPanel
 
 既存の `G2 PNG Update Status` は動かさない。新しいカード

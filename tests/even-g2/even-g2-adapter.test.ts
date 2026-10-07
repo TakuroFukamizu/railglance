@@ -197,6 +197,35 @@ describe('HybridEvenG2Adapter', () => {
     );
   });
 
+  it('keeps updating the glasses after FOREGROUND_EXIT even when no FOREGROUND_ENTER follows', async () => {
+    // Issue #86: backgrounding / locking the phone fires FOREGROUND_EXIT while
+    // the RailGlance page stays on the glasses and the WebView keeps running.
+    // The matching ENTER is not guaranteed, so EXIT must not gate HUD updates.
+    const adapter = new HybridEvenG2Adapter();
+    await adapter.connect();
+    now += 1000;
+    await adapter.render(viewModel('101'));
+    await flushBridge();
+
+    hubEvent?.({ sysEvent: { eventType: 5 } });
+    expect(adapter.isBridgeConnected()).toBe(true);
+
+    sdk.bridge.textContainerUpgrade.mockClear();
+    sdk.bridge.updateImageRawData.mockClear();
+    now += 1000;
+    await adapter.render(viewModel('6', '小田原線'));
+    await flushBridge();
+
+    expect(sdk.bridge.textContainerUpgrade).toHaveBeenCalledWith(
+      expect.objectContaining({ containerName: 'header', content: expect.stringContaining('小田原線') })
+    );
+    expect(sdk.bridge.updateImageRawData).toHaveBeenCalledOnce();
+    expect(sdk.bridge.rebuildPageContainer).not.toHaveBeenCalled();
+    expect(adapter.getBridgeDiagnostics().flushedGeneration).toBe(
+      adapter.getBridgeDiagnostics().renderGeneration
+    );
+  });
+
   it('waits for an uncancellable native image transfer before shutting down', async () => {
     const adapter = new HybridEvenG2Adapter();
     await adapter.connect();
