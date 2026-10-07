@@ -753,9 +753,12 @@ export class HybridEvenG2Adapter implements EvenG2Adapter {
     this.unsubscribeHubEvents = this.bridge.onEvenHubEvent((event: any) => {
       const eventType = event.sysEvent?.eventType ?? event.textEvent?.eventType;
       if (eventType === OsEventTypeList.FOREGROUND_EXIT_EVENT) {
-        // Pause outbound updates while backgrounded; keep isConnected so ENTER can recover.
-        this.pageReady = false;
-        console.log('[EvenG2Adapter] FOREGROUND_EXIT — pausing HUD updates');
+        // Keep pushing HUD updates. EXIT also fires when the phone app is
+        // backgrounded or locked, while our page stays on the glasses and the
+        // WebView keeps running — and the matching ENTER is not guaranteed.
+        // Gating updates on EXIT froze the glasses with no way back (#86).
+        // A transfer that actually hangs is caught by the watchdog.
+        console.log('[EvenG2Adapter] FOREGROUND_EXIT — HUD updates continue');
         addRuntimeBreadcrumb('railglance.lifecycle', 'Even Hub foreground exit');
       } else if (eventType === OsEventTypeList.FOREGROUND_ENTER_EVENT) {
         addRuntimeBreadcrumb('railglance.lifecycle', 'Even Hub foreground enter');

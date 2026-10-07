@@ -22,6 +22,8 @@ Beta グループで全項目を確認した同一 `.ehpk` を審査へ提出し
 
 1. location 権限を許可し、SDK App Location が1秒間隔で届くことをログで確認する。
 2. 移動中にアプリを background/foreground へ切り替え、二重 subscription が発生しないことを確認する。
+   Even App を background にしたまま・画面ロック中もグラスの速度表示が更新され続け、
+   foreground へ戻した後も更新が続くことを確認する（#86）。
 3. 画像転送を意図的に遅延させても、次の `updateImageRawData` が先行しないことを確認する。
 4. 画面終了時に location updates、Hub event listener、page container が解放されることを確認する。
 5. SDK が利用できない通常ブラウザでは `navigator.geolocation` へ切り替わり、Even App 内では
