@@ -27,6 +27,17 @@ const KANTO_BUFFER = { minLat: 34.5, maxLat: 37.75, minLon: 138.0, maxLon: 141.5
  */
 const JUNCTION_MERGE_GUARD_METERS = 300;
 const NEAREST_STATION_LIMIT_METERS = 1500;
+/**
+ * N02 sections also stop short of the platform itself, which leaves holes of 200-1000 m at
+ * stations (品川 979 m, 田端 693 m, 田町 459 m, 東京 457 m). A train standing at the platform
+ * is then hundreds of metres from any polyline of the line it is on, and a parallel line with
+ * continuous geometry looks like the better match. Each end is extended along its own tangent
+ * up to the station, so the geometry reaches the platform without inventing a curve.
+ */
+const STATION_ENDPOINT_SNAP_METERS = 50;
+const METERS_PER_DEGREE_LAT = 111139;
+/** How far off the end tangent a platform vertex may sit and still be treated as this track. */
+const STATION_GEOMETRY_LATERAL_TOLERANCE_METERS = 80;
 
 export class MlitRailwayAdapter implements RailwaySourceAdapter {
   public sourceId = MLIT_SOURCE_ID;
@@ -71,6 +82,7 @@ export class MlitRailwayAdapter implements RailwaySourceAdapter {
     const stationsByLine = new Map<string, Station[]>();
     const stationCodeById = new Map<string, string>();
     const stationGeometryByLine = new Map<string, Array<[number, number]>>();
+    const stationGeometryById = new Map<string, Array<[number, number]>>();
     for (const feature of stationFeatures) {
       const coordinates = this.lineCoordinates(feature);
       if (!coordinates || !coordinates.some(([lat, lon]) => this.inKanto(lat, lon))) continue;
@@ -94,6 +106,7 @@ export class MlitRailwayAdapter implements RailwaySourceAdapter {
       if (!list.some((candidate) => candidate.id === station.id)) list.push(station);
       stationsByLine.set(line.id, list);
       stationGeometryByLine.set(line.id, [...(stationGeometryByLine.get(line.id) ?? []), ...coordinates]);
+      stationGeometryById.set(station.id, [...(stationGeometryById.get(station.id) ?? []), ...coordinates]);
     }
 
     const rawSectionsByKey = new Map<string, Array<Array<[number, number]>>>();
@@ -114,9 +127,9 @@ export class MlitRailwayAdapter implements RailwaySourceAdapter {
       const line = lineByKey.get(key)!;
       const candidates = stationsByLine.get(line.id) ?? [];
       const stationGeometry = stationGeometryByLine.get(line.id) ?? [];
-      for (const coordinates of this.chainSectionsThroughJunctions(rawSections, stationGeometry)) {
-        const from = this.nearestStation(coordinates[0], candidates);
-        const to = this.nearestStation(coordinates[coordinates.length - 1], candidates);
+      for (const chained of this.chainSectionsThroughJunctions(rawSections, stationGeometry)) {
+        const from = this.nearestStation(chained[0], candidates);
+        const to = this.nearestStation(chained[chained.length - 1], candidates);
         if (
           !from ||
           !to ||
@@ -126,6 +139,13 @@ export class MlitRailwayAdapter implements RailwaySourceAdapter {
         ) {
           continue;
         }
+
+        const coordinates = this.extendEndToStation(
+          this.extendEndToStation(chained, 'last', to.station, stationGeometryById.get(to.station.id) ?? []),
+          'first',
+          from.station,
+          stationGeometryById.get(from.station.id) ?? []
+        );
 
         const endpointKey = [from.station.id, to.station.id].sort().join(':');
         const segment: TrackSegment = {
@@ -240,6 +260,80 @@ export class MlitRailwayAdapter implements RailwaySourceAdapter {
       name: String(feature.properties?.N02_003 ?? '路線名不明'),
       provenance: [provenance],
     };
+  }
+
+  /**
+   * Extends one end of a section along its own tangent until it reaches the point closest to
+   * its end station, closing the hole N02 leaves between the last vertex and the platform.
+   * Nothing is extended when the section already runs past the station, when the station lies
+   * behind the end, or when the hole is longer than the distance this ETL already trusts.
+   */
+  private extendEndToStation(
+    coordinates: Array<[number, number]>,
+    end: 'first' | 'last',
+    station: Station,
+    stationGeometry: Array<[number, number]>
+  ): Array<[number, number]> {
+    if (coordinates.length < 2) return coordinates;
+    const alreadyAtPlatform = coordinates.some(
+      ([latitude, longitude]) =>
+        haversineDistance(latitude, longitude, station.latitude, station.longitude) <= STATION_ENDPOINT_SNAP_METERS
+    );
+    if (alreadyAtPlatform) return coordinates;
+
+    const endIndex = end === 'last' ? coordinates.length - 1 : 0;
+    const step = end === 'last' ? -1 : 1;
+    const endPoint = coordinates[endIndex];
+    const metersPerDegreeLon = METERS_PER_DEGREE_LAT * Math.cos((endPoint[0] * Math.PI) / 180);
+    const toLocal = (point: [number, number]) => ({
+      x: (point[1] - endPoint[1]) * metersPerDegreeLon,
+      y: (point[0] - endPoint[0]) * METERS_PER_DEGREE_LAT,
+    });
+
+    // Walk inwards far enough that the tangent is not set by one short vertex spacing.
+    let baseIndex = endIndex + step;
+    while (
+      baseIndex + step >= 0 &&
+      baseIndex + step < coordinates.length &&
+      haversineDistance(endPoint[0], endPoint[1], coordinates[baseIndex][0], coordinates[baseIndex][1]) <
+        STATION_ENDPOINT_SNAP_METERS
+    ) {
+      baseIndex += step;
+    }
+    const inward = toLocal(coordinates[baseIndex]);
+    const length = Math.hypot(inward.x, inward.y);
+    if (length < 1) return coordinates;
+    const tangent = { x: -inward.x / length, y: -inward.y / length };
+
+    // Reach the far end of the platform line where it runs along this track; the station's
+    // own midpoint is only a fallback, and on a long platform it stops short of the stop line.
+    const alongCandidates = stationGeometry
+      .map((vertex) => {
+        const local = toLocal(vertex);
+        return {
+          along: local.x * tangent.x + local.y * tangent.y,
+          lateral: Math.abs(local.x * tangent.y - local.y * tangent.x),
+        };
+      })
+      .filter(
+        (candidate) =>
+          candidate.lateral <= STATION_GEOMETRY_LATERAL_TOLERANCE_METERS &&
+          candidate.along > STATION_ENDPOINT_SNAP_METERS &&
+          candidate.along <= NEAREST_STATION_LIMIT_METERS
+      )
+      .map((candidate) => candidate.along);
+
+    const midpoint = toLocal([station.latitude, station.longitude]);
+    const along = alongCandidates.length > 0
+      ? Math.max(...alongCandidates)
+      : midpoint.x * tangent.x + midpoint.y * tangent.y;
+    if (along <= STATION_ENDPOINT_SNAP_METERS || along > NEAREST_STATION_LIMIT_METERS) return coordinates;
+
+    const extended: [number, number] = [
+      endPoint[0] + (tangent.y * along) / METERS_PER_DEGREE_LAT,
+      endPoint[1] + (tangent.x * along) / metersPerDegreeLon,
+    ];
+    return end === 'last' ? [...coordinates, extended] : [extended, ...coordinates];
   }
 
   /**
