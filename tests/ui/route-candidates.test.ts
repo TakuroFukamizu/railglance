@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   buildRouteCandidateItems,
   formatCandidateDistance,
+  planRouteCandidateRender,
   shouldShowRouteCandidates,
 } from '../../src/ui/route-candidates';
 import type { RouteCandidateScore, RouteMatch } from '../../src/domain/models/railway';
@@ -94,5 +95,75 @@ describe('buildRouteCandidateItems', () => {
       ])
     );
     expect(items.map((i) => i.detail)).toEqual(['約40m · tk-1', '約60m', '約90m · tk-2']);
+  });
+});
+
+describe('planRouteCandidateRender', () => {
+  const a = { segmentId: 'a-1', lineName: 'A', detail: '約70m' };
+  const b = { segmentId: 'b-1', lineName: 'B', detail: '約170m' };
+  const c = { segmentId: 'c-1', lineName: 'C', detail: '約850m' };
+
+  it('returns null when the rendered items already match', () => {
+    expect(planRouteCandidateRender([a, b], [{ ...a }, { ...b }])).toBeNull();
+    expect(planRouteCandidateRender([], [])).toBeNull();
+  });
+
+  it('refreshes text in place and keeps nodes where they are when only details or ranking moved', () => {
+    const plan = planRouteCandidateRender(
+      [a, b],
+      [
+        { ...b, detail: '約60m' },
+        { ...a, detail: '約80m' },
+      ]
+    );
+
+    expect(plan).toEqual({
+      remove: [],
+      insert: [],
+      update: [
+        { ...a, detail: '約80m' },
+        { ...b, detail: '約60m' },
+      ],
+      rendered: [
+        { ...a, detail: '約80m' },
+        { ...b, detail: '約60m' },
+      ],
+    });
+  });
+
+  it('inserts a new candidate before the first kept node that ranks after it', () => {
+    expect(planRouteCandidateRender([a, b], [c, a, b])).toEqual({
+      remove: [],
+      insert: [{ item: c, beforeId: 'a-1' }],
+      update: [a, b],
+      rendered: [c, a, b],
+    });
+    expect(planRouteCandidateRender([a, b], [a, c, b])).toMatchObject({
+      insert: [{ item: c, beforeId: 'b-1' }],
+      rendered: [a, c, b],
+    });
+    expect(planRouteCandidateRender([a, b], [a, b, c])).toMatchObject({
+      insert: [{ item: c, beforeId: null }],
+      rendered: [a, b, c],
+    });
+  });
+
+  it('removes only the candidates that left and never moves the survivors', () => {
+    expect(planRouteCandidateRender([a, b, c], [c, a])).toEqual({
+      remove: ['b-1'],
+      insert: [],
+      update: [a, c],
+      rendered: [a, c],
+    });
+    expect(planRouteCandidateRender([a], [])).toEqual({ remove: ['a-1'], insert: [], update: [], rendered: [] });
+  });
+
+  it('swaps one candidate for another with a single remove and a single insert', () => {
+    expect(planRouteCandidateRender([a, b], [a, c])).toEqual({
+      remove: ['b-1'],
+      insert: [{ item: c, beforeId: null }],
+      update: [a],
+      rendered: [a, c],
+    });
   });
 });
