@@ -31,6 +31,15 @@ function stationFeature(name: string, code: string, lon: number, lat: number) {
   };
 }
 
+/** A platform drawn as a line along the track, which is how N02 stores most stations. */
+function platformFeature(name: string, code: string, lon: number, fromLat: number, toLat: number) {
+  return {
+    type: 'Feature',
+    properties: { ...BASE_PROPERTIES, N02_005: name, N02_005c: code },
+    geometry: { type: 'LineString', coordinates: [[lon, fromLat], [lon, toLat]] },
+  };
+}
+
 function sectionFeature(coordinates: Array<[number, number]>) {
   return {
     type: 'Feature',
@@ -455,6 +464,56 @@ describe('MlitRailwayAdapter', () => {
 
     expect(result.stations.map((station) => station.name)).toEqual(['始点', '長駅', '終点']);
     expect(result.segments).toHaveLength(2);
+  });
+
+  // Issue #70 part 3: N02 sections also stop short of the platform, leaving 200-1000 m holes
+  // at stations (品川 979 m, 田端 693 m). A train at the platform is then far from the geometry
+  // of the line it is actually on, and a parallel line looks like the better match.
+  it('extends a section along its tangent to the platform it stops short of', async () => {
+    const result = await loadFixture(
+      [
+        stationFeature('始点', '001', 139, 35),
+        platformFeature('終点', '002', 139, 35.0105, 35.0115),
+      ],
+      // Ends at 35.008, about 270 m short of the platform.
+      [sectionFeature([[139, 35], [139, 35.004], [139, 35.008]])],
+    );
+
+    expect(result.segments).toHaveLength(1);
+    const coordinates = result.segments[0].coordinates;
+    expect(coordinates).toHaveLength(4);
+    // Reaches the far end of the platform, staying on the section's own bearing.
+    expect(coordinates[3][0]).toBeCloseTo(35.0115, 4);
+    expect(coordinates[3][1]).toBeCloseTo(139, 6);
+  });
+
+  it('does not extend when the station lies behind the end', async () => {
+    const result = await loadFixture(
+      [
+        platformFeature('始点', '001', 139, 34.999, 35.0),
+        stationFeature('終点', '002', 139, 35.01),
+      ],
+      // Runs from 35.0 (right at 始点) to 35.01 (at 終点): nothing to extend at either end.
+      [sectionFeature([[139, 35], [139, 35.005], [139, 35.01]])],
+    );
+
+    expect(result.segments).toHaveLength(1);
+    expect(result.segments[0].coordinates).toHaveLength(3);
+  });
+
+  it('does not extend a section that already runs past the platform', async () => {
+    const result = await loadFixture(
+      [
+        stationFeature('始点', '001', 139, 35),
+        // Sits beside a middle vertex, so the track already covers this platform.
+        platformFeature('中間', '002', 139, 35.0049, 35.0051),
+        stationFeature('終点', '003', 139, 35.01),
+      ],
+      [sectionFeature([[139, 35], [139, 35.005]]), sectionFeature([[139, 35.005], [139, 35.01]])],
+    );
+
+    expect(result.segments).toHaveLength(2);
+    expect(result.segments.map((segment) => segment.coordinates.length)).toEqual([2, 2]);
   });
 
   it('leaves a branch junction alone', async () => {
